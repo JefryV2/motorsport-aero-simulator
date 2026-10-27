@@ -1,0 +1,37 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment variables
+.env
+
+# Large mesh uploads and CFD cases
+data/models/*.obj
+data/models/*.stl
+data/models/*.glb
+data/models/*.gltf
+data/models/*.fbx
+data/models/*.ply
+data/models/*.dae
+!data/models/.gitkeep
+data/cfd_cases/
+!data/cfd_cases/.gitkeep
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# OS artifacts
+.DS_Store
+Thumbs.db

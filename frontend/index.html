@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Formula Aero Simulator</title>
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --surface: #141b2d;
+      --border: #1e2a45;
+      --accent: #e10600;
+      --accent2: #00d2be;
+      --text: #e8ecf4;
+      --muted: #8892a8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    header {
+      background: linear-gradient(135deg, #141b2d 0%, #0a0e17 100%);
+      border-bottom: 2px solid var(--accent);
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    header h1 { font-size: 1.35rem; font-weight: 700; }
+    header p { color: var(--muted); font-size: 0.82rem; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0 0.6rem; }
+    .btn-row button { width: auto; flex: 1 1 calc(33% - 0.35rem); min-width: 72px; margin: 0; padding: 0.45rem 0.5rem; font-size: 0.72rem; }
+    .eng-readout {
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      font-size: 0.72rem;
+      line-height: 1.55;
+      color: var(--muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.55rem 0.65rem;
+      max-height: 110px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .probe-readout {
+      position: absolute;
+      top: 52px;
+      right: 12px;
+      z-index: 6;
+      background: rgba(20, 27, 45, 0.95);
+      border: 1px solid var(--accent2);
+      border-radius: 8px;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.72rem;
+      font-family: monospace;
+      color: var(--text);
+      max-width: 220px;
+      display: none;
+      pointer-events: none;
+    }
+    .probe-readout.active { display: block; }
+    .metrics-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-top: 0.5rem; }
+    .metrics-ext .metric .value { font-size: 0.95rem; }
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      grid-template-rows: 1fr auto;
+      height: calc(100vh - 62px);
+      min-height: 600px;
+    }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; height: auto; }
+    }
+    .sidebar {
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 1rem;
+    }
+    .viewer-wrap {
+      position: relative;
+      min-height: 480px;
+      height: 100%;
+      background: #060912;
+      overflow: hidden;
+    }
+    .viewer-wrap.drag-over::after {
+      content: 'Drop STL / OBJ / GLB here';
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 210, 190, 0.15);
+      border: 2px dashed var(--accent2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      color: var(--accent2);
+      pointer-events: none;
+      z-index: 20;
+    }
+    #viewer3d {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .viewer-toolbar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .viewer-toolbar > * { pointer-events: auto; }
+    .toolbar-chip {
+      background: rgba(20, 27, 45, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      backdrop-filter: blur(8px);
+    }
+    .toolbar-chip select {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 0.75rem;
+      margin: 0;
+      padding: 0;
+      width: auto;
+    }
+    .toolbar-chip label { display: inline; margin: 0 0.3rem 0 0; }
+    .legend {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(20, 27, 45, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.7rem;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .legend-bar {
+      width: 140px;
+      height: 12px;
+      border-radius: 4px;
+      background: linear-gradient(to right, #993300, #ffaa22, #44ddcc, #0088ff, #eefbff);
+      margin: 0.3rem 0;
+    }
+    .legend-bar.cp {
+      background: linear-gradient(to right, #003399, #3399ff, #ffffff, #ffcc44, #cc2200);
+    }
+    .metric-help {
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: var(--muted);
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    .metric-help dt { color: var(--accent2); font-weight: 600; margin-top: 0.45rem; }
+    .metric-help dt:first-child { margin-top: 0; }
+    .metric-help dd { margin-left: 0; }
+    .bottom-panel {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.1fr;
+      gap: 1rem;
+      max-height: 240px;
+      overflow: hidden;
+    }
+    @media (max-width: 1100px) { .bottom-panel { grid-template-columns: 1fr 1fr; max-height: none; } }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    .panel h2 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent2);
+      margin-bottom: 0.75rem;
+    }
+    label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; }
+    input, select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      margin-bottom: 0.6rem;
+      font-size: 0.85rem;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent2); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 0.4rem;
+      font-size: 0.85rem;
+    }
+    button:hover { opacity: 0.85; }
+    button.secondary { background: transparent; border: 1px solid var(--accent2); color: var(--accent2); }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.75rem; }
+    @media (min-width: 900px) { .metrics { grid-template-columns: repeat(7, 1fr); } }
+    .metric {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      text-align: center;
+    }
+    .metric .value { font-size: 1.1rem; font-weight: 700; color: var(--accent2); }
+    .metric .label { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; }
+    .advice-box {
+      font-size: 0.8rem;
+      line-height: 1.55;
+      max-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: var(--muted);
+    }
+    .status { font-size: 0.72rem; color: var(--muted); margin-top: 0.35rem; }
+    .loading { color: var(--accent2); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .section-title { font-size: 0.8rem; font-weight: 600; margin: 0.6rem 0 0.35rem; }
+    #modelInput { display: none; }
+    .slider-row { margin-bottom: 0.65rem; }
+    .slider-row label { display: flex; justify-content: space-between; align-items: center; }
+    .slider-row label span { color: var(--accent2); font-weight: 600; font-size: 0.75rem; }
+    input[type=range] {
+      width: 100%;
+      accent-color: var(--accent2);
+      margin: 0.25rem 0 0.5rem;
+      padding: 0;
+    }
+    .toggle-row { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin: 0.5rem 0; }
+    .toggle-row label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; margin: 0; cursor: pointer; }
+    .toggle-row input { width: auto; margin: 0; }
+    .flow-hud {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      z-index: 6;
+      background: rgba(20, 27, 45, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.72rem;
+      color: var(--accent2);
+      font-family: monospace;
+      pointer-events: none;
+    }
+    .view-hints {
+      position: absolute;
+      bottom: 52px;
+      left: 12px;
+      z-index: 6;
+      font-size: 0.68rem;
+      color: var(--muted);
+      pointer-events: none;
+      line-height: 1.5;
+    }
+    #viewer3d canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      cursor: grab;
+    }
+    #viewer3d canvas:active { cursor: grabbing; }
+    .aero-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 6;
+      background: rgba(0, 210, 190, 0.15);
+      border: 1px solid var(--accent2);
+      color: var(--accent2);
+      padding: 0.35rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .aero-badge.active { opacity: 1; }
+    #bootError {
+      display: none;
+      background: #3a1010;
+      border: 1px solid var(--accent);
+      color: #ff9999;
+      padding: 1rem;
+      margin: 1rem;
+      border-radius: 8px;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Aero Wind Tunnel Workstation</h1>
+      <p>CFD-style visualization · setup optimization · engineering exports</p>
+    </div>
+  </header>
+
+  <div id="bootError"></div>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel">
+        <h2>3D Model</h2>
+        <button id="btnImport" class="secondary">Import STL / OBJ / GLB</button>
+        <input type="file" id="modelInput" accept=".stl,.obj,.glb,.gltf" />
+        <p class="status" id="modelStatus">Default formula car loaded</p>
+
+        <h2 style="margin-top:0.75rem">Model View</h2>
+        <p class="status" style="margin-bottom:0.5rem">Drag view to rotate · Scroll to zoom · Right-drag to pan</p>
+        <div class="slider-row">
+          <label>Model size <span id="model_scale_val">100%</span></label>
+          <input type="range" id="model_scale" min="25" max="250" value="100" step="5" />
+        </div>
+        <div class="slider-row">
+          <label>Model rotation <span id="model_rot_val">0°</span></label>
+          <input type="range" id="model_rot" min="-180" max="180" value="0" step="1" />
+        </div>
+        <button type="button" id="btnResetView" class="secondary">Reset camera</button>
+
+        <h2 style="margin-top:1rem">Wind Tunnel</h2>
+        <div class="slider-row">
+          <label>Air speed <span id="wind_speed_val">200 km/h</span></label>
+          <input type="range" id="wind_speed" min="30" max="350" value="200" step="5" />
+        </div>
+        <div class="slider-row">
+          <label>Yaw angle (crosswind) <span id="wind_yaw_val">0°</span></label>
+          <input type="range" id="wind_yaw" min="-35" max="35" value="0" step="1" />
+        </div>
+        <div class="slider-row">
+          <label>Pitch angle <span id="wind_pitch_val">0°</span></label>
+          <input type="range" id="wind_pitch" min="-15" max="15" value="0" step="1" />
+        </div>
+        <label>Flow source</label>
+        <select id="flow_source">
+          <option value="front_grid">Front grid (wind tunnel)</option>
+          <option value="front_wide">Front wide plane</option>
+          <option value="smoke_rake" selected>Smoke rake (wind tunnel)</option>
+          <option value="smoke_wand">Smoke wand (interactive)</option>
+          <option value="top">From above</option>
+          <option value="side_left">Side (left)</option>
+          <option value="ring">Ring inlet</option>
+        </select>
+
+        <div id="wand_controls" style="display: none; border-left: 2px solid var(--accent2); padding-left: 0.55rem; margin: 0.5rem 0 0.8rem;">
+          <div class="slider-row" style="margin-bottom: 0.4rem;">
+            <label>Wand Height (Y) <span id="wand_y_val">0.25 m</span></label>
+            <input type="range" id="wand_y" min="0" max="1" value="0.25" step="0.01" />
+          </div>
+          <div class="slider-row" style="margin-bottom: 0;">
+            <label>Wand Lateral (Z) <span id="wand_z_val">0.00 m</span></label>
+            <input type="range" id="wand_z" min="-0.5" max="0.5" value="0.00" step="0.01" />
+          </div>
+        </div>
+
+        <div class="slider-row">
+          <label>Turbulence <span id="turbulence_val">12%</span></label>
+          <input type="range" id="turbulence" min="0" max="50" value="12" step="1" />
+        </div>
+        <div class="slider-row">
+          <label>Particle density <span id="particle_count_val">300</span></label>
+          <input type="range" id="particle_count" min="50" max="600" value="300" step="25" />
+        </div>
+        <div class="slider-row">
+          <label>Streamlines <span id="streamline_count_val">28</span></label>
+          <input type="range" id="streamline_count" min="8" max="60" value="28" step="2" />
+        </div>
+
+        <label>Streamline Style</label>
+        <select id="streamline_style" style="margin-bottom: 0.6rem;">
+          <option value="tubes" selected>Volumetric 3D Tubes (CFD / CAD)</option>
+          <option value="dashed">Flowing Smoke (Dashed)</option>
+          <option value="solid">Continuous Lines (Solid)</option>
+        </select>
+
+        <div class="slider-row">
+          <label>Flow animation speed <span id="time_scale_val">100%</span></label>
+          <input type="range" id="time_scale" min="25" max="300" value="100" step="5" />
+        </div>
+        <div class="slider-row">
+          <label>Particle size <span id="particle_size_val">80</span></label>
+          <input type="range" id="particle_size" min="40" max="200" value="80" step="5" />
+        </div>
+
+        <label>Particle Style</label>
+        <select id="particle_style" style="margin-bottom: 0.6rem;">
+          <option value="smoke" selected>Volumetric Smoke</option>
+          <option value="dots">Classic Particles (Dots)</option>
+        </select>
+        <div class="toggle-row">
+          <label><input type="checkbox" id="show_interaction" checked /> Air/car interaction</label>
+          <label><input type="checkbox" id="show_wake" /> Wake hint</label>
+          <label><input type="checkbox" id="show_tunnel" /> Tunnel walls</label>
+          <label><input type="checkbox" id="show_source" /> Source plane</label>
+          <label><input type="checkbox" id="show_ground" /> Ground plane</label>
+        </div>
+
+        <h2 style="margin-top:1rem">CFD Slice Plane</h2>
+        <div class="toggle-row">
+          <label><input type="checkbox" id="show_slice" /> Show CFD Slice Plane</label>
+        </div>
+        <div id="slice_controls" style="display: none; border-left: 2px solid var(--accent2); padding-left: 0.55rem; margin: 0.5rem 0 0.8rem;">
+          <label>Slice Axis</label>
+          <select id="slice_axis" style="margin-bottom: 0.5rem;">
+            <option value="z" selected>Z-Axis (Centerline / Lateral)</option>
+            <option value="y">Y-Axis (Ground effect / Height)</option>
+            <option value="x">X-Axis (Lengthwise cross-section)</option>
+          </select>
+          <div class="slider-row" style="margin-bottom: 0.5rem;">
+            <label>Slice Position <span id="slice_pos_val">0.00 m</span></label>
+            <input type="range" id="slice_pos" min="-0.5" max="0.5" value="0.00" step="0.01" />
+          </div>
+          <label>Color Map Mode</label>
+          <select id="slice_mode" style="margin-bottom: 0;">
+            <option value="pressure" selected>Pressure (Cp)</option>
+            <option value="velocity">Velocity magnitude</option>
+          </select>
+        </div>
+
+        <p class="status">Open flow by default — air spawns right in front of the car with no wall in between.</p>
+
+        <h2 style="margin-top:1rem">Vehicle Setup</h2>
+        <div class="section-title">Front Wing</div>
+        <div class="row">
+          <div><label>Main (°)</label><input type="number" id="fw_main" value="2" step="0.5"></div>
+          <div><label>Flap (°)</label><input type="number" id="fw_flap" value="8" step="0.5"></div>
+        </div>
+        <div class="section-title">Rear Wing</div>
+        <div class="row">
+          <div><label>Main (°)</label><input type="number" id="rw_main" value="5" step="0.5"></div>
+          <div><label>Flap (°)</label><input type="number" id="rw_flap" value="15" step="0.5"></div>
+        </div>
+        <div class="section-title">Chassis</div>
+        <div class="row">
+          <div><label>RH front (mm)</label><input type="number" id="rh_front" value="25"></div>
+          <div><label>RH rear (mm)</label><input type="number" id="rh_rear" value="45"></div>
+        </div>
+
+
+        <div class="row">
+          <div><label>Rake (°)</label><input type="number" id="rake" value="1.5" step="0.1"></div>
+          <div><label>Speed sync</label><input type="number" id="speed" value="200" step="10" readonly title="Synced from air speed"></div>
+        </div>
+        <div class="section-title">Diffuser</div>
+        <div class="row">
+          <div><label>Angle (°)</label><input type="number" id="diff_angle" value="12" step="0.5"></div>
+          <div><label>RH (mm)</label><input type="number" id="diff_rh" value="30"></div>
+        </div>
+        <div class="section-title">Systems & Track</div>
+        <div style="display:flex; align-items:center; justify-content:space-between; background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; margin-bottom: 0.6rem;">
+          <span style="font-size: 0.76rem; font-weight: 600; color: var(--text);">DRS (Drag Reduction System)</span>
+          <button type="button" id="btnDRS" style="width: auto; margin-top: 0; padding: 0.35rem 0.6rem; font-size: 0.7rem; background: var(--bg); color: var(--muted); border: 1px solid var(--border); transition: all 0.3s; display: flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+            <span id="drsIndicator" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #444; box-shadow: 0 0 4px #000; transition: background 0.3s;"></span>
+            <span id="drsText">DISABLED</span>
+          </button>
+        </div>
+        
+        <label>Track Profile</label>
+        <select id="track_profile">
+          <option value="balanced" selected>Silverstone (Balanced)</option>
+          <option value="monza">Monza (Low Drag - Speed)</option>
+          <option value="monaco">Monaco (High Downforce - Cornering)</option>
+          <option value="spa">Spa-Francorchamps (Medium Downforce)</option>
+          <option value="singapore">Singapore (High Downforce - Tight)</option>
+        </select>
+
+        <label>Method</label>
+        <select id="method">
+          <option value="panel_vlm">Panel / VLM</option>
+          <option value="analytical">Analytical</option>
+          <option value="cfd">CFD / OpenFOAM</option>
+        </select>
+        <label>Optimize for</label>
+        <select id="objective">
+          <option value="balanced">Balanced</option>
+          <option value="max_downforce">Max downforce</option>
+          <option value="max_efficiency">Max L/D</option>
+          <option value="min_drag">Min drag</option>
+        </select>
+        <button id="btnSimulate">Simulate</button>
+        <button id="btnOptimize" class="secondary">Optimize + AI Advice</button>
+
+        <h2 style="margin-top:1rem">Aero Map (Ride Height Sweep)</h2>
+        <p class="status" style="margin-bottom:0.5rem">Simulate a grid sweep of Front vs Rear Ride Heights to map stability. Click a cell to apply.</p>
+        <div style="background: rgba(20, 27, 45, 0.4); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; display: flex; flex-direction: column; align-items: center; margin-bottom: 0.5rem;">
+          <div style="width: 100%; display: flex; justify-content: space-between; margin-bottom: 0.4rem; gap: 0.3rem;">
+            <button type="button" id="btnGenerateAeroMap" class="secondary" style="margin-top:0; font-size:0.7rem; padding: 0.35rem 0.5rem; flex-grow: 1;">Generate Aero Map</button>
+            <select id="aeroMapMetric" style="margin-bottom:0; width: 110px; font-size:0.7rem; padding: 0.15rem 0.3rem;">
+              <option value="downforce" selected>Downforce (N)</option>
+              <option value="balance">Balance (%F)</option>
+              <option value="efficiency">L/D Ratio</option>
+            </select>
+          </div>
+          <div style="position: relative; width: 100%; height: 160px; display: flex; align-items: center; justify-content: center; background: #060912; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;">
+            <canvas id="aeroMapCanvas" width="220" height="150" style="display: none; cursor: crosshair;"></canvas>
+            <div id="aeroMapPlaceholder" style="color: var(--muted); font-size: 0.68rem; text-align: center; padding: 0.5rem;">Click Generate to compute a 5x5 aerodynamic map.</div>
+            <div id="aeroMapLoading" style="display:none; color: var(--accent2); font-size: 0.72rem;" class="loading">Running 25 simulations...</div>
+          </div>
+          <div style="display:flex; justify-content:space-between; width: 100%; font-size:0.6rem; color:var(--muted); margin-top:0.25rem;">
+            <span>Y: Rear RH (20-80mm)</span>
+            <span>X: Front RH (10-50mm)</span>
+          </div>
+        </div>
+
+        <h2 style="margin-top:1rem">Engineering Tools</h2>
+        <div class="section-title">Standard views</div>
+        <div class="btn-row">
+          <button type="button" class="secondary" data-view="iso">Iso</button>
+          <button type="button" class="secondary" data-view="front">Front</button>
+          <button type="button" class="secondary" data-view="side">Side</button>
+          <button type="button" class="secondary" data-view="top">Top</button>
+          <button type="button" class="secondary" data-view="rear">Rear</button>
+          <button type="button" class="secondary" data-view="plan">Plan</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="secondary" id="btnSaveBaseline">Save baseline</button>
+          <button type="button" class="secondary" id="btnExportSetup">Export setup</button>
+          <button type="button" class="secondary" id="btnExportCsv">Export CSV</button>
+        </div>
+        <p class="status" id="baselineStatus">No baseline saved</p>
+        <div class="eng-readout" id="engReadout">Re, dynamic pressure, Cl/Cd, and flow speed range appear here after simulate.</div>
+
+        <p class="status" id="status"></p>
+      </div>
+    </aside>
+
+    <div class="viewer-wrap" id="viewerWrap">
+      <div id="viewer3d"></div>
+      <div class="aero-badge" id="aeroBadge">● LIVE AERO</div>
+      <div class="view-hints">Left-drag: orbit · Scroll: zoom · Right-drag: pan</div>
+      <div class="flow-hud" id="flowHud">200 km/h · 55.6 m/s · Re=4.23M</div>
+      <div class="viewer-toolbar">
+        <div class="toolbar-chip">
+          <label>View</label>
+          <select id="viewMode">
+            <option value="pressure" selected>Pressure (Cp)</option>
+            <option value="velocity">Surface speed</option>
+            <option value="solid">Solid</option>
+            <option value="wireframe">Wireframe</option>
+          </select>
+        </div>
+        <div class="toolbar-chip">
+          <label><input type="checkbox" id="probeMode" /> Probe</label>
+        </div>
+        <div class="toolbar-chip">
+          <label><input type="checkbox" id="showStreamlines" checked /> Streamlines</label>
+        </div>
+        <div class="toolbar-chip">
+          <label><input type="checkbox" id="showParticles" checked /> Wind particles</label>
+        </div>
+        <div class="toolbar-chip">
+          <label><input type="checkbox" id="showForces" checked /> Forces</label>
+        </div>
+      </div>
+      <div class="probe-readout" id="probeReadout"></div>
+      <div class="legend">
+        <div>Surface pressure (Cp)</div>
+        <div class="legend-bar cp"></div>
+        <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:0.65rem">
+          <span>−2 suction</span><span>0 neutral</span><span>+1 stagnation</span>
+        </div>
+        <div style="margin-top:0.45rem">Air speed (particles &amp; streamlines)</div>
+        <div class="legend-bar"></div>
+        <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:0.65rem">
+          <span>slow (entrance)</span><span>fast (exit)</span>
+        </div>
+        <div id="cpRange" style="margin-top:0.35rem;color:var(--accent2)">Adjust sliders to update</div>
+      </div>
+    </div>
+
+    <div class="bottom-panel">
+      <div class="panel">
+        <h2>Live Results</h2>
+        <div class="metrics">
+          <div class="metric" title="Total vertical force pushing the car into the track"><div class="value" id="m_df">—</div><div class="label">Downforce N</div></div>
+          <div class="metric" title="Force opposing forward motion through the air"><div class="value" id="m_drag">—</div><div class="label">Drag N</div></div>
+          <div class="metric" title="Aero efficiency: downforce per unit drag"><div class="value" id="m_ld">—</div><div class="label">L/D</div></div>
+          <div class="metric" title="Share of downforce generated at the front axle"><div class="value" id="m_bal">—</div><div class="label">Balance %F</div></div>
+          <div class="metric" title="Estimated lap time change vs baseline setup"><div class="value" id="m_lap">—</div><div class="label">Lap Δ s</div></div>
+          <div class="metric" title="Lift coefficient"><div class="value" id="m_cl">—</div><div class="label">Cl</div></div>
+          <div class="metric" title="Drag coefficient"><div class="value" id="m_cd">—</div><div class="label">Cd</div></div>
+        </div>
+        <div class="metrics-ext">
+          <div class="metric" title="Front axle downforce"><div class="value" id="m_df_f">—</div><div class="label">DF front N</div></div>
+          <div class="metric" title="Rear axle downforce"><div class="value" id="m_df_r">—</div><div class="label">DF rear N</div></div>
+          <div class="metric" title="Center of pressure"><div class="value" id="m_cop">—</div><div class="label">CoP m</div></div>
+          <div class="metric" title="Dynamic pressure q"><div class="value" id="m_q">—</div><div class="label">q kPa</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>What the metrics mean</h2>
+        <dl class="metric-help">
+          <dt>Downforce (N)</dt>
+          <dd>Vertical force pressing the car onto the track. More downforce = more grip in corners, but also more drag.</dd>
+          <dt>Drag (N)</dt>
+          <dd>Resistance from pushing air aside. Lower drag helps straight-line speed and reduces fuel/energy use.</dd>
+          <dt>L/D (lift-to-drag ratio)</dt>
+          <dd>Downforce divided by drag — how much grip you buy per unit of drag cost. Higher is more efficient.</dd>
+          <dt>Balance % front</dt>
+          <dd>How much total downforce acts on the front axle. Affects turn-in and understeer/oversteer balance (typical F1 target ~40–45%).</dd>
+          <dt>Lap Δ (s)</dt>
+          <dd>Estimated lap time change from your current aero setup vs a baseline — useful for comparing wing angles and ride heights.</dd>
+          <dt>Cp (pressure on car)</dt>
+          <dd>Blue = suction (low pressure), red = stagnation (high pressure at nose/wings).</dd>
+          <dt>Air speed colors</dt>
+          <dd>Particles and streamlines change color with local speed — warm/orange at slow regions (nose stagnation), blue/white where air accelerates (exit, Venturi). Toggle <strong>Surface speed</strong> view to see speed on the car body.</dd>
+          <dt>Probe tool</dt>
+          <dd>Enable Probe in the toolbar, then click the car to read local Cp and velocity at that point.</dd>
+        </dl>
+      </div>
+      <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
+        <h2>AI Aero Assistant</h2>
+        <div id="chatHistory" style="flex-grow: 1; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; margin-bottom: 0.5rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 110px; max-height: 130px;">
+          <div style="line-height: 1.4; color: var(--muted);"><strong>Assistant:</strong> Air now follows the car shape. Adjust sliders to update, or ask me setup or track questions below! (e.g. <i>"How to reduce understeer?"</i>)</div>
+        </div>
+        <div style="display: flex; gap: 0.4rem; align-items: center; width: 100%;">
+          <input type="text" id="chatInput" placeholder="Ask setup advice..." style="margin-bottom: 0; padding: 0.35rem 0.5rem; font-size: 0.76rem; flex-grow: 1; min-width: 0;" />
+          <button type="button" id="btnSendChat" style="width: auto; margin-top: 0; padding: 0.35rem 0.65rem; font-size: 0.75rem; background: var(--accent2); color: var(--bg);">Ask</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
