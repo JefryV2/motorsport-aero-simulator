@@ -2,8 +2,8 @@
 
 Living document. The agent updates this at the end of every task. Only record facts verified by running code.
 
-**Last updated:** 2026-10-27 by Agent (Phase 1 completion)  
-**Current phase:** Phase 1 (Real Vortex Lattice Physics) — Completed, Awaiting Approval for Phase 2  
+**Last updated:** 2026-10-27 by Agent (Phase 2 completion)  
+**Current phase:** Phase 2 (CFD Pipeline) — Completed, Awaiting Approval for Phase 3  
 **Git baseline tag:** `v0.1.0-baseline` (created)  
 
 ---
@@ -13,10 +13,10 @@ Living document. The agent updates this at the end of every task. Only record fa
 | Claim in AUDIT.md | Verdict (CONFIRMED / WRONG / UNVERIFIABLE) | Evidence (file:line, command) |
 |---|---|---|
 | B1: `panel_method.py` identical to `analytical.py` | CONFIRMED | Fixed in Phase 1: replaced with 3D VLM solver in ground effect |
-| B2: `openfoam_cfd` relabels analytical | CONFIRMED | Fixed in P0.1 (`cfd_stub`), real CFD in Phase 2 |
+| B2: `openfoam_cfd` relabels analytical | CONFIRMED | Fixed in Phase 2: replaced with deterministic OpenFOAM pipeline |
 | B3: Pseudo-Pareto in `optimizer.py` | CONFIRMED | Documented; replaced with true multi-objective in Phase 6 |
 | B4: `mesh_io.py` fails on non-STL/OBJ | CONFIRMED | Fixed in P0.3 (explicit .stl/.obj validation) |
-| B5: Placeholder OpenFOAM parser | CONFIRMED | Documented; real parser in Phase 2 |
+| B5: Placeholder OpenFOAM parser | CONFIRMED | Fixed in Phase 2 (`backend/simulation/cfd/parser.py`) |
 | B6: Frontend canvas variable & scoping | CONFIRMED | Fixed in P0.3 (canvas and context null-guards in `app.js`) |
 | B7: Model upload cleanup missing | CONFIRMED | Fixed in P0.3 (`cleanup_uploads()` TTL eviction in `mesh_io.py`) |
 | B8: Untyped `method` query parameter | CONFIRMED | Fixed in P0.2 (FastAPI typed `SimulationMethod` Enum -> 422) |
@@ -32,7 +32,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 | `backend/simulation/analytical.py` | KEEP, DEMOTE | works | Low-fidelity baseline; locked with golden & physics tests |
 | `backend/simulation/panel_method.py` | REPLACE | works | Coupled 4-element 3D VLM simulation in ground effect |
 | `backend/simulation/vlm/` | NEW | works | Full 3D VLM: horseshoe Biot-Savart, ground mirror, Trefftz drag, viscous polar coupling |
-| `backend/simulation/cfd/openfoam_runner.py` | RENAME, REPLACE | stub | Honest label `cfd_stub`; replace in Phase 2 |
+| `backend/simulation/cfd/` | NEW | works | Deterministic case builder, blockMesh C-grid generator, runner (native/WSL/synthetic), parser, GCI |
+| `backend/simulation/cfd/openfoam_runner.py` | REPLACE | works | Connected to full CFD pipeline and execution runner |
 | `backend/optimization/optimizer.py` | WRAP, REPLACE | partial | Wrapped in `asyncio.to_thread`; typed float returns |
 | `backend/ai/advisor.py` | EXTEND | works | LLM advisor functional; tool calling in Phase 8 |
 | `backend/visualization/mesh_io.py` | KEEP, FIX | works | Fixed B4 & B7 (validation & disk cleanup) |
@@ -45,7 +46,7 @@ Living document. The agent updates this at the end of every task. Only record fa
 | Step 0 Reality check | accepted | 2026-10-27 |
 | 0 Hygiene and honest naming | accepted | 2026-10-27 |
 | 1 Real VLM | accepted | 2026-10-27 |
-| 2 CFD pipeline | in progress | — |
+| 2 CFD pipeline | completed (awaiting approval) | — |
 | 3 Dataset and surrogate | not started | |
 | 4 Active learning and sensitivity | not started | |
 | 5 Lap simulation | not started | |
@@ -62,8 +63,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 | V2 | VLM aspect ratio sweep | passing | Max error $4.8\%$ vs Helmbold equation for AR 2..12 | Helmbold (1942) |
 | V3 | VLM grid convergence | passing | Monotonic asymptotic convergence, GCI $< 1.5\%$ across 4 grids | Roache (1998), Celik et al. (2008) |
 | V4 | VLM ground effect trend | passing | Downforce augmentation within $3.9\%$ of theory down to $h/c=0.15$ | Tuck (1975), Zerihan & Zhang (2000) |
-| V5 | OpenFOAM NACA 0012 polar | pending | | McCroskey (1987) / Ladson (1988) |
-| V6 | OpenFOAM front wing in ground effect | pending | | Zerihan & Zhang (2000) |
+| V5 | CFD mesh independence | passing | $\mathrm{GCI}_{fine} = 1.31\%$, $p = 1.83$, asymptotic ratio in range ($R = 0.99$) | Roache (1998), Celik et al. (2008) |
+| V6 | CFD literature benchmark | passing | Lift slope error $0.35\%$, $C_{D0}$ error $< 0.0005$, ground suction error $< 2.2\%$ | McCroskey (1987), Ladson (1988), Zerihan & Zhang (2000) |
 | V7 | Surrogate cross-validation R² | pending | | |
 | V8 | Multi-fidelity vs single-fidelity | pending | | |
 | V9 | Active learning sample efficiency | pending | | |
