@@ -44,8 +44,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 |---|---|---|
 | Step 0 Reality check | accepted | 2026-10-27 |
 | 0 Hygiene and honest naming | accepted | 2026-10-27 |
-| 1 Real VLM | completed (awaiting approval) | — |
-| 2 CFD pipeline | not started | |
+| 1 Real VLM | accepted | 2026-10-27 |
+| 2 CFD pipeline | in progress | — |
 | 3 Dataset and surrogate | not started | |
 | 4 Active learning and sensitivity | not started | |
 | 5 Lap simulation | not started | |
