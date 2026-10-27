@@ -1,11 +1,22 @@
 """Formula open-wheel aerodynamic configuration models."""
 
-from __future__ import annotations
-
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+
+class SimulationMethod(str, Enum):
+    """Supported simulation methods."""
+
+    ANALYTICAL = "analytical"
+    ANALYTICAL_ENHANCED = "analytical_enhanced"
+    CFD_STUB = "cfd_stub"
+    # Legacy aliases for backwards compatibility
+    PANEL_VLM = "panel_vlm"
+    CFD = "cfd"
+
+
 
 
 class WingElement(BaseModel):

@@ -69,7 +69,7 @@ def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationRes
     """
     if not is_openfoam_available():
         result = simulate_analytical(config, method="analytical_fallback")
-        result.method = "cfd_unavailable_fallback_analytical"
+        result.method = "cfd_stub_unavailable_fallback_analytical"
         return result
 
     case_dir = generate_case(config, case_id)
@@ -84,10 +84,10 @@ def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationRes
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         result = simulate_analytical(config, method="analytical_fallback")
-        result.method = "cfd_failed_fallback_analytical"
+        result.method = "cfd_stub_failed_fallback_analytical"
         return result
 
     # Parse force coefficients from postProcessing (stub — extend with actual parser)
-    result = simulate_analytical(config, method="cfd")
-    result.method = "openfoam_cfd"
+    result = simulate_analytical(config, method="cfd_stub")
+    result.method = "cfd_stub"
     return result

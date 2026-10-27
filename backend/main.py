@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
+from pydantic import BaseModel
 
 from backend.ai.advisor import get_advice
 from backend.models.aero_config import (
     AdvisorRequest,
     FormulaAeroConfig,
     OptimizationRequest,
+    SimulationMethod,
     SimulationResult,
 )
 from backend.optimization.optimizer import optimize
@@ -32,9 +36,19 @@ app = FastAPI(
     version="0.1.0",
 )
 
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+allowed_origins = [
+    origin.strip() for origin in cors_origins_env.split(",") if origin.strip()
+] or [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -47,24 +61,38 @@ def health():
     return {
         "status": "ok",
         "openfoam_available": is_openfoam_available(),
-        "methods": ["analytical", "panel_vlm", "cfd"],
+        "methods": [
+            SimulationMethod.ANALYTICAL.value,
+            SimulationMethod.ANALYTICAL_ENHANCED.value,
+            SimulationMethod.CFD_STUB.value,
+        ],
     }
 
 
 @app.post("/api/simulate", response_model=SimulationResult)
-def api_simulate(config: FormulaAeroConfig, method: str = "panel_vlm"):
-    if method == "analytical":
+def api_simulate(
+    config: FormulaAeroConfig,
+    method: SimulationMethod = SimulationMethod.ANALYTICAL_ENHANCED,
+):
+    if method == SimulationMethod.ANALYTICAL:
         return simulate(config)
-    if method == "panel_vlm":
-        return simulate_panel(config)
-    if method == "cfd":
+    if method in (SimulationMethod.ANALYTICAL_ENHANCED, SimulationMethod.PANEL_VLM):
+        label = "panel_vlm" if method == SimulationMethod.PANEL_VLM else "analytical_enhanced"
+        return simulate_panel(config, method=label)
+    if method in (SimulationMethod.CFD_STUB, SimulationMethod.CFD):
         return run_cfd(config)
-    raise HTTPException(400, f"Unknown method: {method}. Use analytical, panel_vlm, or cfd.")
+    raise HTTPException(
+        400,
+        f"Unknown method: {method}. Use analytical, analytical_enhanced, or cfd_stub.",
+    )
 
 
 @app.post("/api/optimize")
-def api_optimize(request: OptimizationRequest, method: str = "panel_vlm"):
-    use_panel = method != "analytical"
+def api_optimize(
+    request: OptimizationRequest,
+    method: SimulationMethod = SimulationMethod.ANALYTICAL_ENHANCED,
+):
+    use_panel = method != SimulationMethod.ANALYTICAL
     return optimize(request, use_panel=use_panel)
 
 
@@ -114,10 +142,14 @@ class AeroMapRequest(BaseModel):
 
 
 @app.post("/api/aero-map")
-def api_aero_map(body: AeroMapRequest, method: str = "panel_vlm"):
+def api_aero_map(
+    body: AeroMapRequest,
+    method: SimulationMethod = SimulationMethod.ANALYTICAL_ENHANCED,
+):
     import copy
     import math
-    sim_fn = simulate_panel if method != "analytical" else simulate
+
+    sim_fn = simulate_panel if method != SimulationMethod.ANALYTICAL else simulate
     grid = []
     
     frh_vals = [body.min_frh + i * (body.max_frh - body.min_frh) / max(1, body.steps - 1) for i in range(body.steps)]
@@ -181,14 +213,17 @@ def api_visualization(body: VisualizationRequest):
 
 
 @app.post("/api/simulate-and-optimize")
-async def simulate_and_optimize(request: OptimizationRequest, method: str = "panel_vlm"):
+async def simulate_and_optimize(
+    request: OptimizationRequest,
+    method: SimulationMethod = SimulationMethod.ANALYTICAL_ENHANCED,
+):
     """One-shot: simulate baseline, optimize, then get AI advice."""
-    use_panel = method != "analytical"
+    use_panel = method != SimulationMethod.ANALYTICAL
     sim_fn = simulate_panel if use_panel else simulate
-    baseline = sim_fn(request.config)
+    baseline = await asyncio.to_thread(sim_fn, request.config)
 
-    opt_result = optimize(request, use_panel=use_panel)
-    optimized_sim = sim_fn(opt_result.best_config)
+    opt_result = await asyncio.to_thread(optimize, request, use_panel=use_panel)
+    optimized_sim = await asyncio.to_thread(sim_fn, opt_result.best_config)
 
     advisor_request = AdvisorRequest(
         config=request.config,

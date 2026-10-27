@@ -17,7 +17,7 @@ from backend.simulation.analytical import (
 )
 
 
-def simulate_panel(config: FormulaAeroConfig) -> SimulationResult:
+def simulate_panel(config: FormulaAeroConfig, method: str = "analytical_enhanced") -> SimulationResult:
     """Full-car simulation using lifting-line wings + analytical underbody."""
     speed_ms = config.speed_kmh / 3.6
     q = 0.5 * RHO * speed_ms**2
@@ -63,5 +63,5 @@ def simulate_panel(config: FormulaAeroConfig) -> SimulationResult:
         config=config,
         forces=forces,
         lap_time_delta_s=round(lap_delta, 4),
-        method="panel_vlm",
+        method=method,
     )
