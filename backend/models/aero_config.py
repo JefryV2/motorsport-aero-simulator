@@ -1,7 +1,6 @@
 """Formula open-wheel aerodynamic configuration models."""
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -84,8 +83,8 @@ class OptimizationObjective(str, Enum):
 class OptimizationRequest(BaseModel):
     config: FormulaAeroConfig
     objective: OptimizationObjective = OptimizationObjective.BALANCED
-    max_drag_N: Optional[float] = None
-    target_balance_pct: Optional[float] = Field(default=42.0, ge=35.0, le=50.0)
+    max_drag_N: float | None = None
+    target_balance_pct: float | None = Field(default=42.0, ge=35.0, le=50.0)
     n_trials: int = Field(default=100, ge=10, le=500)
 
 
@@ -100,6 +99,5 @@ class OptimizationResult(BaseModel):
 class AdvisorRequest(BaseModel):
     config: FormulaAeroConfig
     simulation: SimulationResult
-    optimization: Optional[OptimizationResult] = None
-    question: Optional[str] = None
-    
+    optimization: OptimizationResult | None = None
+    question: str | None = None

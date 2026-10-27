@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import io
 import struct
+import time
 import uuid
 from pathlib import Path
 
@@ -12,8 +12,7 @@ import numpy as np
 MODELS_DIR = Path(__file__).parent.parent.parent / "data" / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-SUPPORTED_EXTENSIONS = {".stl", ".obj", ".fbx", ".glb", ".gltf", ".dae", ".ply"}
-CLIENT_PARSED_EXTENSIONS = {".fbx", ".glb", ".gltf", ".dae", ".ply"}
+SUPPORTED_EXTENSIONS = {".stl", ".obj"}
 
 
 def _parse_ascii_stl(content: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -150,11 +149,33 @@ def vertex_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return vnorms
 
 
+def cleanup_uploads(max_files: int = 10, max_age_seconds: int = 7200) -> int:
+    """Clean up old uploaded models in MODELS_DIR to prevent disk bloat (Bug B7)."""
+    now = time.time()
+    deleted = 0
+    files = [
+        p for p in MODELS_DIR.iterdir()
+        if p.is_file() and p.name != ".gitkeep" and not p.name.startswith(".")
+    ]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    for i, f in enumerate(files):
+        age = now - f.stat().st_mtime
+        if i >= max_files or age > max_age_seconds:
+            try:
+                f.unlink()
+                deleted += 1
+            except OSError:
+                pass
+    return deleted
+
+
 def save_upload(filename: str, data: bytes) -> dict:
     """Save uploaded mesh and return metadata."""
+    cleanup_uploads()
     ext = Path(filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
-        raise ValueError(f"Unsupported format '{ext}'. Use STL or OBJ.")
+        raise ValueError(f"Unsupported format '{ext}'. Only .stl and .obj are supported.")
 
     if ext == ".stl":
         vertices, faces, _ = parse_stl(data)

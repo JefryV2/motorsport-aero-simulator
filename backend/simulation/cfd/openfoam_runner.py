@@ -43,7 +43,7 @@ def generate_case(config: FormulaAeroConfig, case_id: str) -> Path:
     system_dir = case_dir / "system"
     system_dir.mkdir(exist_ok=True)
     (system_dir / "controlDict").write_text(
-        f"""FoamFile {{ version 2.0; format ascii; class dictionary; object controlDict; }}
+        """FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }
 application     simpleFoam;
 startFrom       startTime;
 stopAt          endTime;

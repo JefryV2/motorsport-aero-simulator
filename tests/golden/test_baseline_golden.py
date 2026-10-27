@@ -12,6 +12,7 @@ Protects baseline physics against unintended regression during refactoring.
 from __future__ import annotations
 
 import math
+
 from backend.models.aero_config import FormulaAeroConfig
 from backend.simulation.analytical import simulate
 
@@ -100,7 +101,7 @@ def test_golden_baseline():
     for case_name, data in GOLDEN_TARGETS.items():
         res = simulate(data["config"])
         exp = data["expected"]
-        
+
         for k, v in exp.items():
             if k == "lap_time_delta_s":
                 actual = res.lap_time_delta_s

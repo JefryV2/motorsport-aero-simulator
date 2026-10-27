@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
-from typing import Optional
 
 import httpx
 
-from backend.models.aero_config import AdvisorRequest, OptimizationResult, SimulationResult
+from backend.models.aero_config import AdvisorRequest
 
 SYSTEM_PROMPT = """You are an expert motorsport aerodynamicist specializing in formula open-wheel cars.
 You analyze simulation data and provide actionable setup recommendations.

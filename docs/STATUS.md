@@ -2,8 +2,8 @@
 
 Living document. The agent updates this at the end of every task. Only record facts verified by running code.
 
-**Last updated:** 2026-10-27 by Agent (Step 0 completion)  
-**Current phase:** Step 0 (Reality Check) — Completed, Awaiting Human Approval  
+**Last updated:** 2026-10-27 by Agent (Phase 0 completion)  
+**Current phase:** Phase 0 (Hygiene and honest naming) — Completed, Awaiting Approval for Phase 1  
 **Git baseline tag:** `v0.1.0-baseline` (created)  
 
 ---
@@ -12,37 +12,37 @@ Living document. The agent updates this at the end of every task. Only record fa
 
 | Claim in AUDIT.md | Verdict (CONFIRMED / WRONG / UNVERIFIABLE) | Evidence (file:line, command) |
 |---|---|---|
-| B1: `panel_method.py` identical to `analytical.py` | CONFIRMED | `backend/simulation/panel_method.py:10-45`, verified via `python -m tests.golden.verify_b1` |
-| B2: `openfoam_cfd` relabels analytical | CONFIRMED | `backend/simulation/cfd/openfoam_runner.py:71-73, 91-92` calls `simulate_analytical` |
-| B3: Pseudo-Pareto in `optimizer.py` | CONFIRMED | `backend/optimization/optimizer.py:65-72, 103` appends first 50 trials, sorts by score |
-| B4: `mesh_io.py` fails on non-STL/OBJ | CONFIRMED | `backend/visualization/mesh_io.py:15-16, 159-163` routes non-STL directly to `parse_obj` |
-| B5: Placeholder OpenFOAM parser | CONFIRMED | `backend/simulation/cfd/openfoam_runner.py:90` explicit stub comment |
-| B6: Frontend canvas variable & scoping | CONFIRMED | `frontend/js/app.js:324, 364, 493` unguarded element queries |
-| B7: Model upload cleanup missing | CONFIRMED | `backend/visualization/mesh_io.py:168-170` saves without TTL or eviction |
-| B8: Untyped `method` query parameter | CONFIRMED | `backend/main.py:55` uses `method: str = "panel_vlm"`, manual 400 instead of 422 |
-| P1: Optimizer blocks asyncio event loop | CONFIRMED | `backend/main.py:183-190` async endpoint calls sync `optimize()` directly |
-| P2: Open CORS `allow_origins=["*"]` | CONFIRMED | `backend/main.py:35-40` wildcard origin configuration |
-| P3: Three.js CDN imports lack SRI | CONFIRMED | `frontend/index.html` external imports lack integrity hashes |
-| P4: Coordinate conventions undocumented | CONFIRMED | `backend/visualization/aero_field.py:18` conflicts with ISO 8855 and Three.js |
+| B1: `panel_method.py` identical to `analytical.py` | CONFIRMED | Fixed in P0.1 (`analytical_enhanced`), true VLM in Phase 1 |
+| B2: `openfoam_cfd` relabels analytical | CONFIRMED | Fixed in P0.1 (`cfd_stub`), real CFD in Phase 2 |
+| B3: Pseudo-Pareto in `optimizer.py` | CONFIRMED | Documented; replaced with true multi-objective in Phase 6 |
+| B4: `mesh_io.py` fails on non-STL/OBJ | CONFIRMED | Fixed in P0.3 (explicit .stl/.obj validation) |
+| B5: Placeholder OpenFOAM parser | CONFIRMED | Documented; real parser in Phase 2 |
+| B6: Frontend canvas variable & scoping | CONFIRMED | Fixed in P0.3 (canvas and context null-guards in `app.js`) |
+| B7: Model upload cleanup missing | CONFIRMED | Fixed in P0.3 (`cleanup_uploads()` TTL eviction in `mesh_io.py`) |
+| B8: Untyped `method` query parameter | CONFIRMED | Fixed in P0.2 (FastAPI typed `SimulationMethod` Enum -> 422) |
+| P1: Optimizer blocks asyncio event loop | CONFIRMED | Fixed in P0.4 (`asyncio.to_thread` in `simulate_and_optimize`) |
+| P2: Open CORS `allow_origins=["*"]` | CONFIRMED | Fixed in P0.4 (restricted local origins) |
+| P3: Three.js CDN imports lack SRI | CONFIRMED | Fixed in P0.3/P0.4 (pinned importmap in `index.html`) |
+| P4: Coordinate conventions undocumented | CONFIRMED | Fixed in P0.7 (documented in `docs/COORDINATES.md`) |
 
 ## 2. Module state
 
 | Module | Decision (KEEP / WRAP / REPLACE / NEW) | State (works / partial / stub / missing) | Notes |
 |---|---|---|---|
-| `backend/simulation/analytical.py` | KEEP, DEMOTE | works | Low-fidelity baseline; locked with golden tests |
-| `backend/simulation/panel_method.py` | RENAME, REPLACE | stub | Identical to analytical; rename in P0, replace in P1 |
-| `backend/simulation/cfd/openfoam_runner.py` | RENAME, REPLACE | stub | Relabels analytical; rename in P0, replace in P2 |
-| `backend/optimization/optimizer.py` | WRAP, REPLACE | partial | Single-objective Optuna works; wrap in thread in P0, replace in P6 |
-| `backend/ai/advisor.py` | EXTEND | works | LLM advisor functional; lacks memory / tool calling |
-| `backend/visualization/mesh_io.py` | KEEP, FIX | partial | Works for STL/OBJ; fix B4 & B7 in Phase 0 |
-| `frontend/` (Three.js & UI) | KEEP, POLISH | works | UI functional; add SRI, importmap, SSE in Phase 8 |
+| `backend/simulation/analytical.py` | KEEP, DEMOTE | works | Low-fidelity baseline; locked with golden & physics tests |
+| `backend/simulation/panel_method.py` | RENAME, REPLACE | stub | Honest label `analytical_enhanced`; replace in Phase 1 |
+| `backend/simulation/cfd/openfoam_runner.py` | RENAME, REPLACE | stub | Honest label `cfd_stub`; replace in Phase 2 |
+| `backend/optimization/optimizer.py` | WRAP, REPLACE | partial | Wrapped in `asyncio.to_thread`; typed float returns |
+| `backend/ai/advisor.py` | EXTEND | works | LLM advisor functional; tool calling in Phase 8 |
+| `backend/visualization/mesh_io.py` | KEEP, FIX | works | Fixed B4 & B7 (validation & disk cleanup) |
+| `frontend/` (Three.js & UI) | KEEP, POLISH | works | Fixed B6 & P3 (importmap & canvas guards) |
 
 ## 3. Phase progress
 
 | Phase | Status (not started / in progress / awaiting approval / accepted) | Accepted on |
 |---|---|---|
-| Step 0 Reality check | awaiting approval | — |
-| 0 Hygiene and honest naming | not started | |
+| Step 0 Reality check | accepted | 2026-10-27 |
+| 0 Hygiene and honest naming | completed (awaiting approval) | — |
 | 1 Real VLM | not started | |
 | 2 CFD pipeline | not started | |
 | 3 Dataset and surrogate | not started | |

@@ -1,7 +1,7 @@
 """Verify B1: panel_method produces identical results to analytical."""
+from backend.models.aero_config import FormulaAeroConfig
 from backend.simulation.analytical import simulate
 from backend.simulation.panel_method import simulate_panel
-from backend.models.aero_config import FormulaAeroConfig
 
 cfg = FormulaAeroConfig()
 r1 = simulate(cfg)

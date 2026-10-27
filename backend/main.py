@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 
@@ -29,6 +30,12 @@ from backend.visualization.aero_field import compute_cp_field, force_vectors, ge
 from backend.visualization.mesh_io import get_model_path, save_upload
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("aero_backend")
 
 app = FastAPI(
     title="Motorsport Aero Simulator",
@@ -151,21 +158,21 @@ def api_aero_map(
 
     sim_fn = simulate_panel if method != SimulationMethod.ANALYTICAL else simulate
     grid = []
-    
+
     frh_vals = [body.min_frh + i * (body.max_frh - body.min_frh) / max(1, body.steps - 1) for i in range(body.steps)]
     rrh_vals = [body.min_rrh + j * (body.max_rrh - body.min_rrh) / max(1, body.steps - 1) for j in range(body.steps)]
-    
+
     for frh in frh_vals:
         row = []
         for rrh in rrh_vals:
             cfg = copy.deepcopy(body.config)
             cfg.ride_height_front_mm = frh
             cfg.ride_height_rear_mm = rrh
-            
+
             # Recalculate rake based on ride height change
             wheelbase_mm = 3.35 * 1000.0
             cfg.rake_deg = math.degrees(math.atan((rrh - frh) / wheelbase_mm))
-            
+
             res = sim_fn(cfg)
             row.append({
                 "frh": round(frh, 1),
@@ -176,7 +183,7 @@ def api_aero_map(
                 "efficiency": round(res.forces.efficiency, 2),
             })
         grid.append(row)
-        
+
     return {
         "frh_vals": [round(v, 1) for v in frh_vals],
         "rrh_vals": [round(v, 1) for v in rrh_vals],

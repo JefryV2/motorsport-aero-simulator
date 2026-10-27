@@ -7,7 +7,7 @@ import copy
 import optuna
 
 from backend.models.aero_config import (
-    FormulaAeroConfig,
+    AeroForces,
     OptimizationObjective,
     OptimizationRequest,
     OptimizationResult,
@@ -16,17 +16,17 @@ from backend.simulation.analytical import simulate
 from backend.simulation.panel_method import simulate_panel
 
 
-def _objective_score(forces, objective: OptimizationObjective, target_balance: float) -> float:
+def _objective_score(forces: AeroForces, objective: OptimizationObjective, target_balance: float) -> float:
     """Convert forces to a scalar to maximize."""
     if objective == OptimizationObjective.MAX_DOWNFORCE:
-        return forces.downforce_total_N
+        return float(forces.downforce_total_N)
     if objective == OptimizationObjective.MIN_DRAG:
-        return -forces.drag_N
+        return float(-forces.drag_N)
     if objective == OptimizationObjective.MAX_EFFICIENCY:
-        return forces.efficiency
+        return float(forces.efficiency)
     # Balanced: downforce + efficiency + balance penalty
     balance_penalty = abs(forces.balance_front_pct - target_balance) * 5.0
-    return forces.downforce_total_N * 0.6 + forces.efficiency * 200 - balance_penalty
+    return float(forces.downforce_total_N * 0.6 + forces.efficiency * 200 - balance_penalty)
 
 
 def optimize(request: OptimizationRequest, use_panel: bool = True) -> OptimizationResult:

@@ -325,9 +325,9 @@ async function generateAeroMap() {
   const placeholder = document.getElementById('aeroMapPlaceholder');
   const loading = document.getElementById('aeroMapLoading');
   
-  placeholder.style.display = 'none';
-  canvas.style.display = 'none';
-  loading.style.display = 'block';
+  if (placeholder) placeholder.style.display = 'none';
+  if (canvas) canvas.style.display = 'none';
+  if (loading) loading.style.display = 'block';
   
   try {
     const res = await fetch(`${API}/api/aero-map?method=${document.getElementById('method').value}`, {
@@ -348,22 +348,26 @@ async function generateAeroMap() {
     aeroMapFrhVals = data.frh_vals;
     aeroMapRrhVals = data.rrh_vals;
     
-    loading.style.display = 'none';
-    canvas.style.display = 'block';
+    if (loading) loading.style.display = 'none';
+    if (canvas) canvas.style.display = 'block';
     
     drawAeroMap();
   } catch (e) {
-    loading.style.display = 'none';
-    placeholder.style.display = 'block';
-    placeholder.textContent = 'Error: ' + e.message;
+    if (loading) loading.style.display = 'none';
+    if (placeholder) {
+      placeholder.style.display = 'block';
+      placeholder.textContent = 'Error: ' + e.message;
+    }
   }
 }
 
 function drawAeroMap() {
   if (!aeroMapGrid || !aeroMapFrhVals || !aeroMapRrhVals) return;
   const canvas = document.getElementById('aeroMapCanvas');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const metric = document.getElementById('aeroMapMetric').value;
+  if (!ctx) return;
+  const metric = document.getElementById('aeroMapMetric')?.value || 'downforce';
   
   const w = canvas.width;
   const h = canvas.height;
@@ -491,6 +495,7 @@ function drawAeroMap() {
 function handleAeroMapClick(e) {
   if (!aeroMapFrhVals || !aeroMapRrhVals) return;
   const canvas = document.getElementById('aeroMapCanvas');
+  if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;

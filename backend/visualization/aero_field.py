@@ -118,7 +118,6 @@ def generate_streamlines(
     center = (vmin + vmax) / 2
     span = vmax - vmin
 
-    speed = config.speed_kmh / 3.6
     wake_strength = config.rear_wing_flap.angle_deg / 30.0
 
     lines: list[list[list[float]]] = []
