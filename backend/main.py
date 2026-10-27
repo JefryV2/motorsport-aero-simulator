@@ -44,9 +44,7 @@ app = FastAPI(
 )
 
 cors_origins_env = os.getenv("CORS_ORIGINS", "")
-allowed_origins = [
-    origin.strip() for origin in cors_origins_env.split(",") if origin.strip()
-] or [
+allowed_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()] or [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:3000",
@@ -159,8 +157,14 @@ def api_aero_map(
     sim_fn = simulate_panel if method != SimulationMethod.ANALYTICAL else simulate
     grid = []
 
-    frh_vals = [body.min_frh + i * (body.max_frh - body.min_frh) / max(1, body.steps - 1) for i in range(body.steps)]
-    rrh_vals = [body.min_rrh + j * (body.max_rrh - body.min_rrh) / max(1, body.steps - 1) for j in range(body.steps)]
+    frh_vals = [
+        body.min_frh + i * (body.max_frh - body.min_frh) / max(1, body.steps - 1)
+        for i in range(body.steps)
+    ]
+    rrh_vals = [
+        body.min_rrh + j * (body.max_rrh - body.min_rrh) / max(1, body.steps - 1)
+        for j in range(body.steps)
+    ]
 
     for frh in frh_vals:
         row = []
@@ -174,20 +178,22 @@ def api_aero_map(
             cfg.rake_deg = math.degrees(math.atan((rrh - frh) / wheelbase_mm))
 
             res = sim_fn(cfg)
-            row.append({
-                "frh": round(frh, 1),
-                "rrh": round(rrh, 1),
-                "downforce": round(res.forces.downforce_total_N, 1),
-                "drag": round(res.forces.drag_N, 1),
-                "balance": round(res.forces.balance_front_pct, 1),
-                "efficiency": round(res.forces.efficiency, 2),
-            })
+            row.append(
+                {
+                    "frh": round(frh, 1),
+                    "rrh": round(rrh, 1),
+                    "downforce": round(res.forces.downforce_total_N, 1),
+                    "drag": round(res.forces.drag_N, 1),
+                    "balance": round(res.forces.balance_front_pct, 1),
+                    "efficiency": round(res.forces.efficiency, 2),
+                }
+            )
         grid.append(row)
 
     return {
         "frh_vals": [round(v, 1) for v in frh_vals],
         "rrh_vals": [round(v, 1) for v in rrh_vals],
-        "grid": grid
+        "grid": grid,
     }
 
 

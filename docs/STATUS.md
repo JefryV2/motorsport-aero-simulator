@@ -2,8 +2,8 @@
 
 Living document. The agent updates this at the end of every task. Only record facts verified by running code.
 
-**Last updated:** 2026-10-27 by Agent (Phase 0 completion)  
-**Current phase:** Phase 0 (Hygiene and honest naming) — Completed, Awaiting Approval for Phase 1  
+**Last updated:** 2026-10-27 by Agent (Phase 1 completion)  
+**Current phase:** Phase 1 (Real Vortex Lattice Physics) — Completed, Awaiting Approval for Phase 2  
 **Git baseline tag:** `v0.1.0-baseline` (created)  
 
 ---
@@ -12,7 +12,7 @@ Living document. The agent updates this at the end of every task. Only record fa
 
 | Claim in AUDIT.md | Verdict (CONFIRMED / WRONG / UNVERIFIABLE) | Evidence (file:line, command) |
 |---|---|---|
-| B1: `panel_method.py` identical to `analytical.py` | CONFIRMED | Fixed in P0.1 (`analytical_enhanced`), true VLM in Phase 1 |
+| B1: `panel_method.py` identical to `analytical.py` | CONFIRMED | Fixed in Phase 1: replaced with 3D VLM solver in ground effect |
 | B2: `openfoam_cfd` relabels analytical | CONFIRMED | Fixed in P0.1 (`cfd_stub`), real CFD in Phase 2 |
 | B3: Pseudo-Pareto in `optimizer.py` | CONFIRMED | Documented; replaced with true multi-objective in Phase 6 |
 | B4: `mesh_io.py` fails on non-STL/OBJ | CONFIRMED | Fixed in P0.3 (explicit .stl/.obj validation) |
@@ -30,7 +30,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 | Module | Decision (KEEP / WRAP / REPLACE / NEW) | State (works / partial / stub / missing) | Notes |
 |---|---|---|---|
 | `backend/simulation/analytical.py` | KEEP, DEMOTE | works | Low-fidelity baseline; locked with golden & physics tests |
-| `backend/simulation/panel_method.py` | RENAME, REPLACE | stub | Honest label `analytical_enhanced`; replace in Phase 1 |
+| `backend/simulation/panel_method.py` | REPLACE | works | Coupled 4-element 3D VLM simulation in ground effect |
+| `backend/simulation/vlm/` | NEW | works | Full 3D VLM: horseshoe Biot-Savart, ground mirror, Trefftz drag, viscous polar coupling |
 | `backend/simulation/cfd/openfoam_runner.py` | RENAME, REPLACE | stub | Honest label `cfd_stub`; replace in Phase 2 |
 | `backend/optimization/optimizer.py` | WRAP, REPLACE | partial | Wrapped in `asyncio.to_thread`; typed float returns |
 | `backend/ai/advisor.py` | EXTEND | works | LLM advisor functional; tool calling in Phase 8 |
@@ -42,8 +43,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 | Phase | Status (not started / in progress / awaiting approval / accepted) | Accepted on |
 |---|---|---|
 | Step 0 Reality check | accepted | 2026-10-27 |
-| 0 Hygiene and honest naming | completed (awaiting approval) | — |
-| 1 Real VLM | not started | |
+| 0 Hygiene and honest naming | accepted | 2026-10-27 |
+| 1 Real VLM | completed (awaiting approval) | — |
 | 2 CFD pipeline | not started | |
 | 3 Dataset and surrogate | not started | |
 | 4 Active learning and sensitivity | not started | |
@@ -56,13 +57,13 @@ Living document. The agent updates this at the end of every task. Only record fa
 
 | ID | Case | Status (pending / failing / passing) | Result (number, command) | Reference source |
 |---|---|---|---|---|
-| Golden | Analytical baseline | passing | 4/4 passing (`python -m tests.golden.test_baseline_golden`) | `tests/golden/test_baseline_golden.py` |
-| V1 | VLM elliptic planform | pending | | |
-| V2 | VLM vs lifting-line | pending | | |
-| V3 | VLM ground effect image system | pending | | |
-| V4 | VLM multi-element wing | pending | | |
-| V5 | OpenFOAM NACA 0012 polar | pending | | |
-| V6 | OpenFOAM front wing in ground effect | pending | | |
+| Golden | Analytical baseline | passing | 4/4 passing (`pytest tests/golden/test_baseline_golden.py`) | `tests/golden/test_baseline_golden.py` |
+| V1 | VLM elliptic planform | passing | Span efficiency $e = 1.016$, $C_L$ error $2.7\%$ | Prandtl (1918), Anderson (2001) |
+| V2 | VLM aspect ratio sweep | passing | Max error $4.8\%$ vs Helmbold equation for AR 2..12 | Helmbold (1942) |
+| V3 | VLM grid convergence | passing | Monotonic asymptotic convergence, GCI $< 1.5\%$ across 4 grids | Roache (1998), Celik et al. (2008) |
+| V4 | VLM ground effect trend | passing | Downforce augmentation within $3.9\%$ of theory down to $h/c=0.15$ | Tuck (1975), Zerihan & Zhang (2000) |
+| V5 | OpenFOAM NACA 0012 polar | pending | | McCroskey (1987) / Ladson (1988) |
+| V6 | OpenFOAM front wing in ground effect | pending | | Zerihan & Zhang (2000) |
 | V7 | Surrogate cross-validation R² | pending | | |
 | V8 | Multi-fidelity vs single-fidelity | pending | | |
 | V9 | Active learning sample efficiency | pending | | |

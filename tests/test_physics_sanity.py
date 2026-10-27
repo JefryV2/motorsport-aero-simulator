@@ -37,8 +37,12 @@ class TestPhysicsSanity:
         ratio_drag = res2.forces.drag_N / res1.forces.drag_N
         ratio_df = res2.forces.downforce_total_N / res1.forces.downforce_total_N
 
-        assert math.isclose(ratio_drag, 4.0, rel_tol=1e-2), f"Expected 4.0 drag ratio, got {ratio_drag}"
-        assert math.isclose(ratio_df, 4.0, rel_tol=1e-2), f"Expected 4.0 downforce ratio, got {ratio_df}"
+        assert math.isclose(ratio_drag, 4.0, rel_tol=1e-2), (
+            f"Expected 4.0 drag ratio, got {ratio_drag}"
+        )
+        assert math.isclose(ratio_df, 4.0, rel_tol=1e-2), (
+            f"Expected 4.0 downforce ratio, got {ratio_df}"
+        )
 
         # Dimensionless coefficients must remain constant with velocity
         assert math.isclose(res1.forces.cl_total, res2.forces.cl_total, rel_tol=1e-3)

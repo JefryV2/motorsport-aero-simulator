@@ -128,23 +128,35 @@ def _fallback_advice(request: AdvisorRequest) -> str:
 
     lines.append("\n## Key Changes")
     if f.balance_front_pct < 40:
-        lines.append("- Balance is rear-heavy. Increase front wing flap angle by 1-2° or lower front ride height.")
+        lines.append(
+            "- Balance is rear-heavy. Increase front wing flap angle by 1-2° or lower front ride height."
+        )
     elif f.balance_front_pct > 45:
-        lines.append("- Balance is front-heavy. Reduce front flap angle or increase rear wing loading.")
+        lines.append(
+            "- Balance is front-heavy. Reduce front flap angle or increase rear wing loading."
+        )
     else:
-        lines.append(f"- Balance at {f.balance_front_pct}% front is within the optimal window (40-44%).")
+        lines.append(
+            f"- Balance at {f.balance_front_pct}% front is within the optimal window (40-44%)."
+        )
 
     if request.optimization and request.optimization.improvement_pct > 0:
         opt = request.optimization
         bc = opt.best_config
         lines.append("\n## Optimizer Recommendations")
-        lines.append(f"- Front wing flap: {bc.front_wing_flap.angle_deg}° (was {sim.config.front_wing_flap.angle_deg}°)")
-        lines.append(f"- Rear wing flap: {bc.rear_wing_flap.angle_deg}° (was {sim.config.rear_wing_flap.angle_deg}°)")
+        lines.append(
+            f"- Front wing flap: {bc.front_wing_flap.angle_deg}° (was {sim.config.front_wing_flap.angle_deg}°)"
+        )
+        lines.append(
+            f"- Rear wing flap: {bc.rear_wing_flap.angle_deg}° (was {sim.config.rear_wing_flap.angle_deg}°)"
+        )
         lines.append(f"- Ride height: {bc.ride_height_front_mm}/{bc.ride_height_rear_mm}mm F/R")
         lines.append(f"- Expected improvement: {opt.improvement_pct}%")
 
     lines.append("\n## Trade-offs")
-    lines.append(f"- Current drag: {f.drag_N} N — each +100N downforce costs ~{f.drag_N / max(f.downforce_total_N, 1) * 100:.0f}N drag ratio")
+    lines.append(
+        f"- Current drag: {f.drag_N} N — each +100N downforce costs ~{f.drag_N / max(f.downforce_total_N, 1) * 100:.0f}N drag ratio"
+    )
     lines.append(f"- Lap time impact: {sim.lap_time_delta_s:+.4f}s vs baseline")
 
     lines.append("\n## Track Recommendation")
@@ -153,7 +165,9 @@ def _fallback_advice(request: AdvisorRequest) -> str:
     elif f.downforce_total_N < 2500:
         lines.append("Low drag setup — ideal for high-speed circuits (Monza, Spa).")
     else:
-        lines.append("Balanced setup — suitable for medium downforce tracks (Silverstone, Barcelona).")
+        lines.append(
+            "Balanced setup — suitable for medium downforce tracks (Silverstone, Barcelona)."
+        )
 
     return "\n".join(lines)
 

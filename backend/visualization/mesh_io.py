@@ -154,7 +154,8 @@ def cleanup_uploads(max_files: int = 10, max_age_seconds: int = 7200) -> int:
     now = time.time()
     deleted = 0
     files = [
-        p for p in MODELS_DIR.iterdir()
+        p
+        for p in MODELS_DIR.iterdir()
         if p.is_file() and p.name != ".gitkeep" and not p.name.startswith(".")
     ]
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)

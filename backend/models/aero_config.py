@@ -16,8 +16,6 @@ class SimulationMethod(str, Enum):
     CFD = "cfd"
 
 
-
-
 class WingElement(BaseModel):
     """Single wing element (main plane or flap)."""
 

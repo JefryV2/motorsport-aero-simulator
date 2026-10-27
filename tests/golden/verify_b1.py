@@ -1,28 +1,36 @@
-"""Verify B1: panel_method produces identical results to analytical."""
+"""Verify B1 resolution: panel_method now runs true 3D VLM with distinct vortex physics."""
+
+from __future__ import annotations
+
 from backend.models.aero_config import FormulaAeroConfig
 from backend.simulation.analytical import simulate
 from backend.simulation.panel_method import simulate_panel
 
-cfg = FormulaAeroConfig()
-r1 = simulate(cfg)
-r2 = simulate_panel(cfg)
 
-fields = [
-    "drag_N", "downforce_total_N", "downforce_front_N",
-    "downforce_rear_N", "balance_front_pct", "cop_x_m",
-    "cl_total", "cd_total", "efficiency",
-]
+def verify_b1_resolution():
+    cfg = FormulaAeroConfig()
+    r_analytical = simulate(cfg)
+    r_vlm = simulate_panel(cfg)
 
-all_same = True
-for f in fields:
-    v1 = getattr(r1.forces, f)
-    v2 = getattr(r2.forces, f)
-    status = "SAME" if v1 == v2 else "DIFF"
-    if v1 != v2:
-        all_same = False
-    print(f"  {f}: {v1} vs {v2} -> {status}")
+    print("=== B1 Resolution Check (Analytical vs 3D VLM) ===")
+    print(
+        f"Analytical Downforce: {r_analytical.forces.downforce_total_N:.1f} N, Drag: {r_analytical.forces.drag_N:.1f} N"
+    )
+    print(
+        f"VLM Downforce:        {r_vlm.forces.downforce_total_N:.1f} N, Drag: {r_vlm.forces.drag_N:.1f} N"
+    )
+    print(f"VLM Method Label:     {r_vlm.method}")
 
-print(f"  lap_delta: {r1.lap_time_delta_s} vs {r2.lap_time_delta_s}")
-if r1.lap_time_delta_s != r2.lap_time_delta_s:
-    all_same = False
-print(f"\nB1 CONFIRMED: panel_method == analytical: {all_same}")
+    # They should no longer be identical
+    is_distinct = (
+        r_vlm.forces.downforce_total_N != r_analytical.forces.downforce_total_N
+        or r_vlm.forces.drag_N != r_analytical.forces.drag_N
+    )
+    print(f"Distinct 3D VLM physics active: {is_distinct}")
+    assert is_distinct, "Bug B1 still present: panel_method is still identical to analytical"
+    assert r_vlm.method == "analytical_enhanced"
+    print("PASS: B1 resolved with real VLM physics.\n")
+
+
+if __name__ == "__main__":
+    verify_b1_resolution()

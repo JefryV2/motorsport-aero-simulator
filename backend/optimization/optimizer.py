@@ -16,7 +16,9 @@ from backend.simulation.analytical import simulate
 from backend.simulation.panel_method import simulate_panel
 
 
-def _objective_score(forces: AeroForces, objective: OptimizationObjective, target_balance: float) -> float:
+def _objective_score(
+    forces: AeroForces, objective: OptimizationObjective, target_balance: float
+) -> float:
     """Convert forces to a scalar to maximize."""
     if objective == OptimizationObjective.MAX_DOWNFORCE:
         return float(forces.downforce_total_N)
@@ -63,13 +65,15 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
         score = _objective_score(forces, request.objective, target_balance)
 
         if len(pareto) < 50:
-            pareto.append({
-                "drag_N": forces.drag_N,
-                "downforce_N": forces.downforce_total_N,
-                "efficiency": forces.efficiency,
-                "balance_pct": forces.balance_front_pct,
-                "score": score,
-            })
+            pareto.append(
+                {
+                    "drag_N": forces.drag_N,
+                    "downforce_N": forces.downforce_total_N,
+                    "efficiency": forces.efficiency,
+                    "balance_pct": forces.balance_front_pct,
+                    "score": score,
+                }
+            )
 
         return score
 
@@ -93,7 +97,9 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
 
     best_result = sim_fn(best_cfg)
     best_score = _objective_score(best_result.forces, request.objective, target_balance)
-    improvement = ((best_score - baseline_score) / abs(baseline_score) * 100) if baseline_score else 0.0
+    improvement = (
+        ((best_score - baseline_score) / abs(baseline_score) * 100) if baseline_score else 0.0
+    )
 
     return OptimizationResult(
         best_config=best_cfg,

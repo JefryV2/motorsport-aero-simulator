@@ -43,7 +43,9 @@ def _wing_cl(element: WingElement, in_ground_effect: bool = False) -> tuple[floa
     return cl_3d, cd_i_factor
 
 
-def _wing_forces(element: WingElement, speed_ms: float, in_ground_effect: bool = False) -> tuple[float, float]:
+def _wing_forces(
+    element: WingElement, speed_ms: float, in_ground_effect: bool = False
+) -> tuple[float, float]:
     """Return (downforce_N, drag_N) for a wing element."""
     cl, cd_i = _wing_cl(element, in_ground_effect)
     q = 0.5 * RHO * speed_ms**2

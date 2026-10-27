@@ -33,11 +33,15 @@ def _region_weight(x: float, y: float, z: float) -> dict[str, float]:
     """Soft region masks for formula car surfaces."""
     front_wing = max(0.0, 1.0 - x / 0.18) * max(0.0, 1.0 - z / 0.35)
     rear_wing = max(0.0, (x - 0.78) / 0.22) * max(0.0, (z - 0.55) / 0.45)
-    underbody = max(0.0, 1.0 - z / 0.28) * (1.0 - abs(y - 0.5) * 1.6) * max(0.0, 1.0 - abs(x - 0.5) * 1.2)
+    underbody = (
+        max(0.0, 1.0 - z / 0.28) * (1.0 - abs(y - 0.5) * 1.6) * max(0.0, 1.0 - abs(x - 0.5) * 1.2)
+    )
     diffuser = max(0.0, (x - 0.62) / 0.38) * max(0.0, 1.0 - z / 0.22)
     body = max(0.0, 1.0 - front_wing - rear_wing * 0.5 - underbody * 0.3)
-    wheels = max(0.0, 1.0 - abs(y - 0.5) * 3.5) * (1.0 if z < 0.35 else 0.0) * (
-        1.0 if x < 0.25 or x > 0.72 else 0.3
+    wheels = (
+        max(0.0, 1.0 - abs(y - 0.5) * 3.5)
+        * (1.0 if z < 0.35 else 0.0)
+        * (1.0 if x < 0.25 or x > 0.72 else 0.3)
     )
     return {
         "front_wing": min(1.0, front_wing),
@@ -158,7 +162,19 @@ def force_vectors(config: FormulaAeroConfig) -> dict[str, Any]:
     f = sim.forces
     return {
         "drag": {"origin": [0, 0, 0.5], "direction": [-1, 0, 0], "magnitude": f.drag_N},
-        "downforce": {"origin": [0, 0, 0.8], "direction": [0, 0, -1], "magnitude": f.downforce_total_N},
-        "front_downforce": {"origin": [-0.8, 0, 0.3], "direction": [0, 0, -1], "magnitude": f.downforce_front_N},
-        "rear_downforce": {"origin": [0.8, 0, 0.5], "direction": [0, 0, -1], "magnitude": f.downforce_rear_N},
+        "downforce": {
+            "origin": [0, 0, 0.8],
+            "direction": [0, 0, -1],
+            "magnitude": f.downforce_total_N,
+        },
+        "front_downforce": {
+            "origin": [-0.8, 0, 0.3],
+            "direction": [0, 0, -1],
+            "magnitude": f.downforce_front_N,
+        },
+        "rear_downforce": {
+            "origin": [0.8, 0, 0.5],
+            "direction": [0, 0, -1],
+            "magnitude": f.downforce_rear_N,
+        },
     }
