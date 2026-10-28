@@ -54,6 +54,145 @@ let aeroMapGrid = null;
 let aeroMapFrhVals = null;
 let aeroMapRrhVals = null;
 
+let cfdBackend = 'unknown';
+
+const FIDELITY_META = {
+  empirical: {
+    label: 'EMPIRICAL',
+    cls: 'empirical',
+    short: 'Semi-empirical correlation',
+    validation: 'internal trend tests only',
+  },
+  low_fidelity_vlm: {
+    label: 'VLM PHYSICS',
+    cls: 'vlm',
+    short: '3D vortex lattice + image ground',
+    validation: 'V1–V3 internal; V4 misses external reference',
+  },
+  synthetic_model: {
+    label: 'SYNTHETIC MODEL',
+    cls: 'synthetic',
+    short: 'Calibrated closed-form fallback',
+    validation: 'not validated against real CFD',
+  },
+  rans: {
+    label: 'OPENFOAM RANS',
+    cls: 'rans',
+    short: 'Mesh solution (simpleFoam)',
+    validation: 'solver convergence parsed from logs',
+  },
+};
+
+function fidelityFor(sim) {
+  if (!sim) return null;
+  if (sim.fidelity && FIDELITY_META[sim.fidelity]) return sim.fidelity;
+  const method = String(sim.method || '').toLowerCase();
+  if (method.includes('synthetic')) return 'synthetic_model';
+  if (method.includes('openfoam')) return 'rans';
+  if (method.includes('panel') || method.includes('vlm') || method.includes('enhanced')) return 'low_fidelity_vlm';
+  return 'empirical';
+}
+
+function setFidelityBadge(key) {
+  const badge = document.getElementById('fidelityBadge');
+  const line = document.getElementById('provenanceLine');
+  const meta = key ? FIDELITY_META[key] : null;
+
+  if (badge) {
+    badge.textContent = meta ? meta.label : 'NO DATA';
+    badge.className = 'fidelity-badge' + (meta ? ' ' + meta.cls : '');
+  }
+
+  if (!line) return;
+  if (!meta) {
+    line.innerHTML = '<strong>Source:</strong> not run yet · <strong>Fidelity:</strong> — · <strong>Validation:</strong> —';
+    return;
+  }
+  line.innerHTML =
+    `<strong>Source:</strong> ${meta.short} · ` +
+    `<strong>Fidelity:</strong> ${meta.label.toLowerCase()} · ` +
+    `<strong>Validation:</strong> ${meta.validation}`;
+  if (key === 'synthetic_model') {
+    line.innerHTML += ' · <span style="color:#ffb020">no CFD solver ran</span>';
+  }
+}
+
+function applyHealth(health) {
+  cfdBackend = health?.cfd_backend || 'unknown';
+  const banner = document.getElementById('provenanceBanner');
+  const title = document.getElementById('pbTitle');
+  const text = document.getElementById('pbText');
+  const cfdOption = document.querySelector('#method option[value="cfd_stub"]');
+
+  const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
+
+  if (cfdOption) {
+    cfdOption.textContent = solverInstalled
+      ? 'CFD — OpenFOAM RANS (solver detected)'
+      : 'CFD — calibrated model (no OpenFOAM)';
+  }
+
+  if (!banner || !title || !text) return;
+  banner.hidden = false;
+
+  if (solverInstalled) {
+    banner.className = 'provenance-banner ok';
+    title.textContent = 'OpenFOAM solver detected';
+    text.innerHTML =
+      `The CFD option runs <code>simpleFoam</code> and reports parsed convergence. ` +
+      `VLM results remain the fast low-fidelity path.`;
+  } else {
+    banner.className = 'provenance-banner warn';
+    title.textContent = 'No CFD solver detected — synthetic fallback is active';
+    text.innerHTML =
+      `This machine has no OpenFOAM binary. The <strong>CFD</strong> option returns a ` +
+      `calibrated closed-form model, not a mesh solution. Results are badge-labelled ` +
+      `<strong>SYNTHETIC MODEL</strong>; use <strong>VLM</strong> for the physics path.`;
+  }
+
+  if (sessionStorage.getItem('provenanceDismissed') === '1') {
+    banner.hidden = true;
+  }
+  updateMethodNote();
+}
+
+async function loadHealth() {
+  try {
+    const res = await fetch(`${API}/api/health`);
+    if (!res.ok) throw new Error(`health ${res.status}`);
+    applyHealth(await res.json());
+  } catch (e) {
+    const banner = document.getElementById('provenanceBanner');
+    if (banner) {
+      banner.hidden = false;
+      banner.className = 'provenance-banner warn';
+      document.getElementById('pbTitle').textContent = 'Backend provenance unavailable';
+      document.getElementById('pbText').textContent =
+        'Could not read /api/health. Treat all forces as unverified until the API is reachable.';
+    }
+  }
+}
+
+function updateMethodNote() {
+  const note = document.getElementById('methodNote');
+  const method = document.getElementById('method').value;
+  if (!note) return;
+  note.classList.remove('warn');
+
+  if (method === 'cfd_stub') {
+    const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
+    note.classList.toggle('warn', !solverInstalled);
+    note.textContent = solverInstalled
+      ? 'OpenFOAM RANS on a 2D front-wing section, extrapolated to 3D with empirical floor/rear terms.'
+      : 'No OpenFOAM detected. This returns a calibrated model, not a mesh solution — label reads SYNTHETIC MODEL.';
+  } else if (method === 'analytical') {
+    note.textContent = 'Empirical correlations. Fast trend indicator; no flow field is solved.';
+  } else {
+    note.textContent = 'Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.';
+  }
+}
+
+
 let chatHistory = [
   { sender: 'assistant', text: 'Air now follows the car shape. Adjust sliders to update, or ask me setup or track questions below! (e.g. "How to reduce understeer?")' }
 ];
@@ -177,7 +316,19 @@ function showResults(sim) {
   
   // Override lap delta client-side based on active track
   sim.lap_time_delta_s = getTrackLapDelta(sim.forces);
-  
+
+  const fidelity = fidelityFor(sim);
+  setFidelityBadge(fidelity);
+
+  const liveBadge = document.getElementById('aeroBadge');
+  if (liveBadge) {
+    const meta = fidelity ? FIDELITY_META[fidelity] : null;
+    liveBadge.textContent = meta ? `● ${meta.label}` : '● LIVE AERO';
+  }
+  if (document.getElementById('viewerWrap')) {
+    document.getElementById('viewerWrap').dataset.fidelity = fidelity || 'unknown';
+  }
+
   const f = sim.forces;
   document.getElementById('m_df').textContent = f.downforce_total_N.toLocaleString();
   document.getElementById('m_drag').textContent = f.drag_N.toLocaleString();
@@ -735,6 +886,13 @@ function setupControls() {
   document.getElementById('btnImport').addEventListener('click', () => document.getElementById('modelInput').click());
   document.getElementById('btnResetView').addEventListener('click', () => viewer.resetCamera());
 
+  document.getElementById('method')?.addEventListener('change', updateMethodNote);
+  document.getElementById('pbDismiss')?.addEventListener('click', () => {
+    const banner = document.getElementById('provenanceBanner');
+    if (banner) banner.hidden = true;
+    sessionStorage.setItem('provenanceDismissed', '1');
+  });
+
   // DRS toggle
   document.getElementById('btnDRS')?.addEventListener('click', toggleDRS);
   
@@ -822,16 +980,28 @@ function setupControls() {
   setupEngineeringTools();
 }
 
+function applyInitialMethodFromUrl() {
+  const select = document.getElementById('method');
+  if (!select) return;
+  const requested = new URLSearchParams(window.location.search).get('method');
+  if (requested && Array.from(select.options).some((o) => o.value === requested)) {
+    select.value = requested;
+  }
+}
+
 function boot() {
   try {
     viewer = new AeroViewer(document.getElementById('viewer3d'));
     viewer.onSpeedRange = (range) => updateEngineerPanel(range);
     viewer.onProbe = showProbe;
+    applyInitialMethodFromUrl();
     setupModelImport();
     setupControls();
     updateSliderRanges();
     updateUIState();
     syncSliderLabels();
+    updateMethodNote();
+    loadHealth();
     refreshVisualization();
     renderChat();
     runSimulate();

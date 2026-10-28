@@ -66,7 +66,13 @@ def test_evaluate_design_point() -> None:
     rec = evaluate_design_point(sample)
 
     assert "config_hash" in rec
-    assert rec["convergence_flag"] is True
+    # Provenance must describe the run that actually happened. On a machine
+    # without OpenFOAM this is the synthetic fallback and must say so.
+    assert rec["solver_used"] in {"calibrated_synthetic", "openfoam_native", "openfoam_wsl"}
+    assert isinstance(rec["convergence_flag"], bool)
+    if rec["is_synthetic"]:
+        assert rec["convergence_flag"] is False
+        assert "synthetic" in rec["solver_version"]
     assert rec["cl_lf"] > 0.0
     assert rec["cl_hf"] > 0.0
     assert rec["cd_lf"] > 0.0

@@ -132,4 +132,12 @@ def simulate_panel(
         forces=forces,
         lap_time_delta_s=round(lap_delta, 4),
         method=method,
+        fidelity="low_fidelity_vlm",
+        provenance={
+            "source": "3D vortex lattice + empirical underbody",
+            "solver": "vlm_horseshoe_biot_savart",
+            "ground_effect": "image system",
+            "validated_externally": False,
+            "notes": "Inviscid VLM with empirical floor/body terms. Not a CFD solution.",
+        },
     )

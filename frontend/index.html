@@ -29,6 +29,8 @@
       color: var(--text);
       min-height: 100vh;
       overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
     }
     header {
       background: linear-gradient(135deg, #141b2d 0%, #0a0e17 100%);
@@ -80,8 +82,9 @@
       display: grid;
       grid-template-columns: 360px 1fr;
       grid-template-rows: 1fr auto;
-      height: calc(100vh - 62px);
-      min-height: 600px;
+      flex: 1 1 auto;
+      height: auto;
+      min-height: calc(100vh - 62px);
     }
     @media (max-width: 960px) {
       .layout { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; height: auto; }
@@ -325,23 +328,129 @@
       margin: 1rem;
       border-radius: 8px;
     }
-  </style>
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+
+    /* --- Provenance / fidelity UI ------------------------------------- */
+    .provenance-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      margin: 0.75rem 1.5rem 0;
+      padding: 0.65rem 0.85rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 0.78rem;
+      line-height: 1.45;
+      animation: slideDown 0.35s ease-out;
     }
-  }
-  </script>
+    .provenance-banner[hidden] { display: none; }
+    .provenance-banner.warn {
+      border-color: #b7791f;
+      background: linear-gradient(90deg, rgba(183, 121, 31, 0.22), rgba(20, 27, 45, 0.92) 55%);
+    }
+    .provenance-banner.ok {
+      border-color: #1f9d55;
+      background: linear-gradient(90deg, rgba(31, 157, 85, 0.18), rgba(20, 27, 45, 0.92) 55%);
+    }
+    .pb-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 0.32rem;
+      flex: 0 0 auto;
+      background: var(--muted);
+      box-shadow: 0 0 0 3px rgba(136, 146, 168, 0.15);
+    }
+    .provenance-banner.warn .pb-dot { background: #ffb020; box-shadow: 0 0 0 3px rgba(255, 176, 32, 0.18); }
+    .provenance-banner.ok .pb-dot { background: #35d07f; box-shadow: 0 0 0 3px rgba(53, 208, 127, 0.18); }
+    .pb-body { flex: 1 1 auto; min-width: 0; }
+    .pb-body #pbTitle { display: block; color: var(--text); font-size: 0.8rem; letter-spacing: 0.01em; }
+    .pb-body span { color: var(--muted); }
+    .pb-body span strong { display: inline; color: var(--text); font-weight: 600; }
+    .pb-body code {
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.02rem 0.3rem;
+      font-size: 0.72rem;
+    }
+    .provenance-banner button {
+      width: auto;
+      margin: 0;
+      padding: 0.22rem 0.55rem;
+      font-size: 0.68rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      flex: 0 0 auto;
+    }
+    .provenance-banner button:hover { color: var(--text); border-color: var(--muted); }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.6rem;
+    }
+    .panel-head h2 { margin-bottom: 0; }
+    .fidelity-badge {
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      white-space: nowrap;
+      transition: color 0.25s, border-color 0.25s, background 0.25s;
+    }
+    .fidelity-badge.vlm { color: var(--accent2); border-color: var(--accent2); background: rgba(0, 210, 190, 0.1); }
+    .fidelity-badge.empirical { color: #7fb2ff; border-color: #7fb2ff; background: rgba(127, 178, 255, 0.1); }
+    .fidelity-badge.synthetic { color: #ffb020; border-color: #ffb020; background: rgba(255, 176, 32, 0.12); }
+    .fidelity-badge.rans { color: #35d07f; border-color: #35d07f; background: rgba(53, 208, 127, 0.1); }
+    .provenance-line {
+      margin-top: 0.55rem;
+      padding-top: 0.45rem;
+      border-top: 1px dashed var(--border);
+      font-size: 0.66rem;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+    .provenance-line strong { color: var(--text); font-weight: 600; }
+    .method-note {
+      font-size: 0.68rem;
+      line-height: 1.4;
+      color: var(--muted);
+      margin: -0.2rem 0 0.6rem;
+      padding-left: 0.5rem;
+      border-left: 2px solid var(--border);
+    }
+    .method-note.warn { border-left-color: #ffb020; color: #d8b168; }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
 </head>
 <body>
   <header>
     <div>
       <h1>Aero Wind Tunnel Workstation</h1>
-      <p>CFD-style visualization · setup optimization · engineering exports</p>
+      <p>VLM physics · calibrated models · honest provenance</p>
     </div>
   </header>
+
+  <div class="provenance-banner warn" id="provenanceBanner" hidden>
+    <span class="pb-dot" aria-hidden="true"></span>
+    <div class="pb-body">
+      <strong id="pbTitle">Checking solver availability…</strong>
+      <span id="pbText">Reading <code>/api/health</code> to determine which physics produced the numbers.</span>
+    </div>
+    <button type="button" id="pbDismiss" aria-label="Dismiss provenance notice">Dismiss</button>
+  </div>
 
   <div id="bootError"></div>
 
@@ -513,10 +622,12 @@
 
         <label>Method</label>
         <select id="method">
-          <option value="analytical_enhanced">Analytical Enhanced (Multi-element)</option>
-          <option value="analytical">Analytical Baseline</option>
-          <option value="cfd_stub">CFD Stub (OpenFOAM)</option>
+          <option value="analytical_enhanced">VLM — 3D vortex lattice (default)</option>
+          <option value="panel_vlm">VLM — panel alias (legacy)</option>
+          <option value="analytical">Analytical — empirical baseline</option>
+          <option value="cfd_stub">CFD — calibrated model (no OpenFOAM)</option>
         </select>
+        <p class="method-note" id="methodNote">Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.</p>
         <label>Optimize for</label>
         <select id="objective">
           <option value="balanced">Balanced</option>
@@ -617,7 +728,10 @@
 
     <div class="bottom-panel">
       <div class="panel">
-        <h2>Live Results</h2>
+        <div class="panel-head">
+          <h2>Live Results</h2>
+          <span class="fidelity-badge" id="fidelityBadge">NO DATA</span>
+        </div>
         <div class="metrics">
           <div class="metric" title="Total vertical force pushing the car into the track"><div class="value" id="m_df">—</div><div class="label">Downforce N</div></div>
           <div class="metric" title="Force opposing forward motion through the air"><div class="value" id="m_drag">—</div><div class="label">Drag N</div></div>
@@ -632,6 +746,9 @@
           <div class="metric" title="Rear axle downforce"><div class="value" id="m_df_r">—</div><div class="label">DF rear N</div></div>
           <div class="metric" title="Center of pressure"><div class="value" id="m_cop">—</div><div class="label">CoP m</div></div>
           <div class="metric" title="Dynamic pressure q"><div class="value" id="m_q">—</div><div class="label">q kPa</div></div>
+        </div>
+        <div class="provenance-line" id="provenanceLine">
+          <strong>Source:</strong> not run yet · <strong>Fidelity:</strong> — · <strong>Validation:</strong> —
         </div>
       </div>
       <div class="panel">
@@ -653,6 +770,8 @@
           <dd>Particles and streamlines change color with local speed — warm/orange at slow regions (nose stagnation), blue/white where air accelerates (exit, Venturi). Toggle <strong>Surface speed</strong> view to see speed on the car body.</dd>
           <dt>Probe tool</dt>
           <dd>Enable Probe in the toolbar, then click the car to read local Cp and velocity at that point.</dd>
+          <dt>Fidelity badge</dt>
+          <dd>Every result is labelled by what produced it. <strong>VLM</strong> = vortex-lattice physics, <strong>Empirical</strong> = correlation baseline, <strong>Synthetic model</strong> = calibrated fallback with no solver run, <strong>OpenFOAM RANS</strong> = real mesh solution. Only the last is CFD.</dd>
         </dl>
       </div>
       <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
@@ -668,6 +787,6 @@
     </div>
   </div>
 
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/app.js?v=0.2.1"></script>
 </body>
 </html>

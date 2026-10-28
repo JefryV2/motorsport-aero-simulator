@@ -22,7 +22,7 @@ from backend.models.aero_config import (
     FormulaAeroConfig,
     WingElement,
 )
-from backend.simulation.cfd.openfoam_runner import run_cfd
+from backend.simulation.cfd.openfoam_runner import run_cfd_with_provenance
 from backend.simulation.panel_method import simulate_panel
 
 
@@ -114,9 +114,13 @@ def compute_config_hash(values: dict[str, Any]) -> str:
 def evaluate_design_point(
     sample_values: dict[str, float],
     mesh_level: str = "medium",
-    solver_version: str = "OpenFOAM-v2406",
 ) -> dict[str, Any]:
-    """Evaluate both low-fidelity (VLM) and high-fidelity (CFD) physics at a design point."""
+    """Evaluate both low-fidelity (VLM) and high-fidelity (CFD-family) physics at a design point.
+
+    Provenance columns are read from the run that actually executed. When no
+    OpenFOAM binary is available the high-fidelity column is explicitly marked
+    as a synthetic model, never as an OpenFOAM result.
+    """
     config = sample_vector_to_config(sample_values)
     config_hash = compute_config_hash(sample_values)
 
@@ -124,16 +128,20 @@ def evaluate_design_point(
     vlm_result = simulate_panel(config)
     lf_forces = vlm_result.forces
 
-    # 2. High-Fidelity: CFD simulation (RANS with blockMesh C-grid)
-    cfd_result = run_cfd(config)
+    # 2. High-Fidelity: OpenFOAM when available, otherwise a labelled surrogate
+    cfd_result, provenance = run_cfd_with_provenance(config)
     hf_forces = cfd_result.forces
 
     record: dict[str, Any] = {
         "config_hash": config_hash,
         "timestamp_epoch": time.time(),
         "mesh_level": mesh_level,
-        "solver_version": solver_version,
-        "convergence_flag": True,
+        "solver_version": provenance.solver_version,
+        "solver_used": provenance.solver_used,
+        "hf_fidelity": provenance.fidelity,
+        "is_synthetic": provenance.is_synthetic,
+        "convergence_flag": provenance.is_converged,
+        "convergence_status": provenance.convergence_status,
         # Feature columns
         **sample_values,
         # LF Targets
@@ -204,6 +212,38 @@ def load_dataset_parquet(file_path: Path = DEFAULT_DATASET_PATH) -> pd.DataFrame
     if not file_path.exists():
         raise FileNotFoundError(f"Aerodynamic dataset not found at {file_path}")
     return pd.read_parquet(file_path, engine="pyarrow")
+
+
+def summarize_provenance(df: pd.DataFrame) -> dict[str, Any]:
+    """Summarise where the high-fidelity column actually came from.
+
+    Used by validation scripts so a synthetic dataset can never be silently
+    reported as an OpenFOAM study.
+    """
+    if "solver_used" not in df.columns:
+        return {
+            "has_provenance": False,
+            "all_synthetic": None,
+            "solver_counts": {},
+            "warning": "Legacy dataset without provenance columns; treat HF as unknown.",
+        }
+    counts = {str(k): int(v) for k, v in df["solver_used"].value_counts().items()}
+    is_synth = df.get("is_synthetic")
+    all_synthetic = bool(is_synth.all()) if is_synth is not None else False
+    converged = df.get("convergence_flag")
+    return {
+        "has_provenance": True,
+        "all_synthetic": all_synthetic,
+        "solver_counts": counts,
+        "n_rows": int(len(df)),
+        "n_converged": int(converged.fillna(False).astype(bool).sum()) if converged is not None else None,
+        "warning": (
+            "HIGH-FIDELITY COLUMN IS A SYNTHETIC MODEL: results validate the "
+            "surrogate machinery against a deterministic generator, not physics."
+            if all_synthetic
+            else None
+        ),
+    }
 
 
 def get_or_generate_dataset(

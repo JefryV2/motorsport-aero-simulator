@@ -79,3 +79,5 @@ class CFDResult:
     drag_N: float
     execution_time_s: float
     solver_used: str  # "openfoam_native", "openfoam_wsl", or "calibrated_synthetic"
+    solver_version: str = "unknown"
+    is_synthetic: bool = False

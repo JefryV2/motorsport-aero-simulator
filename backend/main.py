@@ -25,6 +25,7 @@ from backend.models.aero_config import (
 from backend.optimization.optimizer import optimize
 from backend.simulation.analytical import simulate
 from backend.simulation.cfd.openfoam_runner import is_openfoam_available, run_cfd
+from backend.simulation.cfd.runner import detect_cfd_backend
 from backend.simulation.panel_method import simulate_panel
 from backend.visualization.aero_field import compute_cp_field, force_vectors, generate_streamlines
 from backend.visualization.mesh_io import get_model_path, save_upload
@@ -63,14 +64,28 @@ FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 @app.get("/api/health")
 def health():
+    backend = detect_cfd_backend()
     return {
         "status": "ok",
+        "cfd_backend": backend,
         "openfoam_available": is_openfoam_available(),
         "methods": [
             SimulationMethod.ANALYTICAL.value,
             SimulationMethod.ANALYTICAL_ENHANCED.value,
+            SimulationMethod.PANEL_VLM.value,
             SimulationMethod.CFD_STUB.value,
+            SimulationMethod.CFD.value,
         ],
+        "provenance": {
+            "cfd_solver_installed": backend in ("native", "wsl"),
+            "cfd_fallback": "calibrated_synthetic" if backend == "synthetic" else None,
+            "note": (
+                "No OpenFOAM solver detected. CFD-family results are a calibrated "
+                "synthetic model, not a mesh solution."
+                if backend == "synthetic"
+                else "OpenFOAM detected. CFD-family results come from the solver."
+            ),
+        },
     }
 
 
@@ -88,7 +103,7 @@ def api_simulate(
         return run_cfd(config)
     raise HTTPException(
         400,
-        f"Unknown method: {method}. Use analytical, analytical_enhanced, or cfd_stub.",
+        f"Unknown method: {method}. Use analytical, analytical_enhanced, panel_vlm, cfd_stub, or cfd.",
     )
 
 

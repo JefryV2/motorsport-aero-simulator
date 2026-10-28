@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import json
 import math
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from backend.simulation.cfd.models import (
     MeshLevel,
 )
 from backend.simulation.cfd.parser import evaluate_convergence
+
+SYNTHETIC_SOLVER_VERSION = "none (calibrated-synthetic-v1)"
 
 
 @functools.lru_cache(maxsize=1)
@@ -48,10 +51,12 @@ def evaluate_calibrated_synthetic_cfd(
     nu: float = 1.5e-5,
     rho: float = 1.225,
 ) -> tuple[float, float, float, ConvergenceVerdict]:
-    """Calibrated RANS-fidelity physics evaluator based on NASA TM-4074 & Zerihan-Zhang (2000).
+    """Deterministic calibrated surrogate for RANS-scale coefficients.
 
-    Used when OpenFOAM binary is unavailable to provide deterministically reproducible
-    high-fidelity training data for Phase 3 GP surrogates.
+    This is NOT a CFD solve. It is a closed-form fit used only when no
+    OpenFOAM binary is available, so that the surrogate pipeline and tests can
+    run on a laptop. Every result carrying this source is tagged
+    ``calibrated_synthetic`` and must not be reported as CFD.
     """
     alpha_deg = airfoil.angle_of_attack_deg
     re = speed_ms * airfoil.chord_m / nu
@@ -100,17 +105,17 @@ def evaluate_calibrated_synthetic_cfd(
     cm = float(-0.005 - 0.002 * alpha_deg)
 
     verdict = ConvergenceVerdict(
-        status=ConvergenceStatus.CONVERGED,
-        iterations_run=350,
+        status=ConvergenceStatus.MOCK_EVALUATED,
+        iterations_run=0,
         cl_mean=cl,
-        cl_std=0.0012,
+        cl_std=0.0,
         cd_mean=cd,
-        cd_std=0.0004,
-        final_p_residual=4.2e-5,
-        final_u_residual=2.8e-5,
-        final_k_residual=6.1e-5,
-        final_omega_residual=3.5e-5,
-        is_converged=True,
+        cd_std=0.0,
+        final_p_residual=0.0,
+        final_u_residual=0.0,
+        final_k_residual=0.0,
+        final_omega_residual=0.0,
+        is_converged=False,
     )
 
     return cl, cd, cm, verdict
@@ -181,39 +186,36 @@ def run_cfd_case(
             backend = "synthetic"
 
     if backend == "synthetic":
-        # Write realistic postProcessing force history into case directory for completeness
         cl, cd, cm, verdict = evaluate_calibrated_synthetic_cfd(
             airfoil=airfoil,
             mesh_level=mesh_level,
             speed_ms=speed_ms,
         )
 
-        post_dir = case_dir / "postProcessing" / "forceCoeffs" / "0"
-        post_dir.mkdir(parents=True, exist_ok=True)
-        coeffs_file = post_dir / "coefficient.dat"
-
-        lines = ["# Time Cm Cd Cl Cl(f) Cl(r)"]
-        for step in range(1, 351):
-            # Synthetic iteration noise decaying exponentially
-            noise = math.exp(-step / 40.0) * 0.05
-            iter_cl = cl + noise * math.sin(step)
-            iter_cd = cd + abs(noise * 0.2 * math.cos(step))
-            lines.append(f"{step} {cm:.6f} {iter_cd:.6f} {iter_cl:.6f} 0.0 0.0")
-        coeffs_file.write_text("\n".join(lines), encoding="utf-8")
-
-        # Write log.simpleFoam residuals
-        (case_dir / "log.simpleFoam").write_text(
-            f"""Time = 350
-Solving for Ux, Initial residual = {verdict.final_u_residual:.6e}, Final residual = 1.1e-6
-Solving for Uy, Initial residual = {verdict.final_u_residual:.6e}, Final residual = 1.2e-6
-Solving for p, Initial residual = {verdict.final_p_residual:.6e}, Final residual = 8.5e-7
-Solving for k, Initial residual = {verdict.final_k_residual:.6e}, Final residual = 3.2e-6
-Solving for omega, Initial residual = {verdict.final_omega_residual:.6e}, Final residual = 1.9e-6
-ExecutionTime = {time.time() - t0:.2f} s
-""",
-            encoding="utf-8",
+        # Do not impersonate OpenFOAM output. Write a clearly-labelled provenance
+        # file instead of a fake log.simpleFoam / coefficient.dat.
+        provenance = {
+            "solver_used": "calibrated_synthetic",
+            "solver_version": SYNTHETIC_SOLVER_VERSION,
+            "is_synthetic": True,
+            "is_converged": False,
+            "convergence_status": verdict.status.value,
+            "note": (
+                "No CFD solver ran. These coefficients come from a closed-form "
+                "calibration model. Do not cite as CFD."
+            ),
+        }
+        (case_dir / "SYNTHETIC_MODEL.json").write_text(
+            json.dumps(provenance, indent=2), encoding="utf-8"
         )
         solver_used = "calibrated_synthetic"
+    elif backend == "native":
+        solver_used = "openfoam_native"
+    else:
+        solver_used = "openfoam_wsl"
+
+    is_synthetic = solver_used == "calibrated_synthetic"
+    solver_version = SYNTHETIC_SOLVER_VERSION if is_synthetic else "OpenFOAM (version not recorded)"
 
     # Compute dimensional forces (span b = 1.0 m, reference chord)
     q = 0.5 * 1.225 * (speed_ms**2)
@@ -234,4 +236,6 @@ ExecutionTime = {time.time() - t0:.2f} s
         drag_N=drag_N,
         execution_time_s=exec_time,
         solver_used=solver_used,
+        solver_version=solver_version,
+        is_synthetic=is_synthetic,
     )

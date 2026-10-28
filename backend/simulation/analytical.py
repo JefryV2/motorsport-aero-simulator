@@ -153,4 +153,11 @@ def simulate(config: FormulaAeroConfig, method: str = "analytical") -> Simulatio
         forces=forces,
         lap_time_delta_s=round(lap_delta, 4),
         method=method,
+        fidelity="empirical",
+        provenance={
+            "source": "semi-empirical correlation",
+            "solver": "none",
+            "validated_externally": False,
+            "notes": "Analytical baseline. Useful for trends, not a mesh solution.",
+        },
     )

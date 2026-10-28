@@ -96,6 +96,8 @@ export function exportResultsCsv(sim, engCtx) {
     ['Flow speed min', engCtx?.flowSpeedMinKmh ?? '', 'km/h'],
     ['Flow speed max', engCtx?.flowSpeedMaxKmh ?? '', 'km/h'],
     ['Method', sim?.method ?? '', ''],
+    ['Fidelity', sim?.fidelity ?? 'unknown', ''],
+    ['Provenance verified', sim?.provenance?.is_synthetic === true ? 'synthetic fallback' : 'solver/analytical', ''],
   ];
   const csv = rows.map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
   downloadBlob(csv, 'aero-results.csv', 'text/csv');

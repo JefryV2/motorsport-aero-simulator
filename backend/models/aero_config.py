@@ -1,6 +1,7 @@
 """Formula open-wheel aerodynamic configuration models."""
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -63,12 +64,22 @@ class AeroForces(BaseModel):
 
 
 class SimulationResult(BaseModel):
-    """Full simulation output."""
+    """Full simulation output.
+
+    ``fidelity`` and ``provenance`` are additive fields used to keep the UI and
+    downstream consumers honest about what produced the numbers. They never
+    change the aerodynamic values themselves.
+    """
 
     config: FormulaAeroConfig
     forces: AeroForces
     lap_time_delta_s: float = Field(description="Estimated lap time delta vs baseline")
     method: str
+    fidelity: str = Field(
+        default="unknown",
+        description="One of: empirical, low_fidelity_vlm, synthetic_model, rans",
+    )
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
 
 class OptimizationObjective(str, Enum):

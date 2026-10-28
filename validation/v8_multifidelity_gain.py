@@ -4,6 +4,10 @@ Demonstrates that Kennedy & O'Hagan (2000) AR1 multi-fidelity modeling:
 1. Outperforms single-fidelity GP under constrained CFD evaluation budgets.
 2. Provides well-calibrated probabilistic uncertainty bounds (nominal 95% coverage in [90%, 98%]).
 
+IMPORTANT: "high fidelity" here means the dataset's HF column. When no OpenFOAM
+binary is present that column is a calibrated synthetic model, so the result
+describes surrogate sample efficiency, not agreement with real CFD.
+
 References:
 - Kennedy, M. C., & O'Hagan, A. (2000). "Predicting the output from a complex computer code
   when inputs are uncertain". Biometrika, 87(1): 1–13.
@@ -19,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
-from backend.ml.dataset import FEATURE_COLUMNS, get_or_generate_dataset
+from backend.ml.dataset import FEATURE_COLUMNS, get_or_generate_dataset, summarize_provenance
 from backend.ml.metrics import compute_metrics, compute_reliability_curve
 from backend.ml.surrogate import AR1MultiFidelitySurrogate, SingleFidelityGP
 
@@ -31,6 +35,12 @@ def run_v8_validation() -> dict[str, float]:
     # 1. Load dataset
     dataset_path = Path("data/datasets/aero_surrogate_v1.parquet")
     df = get_or_generate_dataset(file_path=dataset_path, n_samples=120, seed=42)
+    provenance = summarize_provenance(df)
+    print(f"HF provenance: {provenance['solver_counts']} | synthetic={provenance['all_synthetic']}")
+    if provenance.get("warning"):
+        print("\n" + "!" * 70)
+        print(provenance["warning"])
+        print("!" * 70 + "\n")
 
     train_mask = df["split"] == "train"
     test_mask = df["split"] == "test"
@@ -125,6 +135,10 @@ def run_v8_validation() -> dict[str, float]:
         "final_r2": final_metrics.r2,
         "final_rmse": final_metrics.rmse,
         "coverage_95": final_metrics.coverage_95,
+        "rmse_reduction_n15": rmse_reductions[0],
+        "rmse_reduction_n70": rmse_reductions[-1],
+        "hf_source": "synthetic_model" if provenance["all_synthetic"] else "cfd",
+        "all_synthetic": bool(provenance["all_synthetic"]),
     }
 
 

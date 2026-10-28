@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from backend.models.aero_config import AeroForces, FormulaAeroConfig, SimulationResult
@@ -14,6 +15,22 @@ from backend.simulation.analytical import (
 from backend.simulation.cfd.case_builder import build_openfoam_case
 from backend.simulation.cfd.models import AirfoilGeometry, MeshLevel
 from backend.simulation.cfd.runner import detect_cfd_backend, run_cfd_case
+
+
+@dataclass(frozen=True)
+class CFDProvenance:
+    """What actually produced a CFD-family result."""
+
+    backend: str
+    solver_used: str
+    solver_version: str
+    convergence_status: str
+    is_converged: bool
+    is_synthetic: bool
+    fidelity: str
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 def is_openfoam_available() -> bool:
@@ -41,11 +58,14 @@ def generate_case(config: FormulaAeroConfig, case_id: str) -> Path:
     return case_dir
 
 
-def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationResult:
-    """Run CFD simulation for the front wing section in ground effect.
+def run_cfd_with_provenance(
+    config: FormulaAeroConfig, case_id: str = "latest"
+) -> tuple[SimulationResult, CFDProvenance]:
+    """Run the CFD-family pipeline and return the result with its real provenance.
 
-    Uses native OpenFOAM if present, WSL OpenFOAM if present, or calibrated
-    RANS-physics evaluator if OpenFOAM binary is unavailable.
+    The returned provenance is derived from the run that actually executed, not
+    from solver availability. This is what prevents synthetic fallbacks from
+    being labelled as OpenFOAM.
     """
     total_angle = config.front_wing_main.angle_deg + config.front_wing_flap.angle_deg
     ground_h = config.ride_height_front_mm / 1000.0
@@ -103,11 +123,30 @@ def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationRes
         efficiency=round(efficiency, 2),
     )
 
-    method_tag = "openfoam_cfd" if is_openfoam_available() else "cfd_synthetic_evaluated"
+    provenance = CFDProvenance(
+        backend=detect_cfd_backend(),
+        solver_used=result.solver_used,
+        solver_version=result.solver_version,
+        convergence_status=result.convergence.status.value,
+        is_converged=result.convergence.is_converged,
+        is_synthetic=result.is_synthetic,
+        fidelity="synthetic_model" if result.is_synthetic else "rans",
+    )
 
-    return SimulationResult(
+    method_tag = "cfd_synthetic_model" if result.is_synthetic else "openfoam_rans"
+
+    sim = SimulationResult(
         config=config,
         forces=forces,
         lap_time_delta_s=round((drag_total_N - df_total_N * 0.3) / 10000.0, 4),
         method=method_tag,
+        fidelity=provenance.fidelity,
+        provenance=provenance.as_dict(),
     )
+    return sim, provenance
+
+
+def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationResult:
+    """Run the front-wing CFD-family path and return the simulation result."""
+    sim, _ = run_cfd_with_provenance(config, case_id=case_id)
+    return sim
