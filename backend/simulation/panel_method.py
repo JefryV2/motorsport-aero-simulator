@@ -6,6 +6,8 @@ image ground plane, Trefftz drag) with the underbody ground-effect floor model.
 
 from __future__ import annotations
 
+import math
+
 from backend.models.aero_config import AeroForces, FormulaAeroConfig, SimulationResult
 from backend.simulation.analytical import (
     REF_AREA,
@@ -18,7 +20,10 @@ from backend.simulation.vlm.core import VLMSurface, solve_vlm
 
 
 def simulate_panel(
-    config: FormulaAeroConfig, method: str = "analytical_enhanced"
+    config: FormulaAeroConfig,
+    method: str = "analytical_enhanced",
+    n_span: int = 10,
+    n_chord: int = 2,
 ) -> SimulationResult:
     """Full-car simulation using 3D Vortex Lattice wings + ground effect underbody."""
     speed_ms = config.speed_kmh / 3.6
@@ -27,26 +32,32 @@ def simulate_panel(
     h_front = config.ride_height_front_mm / 1000.0
     config.ride_height_rear_mm / 1000.0
 
+    # Ensure front wing elements maintain positive ground clearance
+    alpha_main_rad = math.radians(config.front_wing_main.angle_deg)
+    alpha_flap_rad = math.radians(config.front_wing_flap.angle_deg)
+    z_fw_main = h_front + config.front_wing_main.chord_m * max(0.0, math.sin(alpha_main_rad)) + 0.005
+    z_fw_flap = z_fw_main + 0.035 + config.front_wing_flap.chord_m * max(0.0, math.sin(alpha_flap_rad))
+
     # Build multi-element wing surfaces
     fw_main = VLMSurface(
         name="front_wing_main",
-        origin=(0.20, 0.0, h_front),
+        origin=(0.20, 0.0, z_fw_main),
         span=config.front_wing_main.span_m,
         chord=config.front_wing_main.chord_m,
         angle_deg=config.front_wing_main.angle_deg,
         camber=0.03,
-        n_span=16,
-        n_chord=4,
+        n_span=n_span,
+        n_chord=n_chord,
     )
     fw_flap = VLMSurface(
         name="front_wing_flap",
-        origin=(0.20 + config.front_wing_main.chord_m * 0.75, 0.0, h_front + 0.035),
+        origin=(0.20 + config.front_wing_main.chord_m * 0.75, 0.0, z_fw_flap),
         span=config.front_wing_flap.span_m,
         chord=config.front_wing_flap.chord_m,
         angle_deg=config.front_wing_flap.angle_deg,
         camber=0.05,
-        n_span=16,
-        n_chord=4,
+        n_span=n_span,
+        n_chord=n_chord,
     )
     rw_main = VLMSurface(
         name="rear_wing_main",
@@ -55,8 +66,8 @@ def simulate_panel(
         chord=config.rear_wing_main.chord_m,
         angle_deg=config.rear_wing_main.angle_deg,
         camber=0.04,
-        n_span=16,
-        n_chord=4,
+        n_span=n_span,
+        n_chord=n_chord,
     )
     rw_flap = VLMSurface(
         name="rear_wing_flap",
@@ -65,8 +76,8 @@ def simulate_panel(
         chord=config.rear_wing_flap.chord_m,
         angle_deg=config.rear_wing_flap.angle_deg,
         camber=0.06,
-        n_span=16,
-        n_chord=4,
+        n_span=n_span,
+        n_chord=n_chord,
     )
 
     # Solve coupled 3D VLM with ground plane at z=0.0

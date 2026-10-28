@@ -5,6 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.models.aero_config import AeroForces, FormulaAeroConfig, SimulationResult
+from backend.simulation.analytical import (
+    REF_AREA,
+    RHO,
+    _body_drag,
+    _underbody_forces,
+)
 from backend.simulation.cfd.case_builder import build_openfoam_case
 from backend.simulation.cfd.models import AirfoilGeometry, MeshLevel
 from backend.simulation.cfd.runner import detect_cfd_backend, run_cfd_case
@@ -59,33 +65,37 @@ def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationRes
     )
 
     # Dynamic pressure
-    q = 0.5 * 1.225 * (speed_ms**2)
+    q = 0.5 * RHO * (speed_ms**2)
 
     # Front wing 3D estimate from 2D section (span b = 1.8m)
     span_m = config.front_wing_main.span_m
-    df_front_N = result.cl * q * airfoil.chord_m * span_m
-    drag_front_N = result.cd * q * airfoil.chord_m * span_m
+    df_front_wing_N = result.cl * q * airfoil.chord_m * span_m
+    drag_front_wing_N = result.cd * q * airfoil.chord_m * span_m
 
-    # Rear wing and underbody empirical balance
+    # Underbody floor forces
+    df_floor, drag_floor, floor_front_share = _underbody_forces(config, speed_ms)
+
+    # Rear wing empirical balance
     rear_angle = config.rear_wing_main.angle_deg + config.rear_wing_flap.angle_deg
-    df_rear_N = 0.08 * rear_angle * q * 1.0
-    drag_rear_N = (0.012 + 0.003 * rear_angle) * q * 1.0
+    df_rear_wing_N = 0.08 * rear_angle * q * 1.0
+    drag_rear_wing_N = (0.012 + 0.003 * rear_angle) * q * 1.0
 
-    df_total_N = df_front_N + df_rear_N
-    drag_total_N = drag_front_N + drag_rear_N
+    df_front_total = df_front_wing_N + df_floor * floor_front_share
+    df_rear_total = df_rear_wing_N + df_floor * (1.0 - floor_front_share)
+    df_total_N = df_front_total + df_rear_total
+    drag_total_N = drag_front_wing_N + drag_rear_wing_N + drag_floor + _body_drag(speed_ms)
 
-    balance_front_pct = (df_front_N / df_total_N * 100.0) if df_total_N > 1.0 else 50.0
+    balance_front_pct = (df_front_total / df_total_N * 100.0) if df_total_N > 1.0 else 50.0
     efficiency = df_total_N / drag_total_N if drag_total_N > 1.0 else 1.0
 
-    area_ref = 1.6  # m^2 reference frontal area
-    cl_total = df_total_N / (q * area_ref) if q > 0 else 0.0
-    cd_total = drag_total_N / (q * area_ref) if q > 0 else 0.0
+    cl_total = df_total_N / (q * REF_AREA) if q > 0 else 0.0
+    cd_total = drag_total_N / (q * REF_AREA) if q > 0 else 0.0
 
     forces = AeroForces(
         drag_N=round(drag_total_N, 1),
         downforce_total_N=round(df_total_N, 1),
-        downforce_front_N=round(df_front_N, 1),
-        downforce_rear_N=round(df_rear_N, 1),
+        downforce_front_N=round(df_front_total, 1),
+        downforce_rear_N=round(df_rear_total, 1),
         balance_front_pct=round(balance_front_pct, 1),
         cop_x_m=round(1.6 * (balance_front_pct / 100.0), 3),
         cl_total=round(cl_total, 3),

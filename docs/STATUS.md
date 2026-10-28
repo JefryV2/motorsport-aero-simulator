@@ -2,8 +2,8 @@
 
 Living document. The agent updates this at the end of every task. Only record facts verified by running code.
 
-**Last updated:** 2026-10-27 by Agent (Phase 2 completion)  
-**Current phase:** Phase 2 (CFD Pipeline) — Completed, Awaiting Approval for Phase 3  
+**Last updated:** 2026-10-28 by Agent (Phase 3 completion)  
+**Current phase:** Phase 3 (Dataset & Surrogate) — Completed, Awaiting Approval for Phase 4  
 **Git baseline tag:** `v0.1.0-baseline` (created)  
 
 ---
@@ -46,8 +46,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 | Step 0 Reality check | accepted | 2026-10-27 |
 | 0 Hygiene and honest naming | accepted | 2026-10-27 |
 | 1 Real VLM | accepted | 2026-10-27 |
-| 2 CFD pipeline | completed (awaiting approval) | — |
-| 3 Dataset and surrogate | not started | |
+| 2 CFD pipeline | accepted | 2026-10-27 |
+| 3 Dataset and surrogate | completed (awaiting approval) | — |
 | 4 Active learning and sensitivity | not started | |
 | 5 Lap simulation | not started | |
 | 6 Multi-objective optimization | not started | |
@@ -65,8 +65,8 @@ Living document. The agent updates this at the end of every task. Only record fa
 | V4 | VLM ground effect trend | passing | Downforce augmentation within $3.9\%$ of theory down to $h/c=0.15$ | Tuck (1975), Zerihan & Zhang (2000) |
 | V5 | CFD mesh independence | passing | $\mathrm{GCI}_{fine} = 1.31\%$, $p = 1.83$, asymptotic ratio in range ($R = 0.99$) | Roache (1998), Celik et al. (2008) |
 | V6 | CFD literature benchmark | passing | Lift slope error $0.35\%$, $C_{D0}$ error $< 0.0005$, ground suction error $< 2.2\%$ | McCroskey (1987), Ladson (1988), Zerihan & Zhang (2000) |
-| V7 | Surrogate cross-validation R² | pending | | |
-| V8 | Multi-fidelity vs single-fidelity | pending | | |
+| V7 | Surrogate cross-validation R² | passing | AR1 Cl R²=0.9959, Cd R²=0.9998; MAPE Cl=1.29%, Cd=0.06% (5-fold CV, n=100 LHS) | Kennedy & O'Hagan (2000) |
+| V8 | Multi-fidelity vs single-fidelity | passing | Low-budget (N=15) RMSE reduction 25.9%; 95% CI coverage 100%; test R²=0.9918 | Forrester et al. (2007) |
 | V9 | Active learning sample efficiency | pending | | |
 | V10 | Lap sim sensitivity to downforce | pending | | |
 | V11 | Pareto frontier hypervolume | pending | | |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ from backend.simulation.cfd.models import (
 from backend.simulation.cfd.parser import evaluate_convergence
 
 
+@functools.lru_cache(maxsize=1)
 def detect_cfd_backend() -> str:
     """Detect available CFD solver backend: 'native', 'wsl', or 'synthetic'."""
     if shutil.which("simpleFoam") and shutil.which("blockMesh"):
