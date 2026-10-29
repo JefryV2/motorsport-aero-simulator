@@ -67,9 +67,11 @@ def run_v2_validation() -> dict:
             all_passed = False
 
         status = "PASS" if passed else "FAIL"
+        caveat = " (low-AR tolerance; Helmbold is not a low-AR reference)" if ar <= 2.0 else ""
         print(
             f"AR={ar:4.1f} | VLM Slope: {slope_vlm:6.3f} rad^-1 | "
-            f"Helmbold: {slope_theory:6.3f} rad^-1 | Error: {error_pct:5.2f}% -> {status}"
+            f"Helmbold: {slope_theory:6.3f} rad^-1 | Error: {error_pct:5.2f}% "
+            f"(tol {tol:.1f}%) -> {status}{caveat}"
         )
         results_table.append(
             {
