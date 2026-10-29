@@ -28,6 +28,15 @@ class CFDProvenance:
     is_converged: bool
     is_synthetic: bool
     fidelity: str
+    note: str = ""
+    case_id: str = ""
+    mesh_cells: int = 0
+    iterations: int = 0
+    cl_section: float = 0.0
+    cd_section: float = 0.0
+    residual_p: float = 0.0
+    residual_u: float = 0.0
+    execution_time_s: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -38,7 +47,11 @@ def is_openfoam_available() -> bool:
     return detect_cfd_backend() in ("native", "wsl")
 
 
-def generate_case(config: FormulaAeroConfig, case_id: str) -> Path:
+def generate_case(
+    config: FormulaAeroConfig,
+    case_id: str,
+    mesh_level: MeshLevel = MeshLevel.MEDIUM,
+) -> Path:
     """Generate OpenFOAM case directory from FormulaAeroConfig parameters."""
     total_angle = config.front_wing_main.angle_deg + config.front_wing_flap.angle_deg
     ground_h = config.ride_height_front_mm / 1000.0
@@ -52,14 +65,16 @@ def generate_case(config: FormulaAeroConfig, case_id: str) -> Path:
 
     case_dir, _ = build_openfoam_case(
         airfoil=airfoil,
-        mesh_level=MeshLevel.MEDIUM,
+        mesh_level=mesh_level,
         speed_ms=config.speed_kmh / 3.6,
     )
     return case_dir
 
 
 def run_cfd_with_provenance(
-    config: FormulaAeroConfig, case_id: str = "latest"
+    config: FormulaAeroConfig,
+    case_id: str = "latest",
+    mesh_level: MeshLevel = MeshLevel.MEDIUM,
 ) -> tuple[SimulationResult, CFDProvenance]:
     """Run the CFD-family pipeline and return the result with its real provenance.
 
@@ -80,7 +95,7 @@ def run_cfd_with_provenance(
 
     result = run_cfd_case(
         airfoil=airfoil,
-        mesh_level=MeshLevel.MEDIUM,
+        mesh_level=mesh_level,
         speed_ms=speed_ms,
     )
 
@@ -130,10 +145,26 @@ def run_cfd_with_provenance(
         convergence_status=result.convergence.status.value,
         is_converged=result.convergence.is_converged,
         is_synthetic=result.is_synthetic,
-        fidelity="synthetic_model" if result.is_synthetic else "rans",
+        fidelity="synthetic_model" if result.is_synthetic else "rans_hybrid",
+        note=(
+            "No CFD solver ran. Coefficients come from a calibrated closed-form model."
+            if result.is_synthetic
+            else (
+                "2D k-omega SST RANS front-wing section (OpenFOAM) combined with "
+                "empirical floor and rear-wing terms. Not a full-car CFD solution."
+            )
+        ),
+        case_id=result.case_id,
+        mesh_cells=result.mesh_stats.num_cells,
+        iterations=result.convergence.iterations_run,
+        cl_section=result.cl,
+        cd_section=result.cd,
+        residual_p=result.convergence.final_p_residual,
+        residual_u=result.convergence.final_u_residual,
+        execution_time_s=result.execution_time_s,
     )
 
-    method_tag = "cfd_synthetic_model" if result.is_synthetic else "openfoam_rans"
+    method_tag = "cfd_synthetic_model" if result.is_synthetic else "openfoam_rans_hybrid"
 
     sim = SimulationResult(
         config=config,
@@ -146,7 +177,11 @@ def run_cfd_with_provenance(
     return sim, provenance
 
 
-def run_cfd(config: FormulaAeroConfig, case_id: str = "latest") -> SimulationResult:
+def run_cfd(
+    config: FormulaAeroConfig,
+    case_id: str = "latest",
+    mesh_level: MeshLevel = MeshLevel.MEDIUM,
+) -> SimulationResult:
     """Run the front-wing CFD-family path and return the simulation result."""
-    sim, _ = run_cfd_with_provenance(config, case_id=case_id)
+    sim, _ = run_cfd_with_provenance(config, case_id=case_id, mesh_level=mesh_level)
     return sim

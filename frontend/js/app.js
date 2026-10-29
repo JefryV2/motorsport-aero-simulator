@@ -14,6 +14,7 @@ const API = '';
 let viewer = null;
 let lastSim = null;
 let baselineSim = null;
+const referenceByFidelity = new Map();
 let debounceTimer = null;
 
 const TRACK_DATABASE = {
@@ -55,6 +56,7 @@ let aeroMapFrhVals = null;
 let aeroMapRrhVals = null;
 
 let cfdBackend = 'unknown';
+let simulateInFlight = false;
 
 const FIDELITY_META = {
   empirical: {
@@ -75,6 +77,12 @@ const FIDELITY_META = {
     short: 'Calibrated closed-form fallback',
     validation: 'not validated against real CFD',
   },
+  rans_hybrid: {
+    label: 'RANS + EMPIRICAL',
+    cls: 'hybrid',
+    short: '2D OpenFOAM front-wing RANS + empirical floor/rear',
+    validation: 'solver convergence parsed; total is a hybrid estimate',
+  },
   rans: {
     label: 'OPENFOAM RANS',
     cls: 'rans',
@@ -88,9 +96,46 @@ function fidelityFor(sim) {
   if (sim.fidelity && FIDELITY_META[sim.fidelity]) return sim.fidelity;
   const method = String(sim.method || '').toLowerCase();
   if (method.includes('synthetic')) return 'synthetic_model';
-  if (method.includes('openfoam')) return 'rans';
+  if (method.includes('openfoam')) return 'rans_hybrid';
   if (method.includes('panel') || method.includes('vlm') || method.includes('enhanced')) return 'low_fidelity_vlm';
   return 'empirical';
+}
+
+function isCfdMethod(method = document.getElementById('method')?.value) {
+  return method === 'cfd' || method === 'cfd_stub';
+}
+
+function syncMethodTabs() {
+  const method = document.getElementById('method')?.value;
+  const cfd = isCfdMethod(method);
+  document.querySelectorAll('.method-tab').forEach((tab) => {
+    const value = tab.dataset.method;
+    let active = false;
+    if (value === 'cfd') active = cfd;
+    else if (value === 'analytical') active = method === 'analytical';
+    else active = method === 'analytical_enhanced' || method === 'panel_vlm';
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function setMethod(value) {
+  const select = document.getElementById('method');
+  if (!select) return;
+  if (!Array.from(select.options).some((option) => option.value === value)) return;
+  select.value = value;
+  syncMethodTabs();
+  updateMethodNote();
+
+  const status = document.getElementById('status');
+  if (isCfdMethod(value)) {
+    if (status) {
+      status.textContent = 'CFD selected — press Run CFD to start (about one minute).';
+      status.className = 'status';
+    }
+  } else {
+    runSimulate();
+  }
 }
 
 function setFidelityBadge(key) {
@@ -115,6 +160,9 @@ function setFidelityBadge(key) {
   if (key === 'synthetic_model') {
     line.innerHTML += ' · <span style="color:#ffb020">no CFD solver ran</span>';
   }
+  if (key === 'rans_hybrid') {
+    line.innerHTML += ' · <span style="color:#6ee7b7">2D section + empirical floor/rear</span>';
+  }
 }
 
 function applyHealth(health) {
@@ -122,25 +170,60 @@ function applyHealth(health) {
   const banner = document.getElementById('provenanceBanner');
   const title = document.getElementById('pbTitle');
   const text = document.getElementById('pbText');
-  const cfdOption = document.querySelector('#method option[value="cfd_stub"]');
-
+  const cfdOption = document.querySelector('#method option[value="cfd"]');
+  const legacyCfdOption = document.querySelector('#method option[value="cfd_stub"]');
+  const solverVersion = health?.solver_version || 'OpenFOAM';
   const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
 
   if (cfdOption) {
     cfdOption.textContent = solverInstalled
-      ? 'CFD — OpenFOAM RANS (solver detected)'
-      : 'CFD — calibrated model (no OpenFOAM)';
+      ? `CFD — OpenFOAM ${solverVersion.replace(/^OpenFOAM\s*/i, '')} RANS + empirical`
+      : 'CFD — calibrated fallback (no OpenFOAM)';
+  }
+  if (legacyCfdOption) legacyCfdOption.textContent = 'CFD — calibrated fallback (legacy)';
+
+  const pill = document.getElementById('solverPill');
+  const pillText = document.getElementById('solverPillText');
+  const solverCard = document.getElementById('solverCard');
+  const solverName = document.getElementById('solverName');
+  const solverBackend = document.getElementById('solverBackend');
+  const solverNote = document.getElementById('solverNote');
+  const cfdTabTag = document.querySelector('.method-tab[data-method="cfd"] .tag');
+
+  if (pill) {
+    pill.className = 'status-pill ' + (solverInstalled ? 'ok' : 'warn');
+    if (pillText) {
+      pillText.textContent = solverInstalled
+        ? `${solverVersion} · ${cfdBackend.toUpperCase()}`
+        : 'No CFD solver';
+    }
+  }
+  if (solverCard) solverCard.className = 'solver-card ' + (solverInstalled ? 'ok' : 'warn');
+  if (solverName) solverName.textContent = solverInstalled ? solverVersion : 'Synthetic fallback only';
+  if (solverBackend) solverBackend.textContent = solverInstalled ? cfdBackend : 'none';
+  if (solverNote) {
+    solverNote.textContent = solverInstalled
+      ? 'The CFD action runs a real 2D k-omega SST RANS front-wing section, then adds empirical floor and rear-wing terms. It is a hybrid estimate, not full-car CFD.'
+      : 'No OpenFOAM detected. The CFD action returns the labelled calibrated fallback; VLM remains the physics preview.';
+  }
+  if (cfdTabTag) {
+    cfdTabTag.textContent = solverInstalled ? `${solverVersion} · ~1 min` : 'fallback only';
   }
 
-  if (!banner || !title || !text) return;
+  if (!banner || !title || !text) {
+    syncMethodTabs();
+    updateMethodNote();
+    return;
+  }
   banner.hidden = false;
 
   if (solverInstalled) {
     banner.className = 'provenance-banner ok';
-    title.textContent = 'OpenFOAM solver detected';
+    title.textContent = `${solverVersion} detected — real 2D RANS available`;
     text.innerHTML =
-      `The CFD option runs <code>simpleFoam</code> and reports parsed convergence. ` +
-      `VLM results remain the fast low-fidelity path.`;
+      `CFD solves a 2D front-wing section with <code>simpleFoam</code>; floor and rear-wing terms ` +
+      `stay empirical, so the total is <strong>RANS + EMPIRICAL</strong>, not full-car CFD. ` +
+      `VLM stays the live preview.`;
   } else {
     banner.className = 'provenance-banner warn';
     title.textContent = 'No CFD solver detected — synthetic fallback is active';
@@ -153,6 +236,7 @@ function applyHealth(health) {
   if (sessionStorage.getItem('provenanceDismissed') === '1') {
     banner.hidden = true;
   }
+  syncMethodTabs();
   updateMethodNote();
 }
 
@@ -163,6 +247,10 @@ async function loadHealth() {
     applyHealth(await res.json());
   } catch (e) {
     const banner = document.getElementById('provenanceBanner');
+    const pill = document.getElementById('solverPill');
+    const pillText = document.getElementById('solverPillText');
+    if (pill) pill.className = 'status-pill warn';
+    if (pillText) pillText.textContent = 'Backend unreachable';
     if (banner) {
       banner.hidden = false;
       banner.className = 'provenance-banner warn';
@@ -175,21 +263,46 @@ async function loadHealth() {
 
 function updateMethodNote() {
   const note = document.getElementById('methodNote');
-  const method = document.getElementById('method').value;
+  const method = document.getElementById('method')?.value || 'analytical_enhanced';
+  const button = document.getElementById('btnSimulate');
+  const hint = document.getElementById('runHint');
   if (!note) return;
   note.classList.remove('warn');
 
-  if (method === 'cfd_stub') {
-    const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
+  const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
+  const cfd = isCfdMethod(method);
+
+  if (cfd) {
     note.classList.toggle('warn', !solverInstalled);
     note.textContent = solverInstalled
-      ? 'OpenFOAM RANS on a 2D front-wing section, extrapolated to 3D with empirical floor/rear terms.'
-      : 'No OpenFOAM detected. This returns a calibrated model, not a mesh solution — label reads SYNTHETIC MODEL.';
+      ? 'Real 2D OpenFOAM RANS on the current front-wing section, with empirical floor and rear-wing terms. The total is a hybrid estimate, not full-car CFD.'
+      : 'No OpenFOAM detected. This returns the labelled calibrated fallback, not a mesh solution.';
+    if (button) {
+      button.textContent = solverInstalled ? 'Run CFD (OpenFOAM) · ~1 min' : 'Run CFD fallback';
+      button.classList.add('cfd-mode');
+    }
+    if (hint) {
+      hint.textContent = solverInstalled
+        ? 'Manual run: meshes and solves the 2D section, then combines it with the empirical floor/rear model. Expect about one minute.'
+        : 'No solver on this machine; the CFD action will be labelled as a synthetic fallback.';
+    }
   } else if (method === 'analytical') {
     note.textContent = 'Empirical correlations. Fast trend indicator; no flow field is solved.';
+    if (button) {
+      button.textContent = 'Run analytical';
+      button.classList.remove('cfd-mode');
+    }
+    if (hint) hint.textContent = 'Instant correlation baseline. Use VLM for the 3D physics preview.';
   } else {
     note.textContent = 'Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.';
+    if (button) {
+      button.textContent = 'Run VLM preview';
+      button.classList.remove('cfd-mode');
+    }
+    if (hint) hint.textContent = 'VLM updates instantly. Choose CFD for a real OpenFOAM solve (about one minute).';
   }
+
+  syncMethodTabs();
 }
 
 
@@ -298,26 +411,114 @@ function refreshVisualization(simForces = lastSim) {
   document.getElementById('aeroBadge')?.classList.add('active');
 }
 
-function getTrackLapDelta(forces) {
+function getTrackLapDelta(forces, fidelity) {
   const trackId = document.getElementById('track_profile')?.value || 'balanced';
   const track = TRACK_DATABASE[trackId] || TRACK_DATABASE.balanced;
-  
-  const baseline_drag = 1200.0;
-  const baseline_df = 3500.0;
-  
-  const drag_delta = (forces.drag_N - baseline_drag) * 0.0001 * track.dragMultiplier;
-  const df_delta = -(forces.downforce_total_N - baseline_df) * 0.00008 * track.dfMultiplier;
-  
+  const baselineFidelity = baselineSim ? fidelityFor(baselineSim) : null;
+  const referenceSim = baselineFidelity === fidelity ? baselineSim : referenceByFidelity.get(fidelity);
+  if (!referenceSim) return 0.0;
+
+  // Simple, explicitly relative lap-time proxy. It only compares runs from the
+  // same fidelity family: a CFD hybrid is never presented as a lap-time gain
+  // over a VLM preview, because those numbers are not directly comparable.
+  const reference = referenceSim.forces;
+  const drag_delta = (forces.drag_N - reference.drag_N) * 0.0001 * track.dragMultiplier;
+  const df_delta = -(forces.downforce_total_N - reference.downforce_total_N) * 0.00008 * track.dfMultiplier;
+
   return drag_delta + df_delta;
+}
+
+function populateCfdCard(sim) {
+  const card = document.getElementById('cfdCard');
+  if (!card) return;
+
+  const provenance = sim?.provenance || {};
+  const real = provenance.fidelity === 'rans_hybrid' ||
+    (provenance.is_synthetic === false && String(sim?.method || '').includes('openfoam'));
+  if (!provenance || (!real && provenance.is_synthetic !== true)) {
+    card.hidden = true;
+    return;
+  }
+
+  const title = document.getElementById('cfdTitle');
+  const status = document.getElementById('cfdStatus');
+  const note = document.getElementById('cfdNote');
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  card.hidden = false;
+  if (!real) {
+    if (title) title.textContent = 'Synthetic fallback';
+    if (status) {
+      status.textContent = 'NO SOLVER';
+      status.className = 'cfd-status warn';
+    }
+    setText('cfdCase', '—');
+    setText('cfdCells', '—');
+    setText('cfdIters', '—');
+    setText('cfdP', '—');
+    setText('cfdU', '—');
+    setText('cfdTime', '—');
+    if (note) {
+      note.textContent = provenance.note ||
+        'No mesh was generated. These numbers come from the calibrated closed-form fallback.';
+    }
+    return;
+  }
+
+  const converged = provenance.is_converged === true;
+  if (title) title.textContent = 'OpenFOAM case details';
+  if (status) {
+    status.textContent = String(provenance.convergence_status || (converged ? 'converged' : 'unconverged')).toUpperCase();
+    status.className = 'cfd-status ' + (converged ? 'ok' : 'warn');
+  }
+  setText('cfdCase', provenance.case_id || '—');
+  setText('cfdCells', provenance.mesh_cells ? Number(provenance.mesh_cells).toLocaleString() : '—');
+  setText('cfdIters', provenance.iterations ? String(provenance.iterations) : '—');
+  setText('cfdP', Number.isFinite(provenance.residual_p) ? provenance.residual_p.toExponential(1) : '—');
+  setText('cfdU', Number.isFinite(provenance.residual_u) ? provenance.residual_u.toExponential(1) : '—');
+  setText('cfdTime', Number.isFinite(provenance.execution_time_s) ? `${provenance.execution_time_s.toFixed(1)} s` : '—');
+  if (note) {
+    note.textContent = provenance.note ||
+      '2D front-wing section solved with OpenFOAM; floor and rear-wing terms remain empirical.';
+  }
+}
+
+function showCfdError(message) {
+  const card = document.getElementById('cfdCard');
+  if (!card) return;
+  card.hidden = false;
+  const title = document.getElementById('cfdTitle');
+  const status = document.getElementById('cfdStatus');
+  const note = document.getElementById('cfdNote');
+  if (title) title.textContent = 'OpenFOAM case failed';
+  if (status) {
+    status.textContent = 'FAILED';
+    status.className = 'cfd-status warn';
+  }
+  ['cfdCase', 'cfdCells', 'cfdIters', 'cfdP', 'cfdU', 'cfdTime'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  });
+  if (note) {
+    note.textContent = `No synthetic fallback was substituted. The force cards still show the last successful result, not this failed run. ${message || 'Check the server log for details.'}`;
+  }
 }
 
 function showResults(sim) {
   lastSim = sim;
-  
-  // Override lap delta client-side based on active track
-  sim.lap_time_delta_s = getTrackLapDelta(sim.forces);
 
   const fidelity = fidelityFor(sim);
+  if (fidelity && !referenceByFidelity.has(fidelity)) {
+    referenceByFidelity.set(fidelity, sim);
+  }
+
+  // Override the backend proxy with a delta relative to the saved baseline (or
+  // the first run) from the same fidelity family and the active track profile.
+  sim.lap_time_delta_s = getTrackLapDelta(sim.forces, fidelity);
+
   setFidelityBadge(fidelity);
 
   const liveBadge = document.getElementById('aeroBadge');
@@ -340,6 +541,7 @@ function showResults(sim) {
   document.getElementById('m_df_f').textContent = f.downforce_front_N.toLocaleString();
   document.getElementById('m_df_r').textContent = f.downforce_rear_N.toLocaleString();
   document.getElementById('m_cop').textContent = f.cop_x_m.toFixed(2);
+  populateCfdCard(sim);
   refreshVisualization(sim);
 }
 
@@ -395,54 +597,143 @@ function showProbe(probe) {
 }
 
 async function runSimulate() {
+  if (simulateInFlight) return;
+  simulateInFlight = true;
+
+  const method = document.getElementById('method').value;
+  const cfd = isCfdMethod(method);
+  const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
   const status = document.getElementById('status');
-  status.textContent = 'Simulating...';
-  status.className = 'status loading';
+  const button = document.getElementById('btnSimulate');
+  const progress = document.getElementById('runProgress');
+  let timer = null;
+
+  if (button) button.disabled = true;
+  if (progress) progress.hidden = false;
+  if (status) {
+    status.textContent = cfd
+      ? (solverInstalled ? 'Meshing + solving with OpenFOAM…' : 'Running CFD fallback…')
+      : 'Simulating…';
+    status.className = 'status loading';
+  }
+  const started = Date.now();
+  if (cfd) {
+    timer = setInterval(() => {
+      if (!status) return;
+      const seconds = Math.round((Date.now() - started) / 1000);
+      status.textContent = `${solverInstalled ? 'OpenFOAM solving' : 'CFD fallback'} · ${seconds}s`;
+    }, 500);
+  }
   refreshVisualization();
+
   try {
-    const res = await fetch(`${API}/api/simulate?method=${document.getElementById('method').value}`, {
+    const res = await fetch(`${API}/api/simulate?method=${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(getConfig()),
     });
-    if (!res.ok) throw new Error('API offline — local flow active');
-    showResults(await res.json());
-    status.textContent = 'Forces updated';
-    status.className = 'status';
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        detail = body?.detail || detail;
+      } catch {
+        detail = (await res.text()) || detail;
+      }
+      throw new Error(detail);
+    }
+    const sim = await res.json();
+    showResults(sim);
+    if (status) {
+      const fidelity = fidelityFor(sim);
+      const meta = fidelity ? FIDELITY_META[fidelity] : null;
+      status.textContent = cfd
+        ? `CFD complete${meta ? ' · ' + meta.label.toLowerCase() : ''}`
+        : 'Forces updated';
+      status.className = 'status';
+    }
   } catch (e) {
     refreshVisualization();
-    status.textContent = 'Local flow · ' + e.message;
-    status.className = 'status';
+    if (status) {
+      const firstLine = String(e.message || 'unknown error').split('\n')[0];
+      status.textContent = (cfd ? 'CFD failed · ' : 'Simulation failed · ') + firstLine;
+      status.className = 'status error';
+    }
+    if (cfd) showCfdError(String(e.message || ''));
+  } finally {
+    if (timer) clearInterval(timer);
+    if (progress) progress.hidden = true;
+    if (button) button.disabled = false;
+    simulateInFlight = false;
+    if (!cfd) updateMethodNote();
   }
 }
 
 async function runOptimize() {
   const status = document.getElementById('status');
-  status.textContent = 'Optimizing...';
+  const requestedMethod = document.getElementById('method').value;
+  const cfd = isCfdMethod(requestedMethod);
+  // Optimization uses the fast VLM/surrogate path. Never launch real CFD cases
+  // behind one button; CFD is for verifying the selected setup. 30 trials keeps
+  // the interactive request in the tens of seconds rather than several minutes.
+  const optimizeMethod = cfd ? 'analytical_enhanced' : requestedMethod;
+  const nTrials = 30;
+  const baseStatus = cfd
+    ? `Optimizing with VLM (${nTrials} trials; CFD is verification only)`
+    : `Optimizing (${nTrials} trials)`;
+  const started = Date.now();
+  let timer = null;
+  status.textContent = `${baseStatus}…`;
   status.className = 'status loading';
+  timer = setInterval(() => {
+    const seconds = Math.round((Date.now() - started) / 1000);
+    status.textContent = `${baseStatus} · ${seconds}s`;
+  }, 1000);
   try {
-    const res = await fetch(`${API}/api/simulate-and-optimize?method=${document.getElementById('method').value}`, {
+    const res = await fetch(`${API}/api/simulate-and-optimize?method=${optimizeMethod}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         config: getConfig(),
         objective: document.getElementById('objective').value,
-        n_trials: 100,
+        n_trials: nTrials,
         target_balance_pct: 42.0,
       }),
     });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        detail = (await res.json())?.detail || detail;
+      } catch {
+        detail = (await res.text()) || detail;
+      }
+      throw new Error(detail);
+    }
     const data = await res.json();
+    if (timer) clearInterval(timer);
     applyOptimizedConfig(data.optimization.best_config);
     showResults(data.optimized_simulation);
-    
+
+    const improvement = Number(data.optimization.improvement_pct);
+    const signedImprovement = `${improvement >= 0 ? '+' : ''}${improvement.toFixed(1)}%`;
+    const surrogateNote = cfd ? ' · VLM surrogate; run CFD to verify' : '';
+    const opt = data.optimization;
+    const reachNote = opt.target_reachable === false && opt.achievable_balance_pct?.length === 2
+      ? ` · target ${opt.target_balance_pct}% outside sampled range ${opt.achievable_balance_pct[0]}–${opt.achievable_balance_pct[1]}%`
+      : '';
+
     // Add optimizer recommendations to chat
-    chatHistory.push({ sender: 'assistant', text: `### Optimization Complete (+${data.optimization.improvement_pct}%)\n\n${data.advice.advice}` });
+    chatHistory.push({ sender: 'assistant', text: `### Optimization Complete (${signedImprovement} objective score)\n\n${data.advice.advice}${reachNote}` });
     renderChat();
-    
-    status.textContent = `+${data.optimization.improvement_pct}% (${data.advice.source})`;
+
+    status.textContent = `${signedImprovement} objective score (${data.advice.source})${surrogateNote}${reachNote}`;
     status.className = 'status';
   } catch (e) {
-    status.textContent = 'Error: ' + e.message;
+    if (timer) clearInterval(timer);
+    status.textContent = 'Optimization failed: ' + (String(e.message || '').split('\n')[0]);
+    status.className = 'status error';
+  } finally {
+    if (timer) clearInterval(timer);
   }
 }
 
@@ -468,20 +759,35 @@ function toggleDRS() {
     txt.textContent = 'DISABLED';
   }
   
-  runSimulate();
+  if (isCfdMethod()) {
+    refreshVisualization();
+    const status = document.getElementById('status');
+    if (status) {
+      status.textContent = 'DRS changed — re-run CFD to update the solver-backed forces.';
+      status.className = 'status';
+    }
+  } else {
+    runSimulate();
+  }
 }
 
 async function generateAeroMap() {
   const canvas = document.getElementById('aeroMapCanvas');
   const placeholder = document.getElementById('aeroMapPlaceholder');
   const loading = document.getElementById('aeroMapLoading');
-  
+  const mapMethod = isCfdMethod() ? 'analytical_enhanced' : document.getElementById('method').value;
+
   if (placeholder) placeholder.style.display = 'none';
   if (canvas) canvas.style.display = 'none';
-  if (loading) loading.style.display = 'block';
+  if (loading) {
+    loading.style.display = 'block';
+    loading.textContent = isCfdMethod()
+      ? 'Running 25 VLM map points (CFD is verification only)…'
+      : 'Running 25 simulations…';
+  }
   
   try {
-    const res = await fetch(`${API}/api/aero-map?method=${document.getElementById('method').value}`, {
+    const res = await fetch(`${API}/api/aero-map?method=${mapMethod}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -670,7 +976,16 @@ function handleAeroMapClick(e) {
     if (i >= 0 && i < steps && j >= 0 && j < steps) {
       document.getElementById('rh_front').value = aeroMapFrhVals[i];
       document.getElementById('rh_rear').value = aeroMapRrhVals[j];
-      runSimulate();
+      if (isCfdMethod()) {
+        refreshVisualization();
+        const status = document.getElementById('status');
+        if (status) {
+          status.textContent = 'Ride heights applied — press Run CFD to update solver-backed forces.';
+          status.className = 'status';
+        }
+      } else {
+        runSimulate();
+      }
       drawAeroMap();
     }
   }
@@ -777,7 +1092,15 @@ async function handleModelUpload(file) {
     updateSliderRanges();
     refreshVisualization(lastSim);
     fetch(`${API}/api/models/upload`, { method: 'POST', body: (() => { const f = new FormData(); f.append('file', file); return f; })() }).catch(() => {});
-    runSimulate();
+    if (isCfdMethod()) {
+      const runStatus = document.getElementById('status');
+      if (runStatus) {
+        runStatus.textContent = 'Model loaded — press Run CFD to update solver-backed forces.';
+        runStatus.className = 'status';
+      }
+    } else {
+      runSimulate();
+    }
   } catch (e) {
     status.textContent = 'Error: ' + e.message;
   }
@@ -886,7 +1209,13 @@ function setupControls() {
   document.getElementById('btnImport').addEventListener('click', () => document.getElementById('modelInput').click());
   document.getElementById('btnResetView').addEventListener('click', () => viewer.resetCamera());
 
-  document.getElementById('method')?.addEventListener('change', updateMethodNote);
+  document.getElementById('method')?.addEventListener('change', () => {
+    syncMethodTabs();
+    updateMethodNote();
+  });
+  document.querySelectorAll('.method-tab').forEach((tab) => {
+    tab.addEventListener('click', () => setMethod(tab.dataset.method));
+  });
   document.getElementById('pbDismiss')?.addEventListener('click', () => {
     const banner = document.getElementById('provenanceBanner');
     if (banner) banner.hidden = true;
@@ -987,6 +1316,7 @@ function applyInitialMethodFromUrl() {
   if (requested && Array.from(select.options).some((o) => o.value === requested)) {
     select.value = requested;
   }
+  syncMethodTabs();
 }
 
 function boot() {
@@ -1000,11 +1330,20 @@ function boot() {
     updateSliderRanges();
     updateUIState();
     syncSliderLabels();
+    syncMethodTabs();
     updateMethodNote();
     loadHealth();
     refreshVisualization();
     renderChat();
-    runSimulate();
+    if (isCfdMethod()) {
+      const status = document.getElementById('status');
+      if (status) {
+        status.textContent = 'CFD selected — press Run CFD to start (about one minute).';
+        status.className = 'status';
+      }
+    } else {
+      runSimulate();
+    }
   } catch (err) {
     document.getElementById('bootError').textContent = '3D viewer failed: ' + err.message;
     document.getElementById('bootError').style.display = 'block';

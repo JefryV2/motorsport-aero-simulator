@@ -15,6 +15,12 @@ __pycache__/
 # Environment variables
 .env
 
+# Runtime server logs
+data/server.log
+data/server.err.log
+data/datasets/*.log
+data/datasets/*_last_run.txt
+
 # Large mesh uploads and CFD cases
 data/models/*.obj
 data/models/*.stl

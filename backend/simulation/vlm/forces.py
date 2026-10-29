@@ -190,8 +190,13 @@ def compute_vlm_forces(
         d_total = d_induced + d_profile
         cd_total = cd_i + cd_p
 
-        # Inverted race wing convention: downforce is positive downward (-lift)
-        downforce = -surf_lift if surf_lift < 0 else surf_lift
+        # This VLM geometry is built in a downforce-positive convention:
+        # a positive incidence tilts the section down, so the circulation-based
+        # vertical force is positive downward.  Convert once here instead of
+        # hiding the sign with abs(); negative incidence must produce negative
+        # downforce (i.e. lift).
+        downforce = surf_lift
+        lift = -surf_lift
         efficiency = downforce / d_total if d_total > 0 else 0.0
 
         # Calculate Oswald efficiency factor e = Cl^2 / (pi * AR * Cd_i)
@@ -201,7 +206,7 @@ def compute_vlm_forces(
 
         results[surf_id] = SectionForceResult(
             surface_id=surf_id,
-            lift_N=round(surf_lift, 2),
+            lift_N=round(lift, 2),
             downforce_N=round(downforce, 2),
             drag_induced_N=round(d_induced, 2),
             drag_profile_N=round(d_profile, 2),

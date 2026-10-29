@@ -25,7 +25,7 @@ from backend.models.aero_config import (
 from backend.optimization.optimizer import optimize
 from backend.simulation.analytical import simulate
 from backend.simulation.cfd.openfoam_runner import is_openfoam_available, run_cfd
-from backend.simulation.cfd.runner import detect_cfd_backend
+from backend.simulation.cfd.runner import CFDRunError, detect_cfd_backend, get_solver_version
 from backend.simulation.panel_method import simulate_panel
 from backend.visualization.aero_field import compute_cp_field, force_vectors, generate_streamlines
 from backend.visualization.mesh_io import get_model_path, save_upload
@@ -65,10 +65,13 @@ FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 @app.get("/api/health")
 def health():
     backend = detect_cfd_backend()
+    solver_version = get_solver_version()
     return {
         "status": "ok",
         "cfd_backend": backend,
         "openfoam_available": is_openfoam_available(),
+        "solver_version": solver_version,
+        "cfd_ready": backend in ("native", "wsl"),
         "methods": [
             SimulationMethod.ANALYTICAL.value,
             SimulationMethod.ANALYTICAL_ENHANCED.value,
@@ -78,12 +81,18 @@ def health():
         ],
         "provenance": {
             "cfd_solver_installed": backend in ("native", "wsl"),
+            "cfd_backend": backend,
+            "solver_version": solver_version,
             "cfd_fallback": "calibrated_synthetic" if backend == "synthetic" else None,
             "note": (
                 "No OpenFOAM solver detected. CFD-family results are a calibrated "
                 "synthetic model, not a mesh solution."
                 if backend == "synthetic"
-                else "OpenFOAM detected. CFD-family results come from the solver."
+                else (
+                    "OpenFOAM detected. The front-wing section is solved with 2D "
+                    "RANS; floor and rear-wing terms remain empirical, so the total "
+                    "is a hybrid estimate, not a full-car CFD result."
+                )
             ),
         },
     }
@@ -100,7 +109,24 @@ def api_simulate(
         label = "panel_vlm" if method == SimulationMethod.PANEL_VLM else "analytical_enhanced"
         return simulate_panel(config, method=label)
     if method in (SimulationMethod.CFD_STUB, SimulationMethod.CFD):
-        return run_cfd(config)
+        try:
+            return run_cfd(config)
+        except CFDRunError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "OpenFOAM is installed but the case failed. No synthetic "
+                    f"fallback was substituted.\n{exc}"
+                ),
+            ) from exc
+        except Exception as exc:  # pragma: no cover - defensive API boundary
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "The CFD pipeline raised an unexpected error. No synthetic "
+                    f"fallback was substituted.\n{type(exc).__name__}: {exc}"
+                ),
+            ) from exc
     raise HTTPException(
         400,
         f"Unknown method: {method}. Use analytical, analytical_enhanced, panel_vlm, cfd_stub, or cfd.",
@@ -169,7 +195,15 @@ def api_aero_map(
     import copy
     import math
 
-    sim_fn = simulate_panel if method != SimulationMethod.ANALYTICAL else simulate
+    # A ride-height map is a 25-point sweep.  Never launch 25 real CFD cases
+    # from one map click; use the fast VLM/empirical path for the map and keep
+    # CFD as an explicit single-point verification.
+    map_method = (
+        SimulationMethod.ANALYTICAL_ENHANCED
+        if method in (SimulationMethod.CFD, SimulationMethod.CFD_STUB)
+        else method
+    )
+    sim_fn = simulate_panel if map_method != SimulationMethod.ANALYTICAL else simulate
     grid = []
 
     frh_vals = [

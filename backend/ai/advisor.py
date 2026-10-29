@@ -27,20 +27,20 @@ def _build_context(request: AdvisorRequest) -> str:
     f = sim.forces
     c = sim.config
 
-    context = f"""Current Setup:
+    context = f"""Baseline Setup:
 - Speed: {c.speed_kmh} km/h
 - Front wing: main {c.front_wing_main.angle_deg}°, flap {c.front_wing_flap.angle_deg}° (gurney {c.front_wing_main.gurney_mm}mm)
 - Rear wing: main {c.rear_wing_main.angle_deg}°, flap {c.rear_wing_flap.angle_deg}° (gurney {c.rear_wing_main.gurney_mm}mm)
 - Ride height: front {c.ride_height_front_mm}mm, rear {c.ride_height_rear_mm}mm
 - Rake: {c.rake_deg}°, Diffuser: {c.diffuser_angle_deg}° at {c.diffuser_ride_height_mm}mm
 
-Simulation Results ({sim.method}):
+Baseline Simulation Results ({sim.method}):
 - Total downforce: {f.downforce_total_N} N (front {f.downforce_front_N} N / rear {f.downforce_rear_N} N)
 - Drag: {f.drag_N} N
 - Balance: {f.balance_front_pct}% front
 - L/D efficiency: {f.efficiency}
 - Cl/Cd: {f.cl_total} / {f.cd_total}
-- Est. lap time delta: {sim.lap_time_delta_s}s vs baseline
+- Fixed-baseline lap proxy (not a track prediction): {sim.lap_time_delta_s}s
 """
 
     if request.optimization:
@@ -48,12 +48,15 @@ Simulation Results ({sim.method}):
         bf = opt.best_forces
         bc = opt.best_config
         context += f"""
-Optimization Results ({opt.trials_run} trials, {opt.improvement_pct}% improvement):
+Optimization Results ({opt.trials_run} trials):
 - Optimized front wing: main {bc.front_wing_main.angle_deg}°, flap {bc.front_wing_flap.angle_deg}°
 - Optimized rear wing: main {bc.rear_wing_main.angle_deg}°, flap {bc.rear_wing_flap.angle_deg}°
 - Optimized ride height: front {bc.ride_height_front_mm}mm, rear {bc.ride_height_rear_mm}mm
 - Optimized rake: {bc.rake_deg}°
-- Result: {bf.downforce_total_N} N DF, {bf.drag_N} N drag, {bf.efficiency} L/D, {bf.balance_front_pct}% balance
+- Optimized result: {bf.downforce_total_N} N DF, {bf.drag_N} N drag, {bf.efficiency} L/D, {bf.balance_front_pct}% balance
+- Change vs baseline: {bf.downforce_total_N - f.downforce_total_N:+.1f} N downforce, {bf.drag_N - f.drag_N:+.1f} N drag
+- Objective score improvement: {opt.improvement_pct}% (normalized score, not a physical or lap-time percentage)
+- Balance target: {opt.target_balance_pct}%; sampled achievable range: {opt.achievable_balance_pct}; target reachable: {opt.target_reachable}
 """
 
     if request.question:
@@ -65,8 +68,15 @@ Optimization Results ({opt.trials_run} trials, {opt.improvement_pct}% improvemen
 def _fallback_advice(request: AdvisorRequest) -> str:
     """Rule-based advisor when no LLM API key is configured."""
     sim = request.simulation
-    f = sim.forces
-    c = sim.config
+    base_f = sim.forces
+    base_c = sim.config
+    opt = request.optimization
+
+    # When an optimization is present, the advice must describe the optimized
+    # setup. Describing the baseline while showing optimized recommendations was
+    # the source of contradictory efficiency/balance/lap text in the UI.
+    f = opt.best_forces if opt is not None else base_f
+    c = opt.best_config if opt is not None else base_c
 
     if request.question:
         q = request.question.lower()
@@ -118,7 +128,13 @@ def _fallback_advice(request: AdvisorRequest) -> str:
         lines = []
 
     lines.append("## Summary")
-    if f.efficiency < 2.5:
+    if opt is not None:
+        lines.append(
+            f"Optimized efficiency is {f.efficiency} L/D (baseline {base_f.efficiency} L/D), "
+            f"with {f.downforce_total_N:.1f} N downforce (baseline {base_f.downforce_total_N:.1f} N) "
+            f"and {f.drag_N:.1f} N drag (baseline {base_f.drag_N:.1f} N)."
+        )
+    elif f.efficiency < 2.5:
         lines.append(
             f"Efficiency is low ({f.efficiency} L/D). Consider reducing rear wing flap angle "
             "or increasing rake to gain downforce more efficiently."
@@ -140,24 +156,47 @@ def _fallback_advice(request: AdvisorRequest) -> str:
             f"- Balance at {f.balance_front_pct}% front is within the optimal window (40-44%)."
         )
 
-    if request.optimization and request.optimization.improvement_pct > 0:
-        opt = request.optimization
+    if opt is not None and opt.improvement_pct > 0:
         bc = opt.best_config
         lines.append("\n## Optimizer Recommendations")
         lines.append(
-            f"- Front wing flap: {bc.front_wing_flap.angle_deg}° (was {sim.config.front_wing_flap.angle_deg}°)"
+            f"- Front wing flap: {bc.front_wing_flap.angle_deg:.1f}° (was {base_c.front_wing_flap.angle_deg:.1f}°)"
         )
         lines.append(
-            f"- Rear wing flap: {bc.rear_wing_flap.angle_deg}° (was {sim.config.rear_wing_flap.angle_deg}°)"
+            f"- Rear wing flap: {bc.rear_wing_flap.angle_deg:.1f}° (was {base_c.rear_wing_flap.angle_deg:.1f}°)"
         )
-        lines.append(f"- Ride height: {bc.ride_height_front_mm}/{bc.ride_height_rear_mm}mm F/R")
-        lines.append(f"- Expected improvement: {opt.improvement_pct}%")
+        lines.append(
+            f"- Ride height: {bc.ride_height_front_mm:.1f}/{bc.ride_height_rear_mm:.1f}mm F/R"
+        )
+        lines.append(
+            f"- Objective score improvement: {opt.improvement_pct}% "
+            "(normalized score, not a physical or lap-time percentage)"
+        )
+        if opt.target_reachable is False and len(opt.achievable_balance_pct) == 2:
+            lines.append(
+                f"- Balance target {opt.target_balance_pct}% is outside the sampled range "
+                f"{opt.achievable_balance_pct[0]}-{opt.achievable_balance_pct[1]}%."
+            )
 
     lines.append("\n## Trade-offs")
     lines.append(
-        f"- Current drag: {f.drag_N} N — each +100N downforce costs ~{f.drag_N / max(f.downforce_total_N, 1) * 100:.0f}N drag ratio"
+        f"- {'Optimized' if opt is not None else 'Current'} drag: {f.drag_N:.1f} N; "
+        f"downforce/drag ratio {f.downforce_total_N / max(f.drag_N, 1):.2f}"
     )
-    lines.append(f"- Lap time impact: {sim.lap_time_delta_s:+.4f}s vs baseline")
+    if opt is not None:
+        lines.append(
+            f"- Change vs baseline: {f.downforce_total_N - base_f.downforce_total_N:+.1f} N downforce, "
+            f"{f.drag_N - base_f.drag_N:+.1f} N drag."
+        )
+        lines.append(
+            "- The lap-time proxy is shown in the metric panel relative to the same-fidelity "
+            "baseline; the fixed backend proxy is not an optimized lap-time prediction."
+        )
+    else:
+        lines.append(
+            f"- Lap-time proxy: {sim.lap_time_delta_s:+.4f}s vs the fixed backend baseline "
+            "(not a track-specific prediction)."
+        )
 
     lines.append("\n## Track Recommendation")
     if f.downforce_total_N > 4000:

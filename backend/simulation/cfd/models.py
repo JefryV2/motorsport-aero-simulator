@@ -62,6 +62,8 @@ class ConvergenceVerdict:
     final_k_residual: float
     final_omega_residual: float
     is_converged: bool
+    cm_mean: float = 0.0
+    cm_std: float = 0.0
 
 
 @dataclass

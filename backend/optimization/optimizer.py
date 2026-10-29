@@ -19,16 +19,55 @@ from backend.simulation.panel_method import simulate_panel
 def _objective_score(
     forces: AeroForces, objective: OptimizationObjective, target_balance: float
 ) -> float:
-    """Convert forces to a scalar to maximize."""
+    """Convert forces to a scalar to maximize.
+
+    The balanced objective is a weighted sum of *normalised* terms. Without
+    normalisation the raw downforce in newtons dominates efficiency and the
+    balance target by orders of magnitude, so "balanced" collapses into
+    "maximum downforce". The weights here are a design choice, not a claim of
+    physical optimality: downforce 35%, efficiency 25%, balance 40% with a
+    25-percentage-point tolerance around the target.
+    """
     if objective == OptimizationObjective.MAX_DOWNFORCE:
         return float(forces.downforce_total_N)
     if objective == OptimizationObjective.MIN_DRAG:
         return float(-forces.drag_N)
     if objective == OptimizationObjective.MAX_EFFICIENCY:
         return float(forces.efficiency)
-    # Balanced: downforce + efficiency + balance penalty
-    balance_penalty = abs(forces.balance_front_pct - target_balance) * 5.0
-    return float(forces.downforce_total_N * 0.6 + forces.efficiency * 200 - balance_penalty)
+
+    downforce_term = forces.downforce_total_N / 3000.0
+    efficiency_term = forces.efficiency / 3.0
+    balance_error = abs(forces.balance_front_pct - target_balance)
+    balance_term = max(0.0, 1.0 - balance_error / 25.0)
+    return float(0.35 * downforce_term + 0.25 * efficiency_term + 0.40 * balance_term)
+
+
+def _pareto_front(points: list[dict], limit: int = 20) -> list[dict]:
+    """Return the non-dominated drag/downforce points.
+
+    The previous implementation sorted the first 50 trials by score and called
+    that a Pareto front. This filters points that are actually dominated on the
+    drag/downforce plane, then sorts the front by drag for plotting.
+    """
+    front: list[dict] = []
+    seen: set[tuple[float, float]] = set()
+    for point in points:
+        key = (round(point["drag_N"], 1), round(point["downforce_N"], 1))
+        if key in seen:
+            continue
+        dominated = any(
+            other["downforce_N"] >= point["downforce_N"]
+            and other["drag_N"] <= point["drag_N"]
+            and (
+                other["downforce_N"] > point["downforce_N"]
+                or other["drag_N"] < point["drag_N"]
+            )
+            for other in points
+        )
+        if not dominated:
+            seen.add(key)
+            front.append(point)
+    return sorted(front, key=lambda item: (item["drag_N"], -item["downforce_N"]))[:limit]
 
 
 def optimize(request: OptimizationRequest, use_panel: bool = True) -> OptimizationResult:
@@ -40,12 +79,12 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
 
     sim_fn = simulate_panel if use_panel else simulate
     target_balance = request.target_balance_pct or 42.0
-    pareto: list[dict] = []
+    trial_points: list[dict] = []
 
     def optuna_objective(trial: optuna.Trial) -> float:
         cfg = copy.deepcopy(request.config)
-        cfg.front_wing_main.angle_deg = trial.suggest_float("fw_main_angle", -2.0, 8.0)
-        cfg.front_wing_flap.angle_deg = trial.suggest_float("fw_flap_angle", 2.0, 20.0)
+        cfg.front_wing_main.angle_deg = trial.suggest_float("fw_main_angle", 0.0, 8.0)
+        cfg.front_wing_flap.angle_deg = trial.suggest_float("fw_flap_angle", 4.0, 20.0)
         cfg.rear_wing_main.angle_deg = trial.suggest_float("rw_main_angle", 0.0, 12.0)
         cfg.rear_wing_flap.angle_deg = trial.suggest_float("rw_flap_angle", 5.0, 30.0)
         cfg.ride_height_front_mm = trial.suggest_float("rh_front", 10.0, 50.0)
@@ -63,18 +102,15 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
             return -1e6
 
         score = _objective_score(forces, request.objective, target_balance)
-
-        if len(pareto) < 50:
-            pareto.append(
-                {
-                    "drag_N": forces.drag_N,
-                    "downforce_N": forces.downforce_total_N,
-                    "efficiency": forces.efficiency,
-                    "balance_pct": forces.balance_front_pct,
-                    "score": score,
-                }
-            )
-
+        trial_points.append(
+            {
+                "drag_N": forces.drag_N,
+                "downforce_N": forces.downforce_total_N,
+                "efficiency": forces.efficiency,
+                "balance_pct": forces.balance_front_pct,
+                "score": score,
+            }
+        )
         return score
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -100,11 +136,24 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
     improvement = (
         ((best_score - baseline_score) / abs(baseline_score) * 100) if baseline_score else 0.0
     )
+    balances = [point["balance_pct"] for point in trial_points]
+    achievable_balance = (
+        [round(min(balances), 1), round(max(balances), 1)] if balances else []
+    )
+    balanced_objective = request.objective == OptimizationObjective.BALANCED
+    target_reachable = (
+        bool(achievable_balance and achievable_balance[0] <= target_balance <= achievable_balance[1])
+        if balanced_objective
+        else None
+    )
 
     return OptimizationResult(
         best_config=best_cfg,
         best_forces=best_result.forces,
         improvement_pct=round(improvement, 2),
         trials_run=request.n_trials,
-        pareto_front=sorted(pareto, key=lambda x: x["score"], reverse=True)[:20],
+        pareto_front=_pareto_front(trial_points),
+        target_balance_pct=target_balance if balanced_objective else None,
+        achievable_balance_pct=achievable_balance,
+        target_reachable=target_reachable,
     )

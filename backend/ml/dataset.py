@@ -22,6 +22,7 @@ from backend.models.aero_config import (
     FormulaAeroConfig,
     WingElement,
 )
+from backend.simulation.cfd.models import MeshLevel
 from backend.simulation.cfd.openfoam_runner import run_cfd_with_provenance
 from backend.simulation.panel_method import simulate_panel
 
@@ -113,13 +114,15 @@ def compute_config_hash(values: dict[str, Any]) -> str:
 
 def evaluate_design_point(
     sample_values: dict[str, float],
-    mesh_level: str = "medium",
+    mesh_level: MeshLevel = MeshLevel.MEDIUM,
 ) -> dict[str, Any]:
     """Evaluate both low-fidelity (VLM) and high-fidelity (CFD-family) physics at a design point.
 
     Provenance columns are read from the run that actually executed. When no
     OpenFOAM binary is available the high-fidelity column is explicitly marked
-    as a synthetic model, never as an OpenFOAM result.
+    as a synthetic model, never as an OpenFOAM result. A solver failure is kept
+    as a row with ``hf_failed=True`` and NaN HF targets; this preserves the
+    audit trail without substituting an invented result.
     """
     config = sample_vector_to_config(sample_values)
     config_hash = compute_config_hash(sample_values)
@@ -128,20 +131,10 @@ def evaluate_design_point(
     vlm_result = simulate_panel(config)
     lf_forces = vlm_result.forces
 
-    # 2. High-Fidelity: OpenFOAM when available, otherwise a labelled surrogate
-    cfd_result, provenance = run_cfd_with_provenance(config)
-    hf_forces = cfd_result.forces
-
     record: dict[str, Any] = {
         "config_hash": config_hash,
         "timestamp_epoch": time.time(),
-        "mesh_level": mesh_level,
-        "solver_version": provenance.solver_version,
-        "solver_used": provenance.solver_used,
-        "hf_fidelity": provenance.fidelity,
-        "is_synthetic": provenance.is_synthetic,
-        "convergence_flag": provenance.is_converged,
-        "convergence_status": provenance.convergence_status,
+        "mesh_level": mesh_level.value,
         # Feature columns
         **sample_values,
         # LF Targets
@@ -150,37 +143,95 @@ def evaluate_design_point(
         "df_total_lf": lf_forces.downforce_total_N,
         "drag_total_lf": lf_forces.drag_N,
         "balance_lf": lf_forces.balance_front_pct,
-        # HF Targets
-        "cl_hf": hf_forces.cl_total,
-        "cd_hf": hf_forces.cd_total,
-        "df_total_hf": hf_forces.downforce_total_N,
-        "drag_total_hf": hf_forces.drag_N,
-        "balance_hf": hf_forces.balance_front_pct,
     }
+
+    # 2. High-Fidelity: OpenFOAM when available, otherwise a labelled surrogate.
+    # Failures are recorded, not hidden and not replaced with synthetic values.
+    try:
+        cfd_result, provenance = run_cfd_with_provenance(config, mesh_level=mesh_level)
+        hf_forces = cfd_result.forces
+        record.update(
+            {
+                "solver_version": provenance.solver_version,
+                "solver_used": provenance.solver_used,
+                "hf_fidelity": provenance.fidelity,
+                "is_synthetic": provenance.is_synthetic,
+                "hf_failed": False,
+                "hf_error": "",
+                "convergence_flag": provenance.is_converged,
+                "convergence_status": provenance.convergence_status,
+                "cfd_case_id": provenance.case_id,
+                "cfd_mesh_cells": provenance.mesh_cells,
+                "cfd_cl_section": provenance.cl_section,
+                "cfd_cd_section": provenance.cd_section,
+                "cfd_note": provenance.note,
+                # HF Targets
+                "cl_hf": hf_forces.cl_total,
+                "cd_hf": hf_forces.cd_total,
+                "df_total_hf": hf_forces.downforce_total_N,
+                "drag_total_hf": hf_forces.drag_N,
+                "balance_hf": hf_forces.balance_front_pct,
+            }
+        )
+    except Exception as exc:  # CFDRunError and unexpected pipeline failures
+        record.update(
+            {
+                "solver_version": "failed",
+                "solver_used": "none (cfd_failed)",
+                "hf_fidelity": "failed",
+                "is_synthetic": False,
+                "hf_failed": True,
+                "hf_error": f"{type(exc).__name__}: {exc}"[:500],
+                "convergence_flag": False,
+                "convergence_status": "failed",
+                "cfd_case_id": "",
+                "cfd_mesh_cells": 0,
+                "cfd_cl_section": float("nan"),
+                "cfd_cd_section": float("nan"),
+                "cfd_note": "No synthetic fallback substituted for this failed point.",
+                **{column: float("nan") for column in HF_TARGETS},
+            }
+        )
     return record
 
 
 def generate_surrogate_dataset(
-    n_samples: int = 100,
+    n_samples: int = 24,
     seed: int = 42,
     train_ratio: float = 0.70,
     val_ratio: float = 0.15,
-    max_workers: int = 6,
+    max_workers: int = 1,
+    mesh_level: MeshLevel = MeshLevel.MEDIUM,
 ) -> pd.DataFrame:
     """Generate a multi-fidelity dataset using Latin Hypercube Sampling.
 
-    Assigns deterministic train / val / test splits.
+    Assigns deterministic train / val / test splits. The default is deliberately
+    small and serial: each high-fidelity point is a real OpenFOAM solve, so a
+    100-point parallel run would overload the machine and take hours. Pass
+    ``max_workers > 1`` only when the solver host can support it.
     """
     samples = sample_design_space(n_samples=n_samples, seed=seed)
 
     def _eval(i: int) -> dict[str, Any]:
         val_dict = dict(zip(FEATURE_COLUMNS, samples[i].tolist(), strict=True))
-        rec = evaluate_design_point(val_dict)
+        rec = evaluate_design_point(val_dict, mesh_level=mesh_level)
         rec["sample_id"] = i
+        if rec.get("hf_failed"):
+            outcome = "FAILED"
+        elif rec.get("is_synthetic"):
+            outcome = "SYNTHETIC"
+        else:
+            outcome = str(rec.get("convergence_status", "unknown"))
+        cl_hf = rec.get("cl_hf")
+        cl_text = f"{cl_hf:.4f}" if isinstance(cl_hf, (int, float)) and cl_hf == cl_hf else "nan"
+        print(f"[{i + 1:02d}/{n_samples}] hf={outcome} cl_hf={cl_text}", flush=True)
         return rec
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        records = list(executor.map(_eval, range(n_samples)))
+    if max_workers <= 1:
+        records = [_eval(i) for i in range(n_samples)]
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            records = list(executor.map(_eval, range(n_samples)))
 
     df = pd.DataFrame(records)
 
@@ -231,24 +282,35 @@ def summarize_provenance(df: pd.DataFrame) -> dict[str, Any]:
     is_synth = df.get("is_synthetic")
     all_synthetic = bool(is_synth.all()) if is_synth is not None else False
     converged = df.get("convergence_flag")
+    failed = df.get("hf_failed")
+    n_failed = int(failed.fillna(False).astype(bool).sum()) if failed is not None else 0
+    n_used = int(len(df) - n_failed)
+    warning = None
+    if all_synthetic:
+        warning = (
+            "HIGH-FIDELITY COLUMN IS A SYNTHETIC MODEL: results validate the "
+            "surrogate machinery against a deterministic generator, not physics."
+        )
+    elif n_failed:
+        warning = (
+            f"{n_failed} high-fidelity point(s) failed and are retained with NaN "
+            "targets; surrogate metrics use the remaining successful rows only."
+        )
     return {
         "has_provenance": True,
         "all_synthetic": all_synthetic,
         "solver_counts": counts,
         "n_rows": int(len(df)),
+        "n_used": n_used,
+        "n_failed": n_failed,
         "n_converged": int(converged.fillna(False).astype(bool).sum()) if converged is not None else None,
-        "warning": (
-            "HIGH-FIDELITY COLUMN IS A SYNTHETIC MODEL: results validate the "
-            "surrogate machinery against a deterministic generator, not physics."
-            if all_synthetic
-            else None
-        ),
+        "warning": warning,
     }
 
 
 def get_or_generate_dataset(
     file_path: Path = DEFAULT_DATASET_PATH,
-    n_samples: int = 120,
+    n_samples: int = 24,
     seed: int = 42,
     force_regenerate: bool = False,
 ) -> pd.DataFrame:

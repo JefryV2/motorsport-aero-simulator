@@ -1,19 +1,26 @@
 # Motorsport Aero Simulator
 
-Formula open-wheel aerodynamic simulator with Bayesian optimization and AI-powered setup advice.
+Formula open-wheel aerodynamic simulator with a 3D vortex-lattice preview, an
+optional real OpenFOAM front-wing section solve, Bayesian optimization, and
+AI-powered setup advice.
 
 ## Features
 
 - **Three simulation methods**
   - `analytical` — fast semi-empirical model (wings + ground effect + diffuser)
-  - `panel_vlm` — vortex lattice method for wings (recommended)
-  - `cfd` — OpenFOAM integration (falls back to analytical if OpenFOAM not installed)
-
-- **Bayesian optimizer** (Optuna TPE) — tunes wing angles, ride height, rake, diffuser, gurney flaps
-
-- **AI advisor** — LLM-powered recommendations (OpenAI-compatible API) with rule-based fallback
-
-- **Web UI** — interactive 3D viewer with STL/OBJ/GLB import, real-time Cp pressure map, streamlines, and force vectors
+  - `analytical_enhanced` / `panel_vlm` — 3D vortex lattice with image ground
+    plane and Trefftz drag; this is the live preview
+  - `cfd` — manual OpenFOAM RANS run on a 2D front-wing section, combined with
+    empirical floor and rear-wing terms (hybrid estimate; not full-car CFD)
+- **Bayesian optimizer** (Optuna TPE) — tunes wing angles, ride height, rake,
+  diffuser, and gurney flaps. Optimization always uses the fast VLM path; real
+  CFD is a single-point verification, not a 100-case inner loop. The UI runs 30
+  trials and shows an elapsed-time counter; the API trial count is configurable.
+- **AI advisor** — LLM-powered recommendations (OpenAI-compatible API) with a
+  rule-based fallback
+- **Web UI** — interactive 3D viewer with STL/OBJ/GLB import, a heuristic Cp
+  pressure map, streamlines, force vectors, provenance badges, and a CFD case
+  details card
 
 ## Quick Start
 
@@ -22,51 +29,100 @@ cd motorsport-aero-simulator
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -r requirements.txt
-copy .env.example .env        # optional: add OPENAI_API_KEY for LLM advisor
-python -m uvicorn backend.main:app --reload --port 8000
+copy .env.example .env        # optional: add OPENAI_API_KEY for the LLM advisor
+python -m uvicorn backend.main:app --port 8000
 ```
 
-Open http://localhost:8000 in your browser.
+Open <http://localhost:8000>. Drag and drop a car model (STL, OBJ, GLB/GLTF) or
+use the built-in formula car.
 
-Open http://localhost:8000 — drag & drop your car model (STL/OBJ/GLB) or use the built-in formula car.
+## Real CFD (optional)
 
-## 3D Visualization
+The app works without OpenFOAM: the VLM preview runs immediately, and the CFD
+tab reports an explicitly-labelled synthetic fallback when no solver is found.
 
-| Feature | Description |
-|---------|-------------|
-| **Model import** | Drag & drop or browse STL, OBJ, GLB/GLTF files (up to 50 MB) |
-| **Pressure map** | Real-time Cp coloring — blue = suction/downforce, red = pressure/drag |
-| **Streamlines** | Airflow paths deflected around the car |
-| **Force vectors** | Red = drag, teal = downforce arrows scaled to magnitude |
-| **Live updates** | Move any slider — pressure map updates instantly |
-| **Optimize** | Bayesian search finds best setup, updates 3D view + AI advice |
+To run real CFD on Windows, install OpenFOAM inside WSL2 (for example,
+Ubuntu 22.04 with OpenFOAM 1912), then expose `simpleFoam`, `blockMesh`, and
+`snappyHexMesh` inside the distro. Restart the server after installing; the
+health endpoint reports the detected backend and solver version.
+
+The CFD tab is deliberately **manual**, because a medium case takes roughly one
+minute:
+
+1. Select the CFD tab.
+2. Press **Run CFD**.
+3. Wait for the mesh + solve progress; the case card reports cell count,
+   residuals, iterations, execution time, and `CONVERGED` / `UNCONVERGED`.
+
+What the real path does:
+
+- Generates a 2D inverted NACA 4412 section from the current front-wing chord,
+  total angle, and front ride height.
+- Meshes it with `blockMesh` + `snappyHexMesh` and solves steady
+  k-omega-SST RANS with a moving ground plane.
+- Combines the section coefficients with empirical floor and rear-wing terms.
+
+What it does **not** do:
+
+- It is not a full-car, multi-element CFD solution. The total is a hybrid
+  estimate.
+- A real solver failure returns HTTP 503 and a failed case card. It never
+  silently replaces the run with synthetic numbers.
+- Mesh independence is **not** demonstrated on the current meshes; see
+  `docs/STATUS.md` for the measured GCI.
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/health` | Health check + available methods |
-| POST | `/api/models/upload` | Upload 3D car model (STL/OBJ) |
-| POST | `/api/aero-field` | Cp field on mesh vertices |
+| GET | `/api/health` | Health, CFD backend, solver version, readiness |
+| POST | `/api/models/upload` | Upload a 3D car model (STL/OBJ/GLB) |
+| POST | `/api/aero-field` | Heuristic Cp field on mesh vertices |
 | POST | `/api/visualization` | Streamlines + force vectors |
-| POST | `/api/simulate?method=panel_vlm` | Run aero simulation |
+| POST | `/api/simulate?method=analytical_enhanced` | Fast VLM preview |
+| POST | `/api/simulate?method=cfd` | Real 2D RANS + empirical hybrid, or 503 |
 | POST | `/api/optimize` | Bayesian parameter optimization |
+| POST | `/api/aero-map` | 5x5 ride-height map (fast VLM path) |
 | POST | `/api/advise` | AI setup recommendations |
-| POST | `/api/simulate-and-optimize` | Full pipeline: simulate → optimize → advise |
+| POST | `/api/simulate-and-optimize` | Simulate -> optimize -> advise |
 
-Interactive docs: http://localhost:8000/docs
+Interactive docs: <http://localhost:8000/docs>
+
+## Validation and Dataset
+
+```bash
+.venv\Scripts\python.exe validation\v5_grid_independence.py
+.venv\Scripts\python.exe validation\v6_cfd_benchmark.py
+.venv\Scripts\python.exe validation\v7_surrogate_cv.py
+.venv\Scripts\python.exe validation\v8_multifidelity_gain.py
+```
+
+The V5/V6 scripts run real meshes/solves and report measured results, including
+failure to meet historical targets. The V7/V8 surrogates use
+`data/datasets/aero_surrogate_v1.parquet`, which is now a 28-point real-CFD
+dataset (OpenFOAM WSL, medium mesh). The pre-existing synthetic dataset is kept
+at `data/datasets/aero_surrogate_v1_synthetic_backup.parquet`.
+
+To regenerate the real dataset (about 25-30 minutes for 28 serial medium cases):
+
+```bash
+.venv\Scripts\python.exe scripts\generate_real_dataset.py --samples 28 --max-workers 1
+```
+
+Failed solver points are retained with `hf_failed=True` and NaN high-fidelity
+targets; they are never filled with invented numbers.
 
 ## Architecture
 
 ```
-Setup Config → Simulator (analytical / VLM / CFD)
-                    ↓
+Setup Config -> Simulator (analytical / VLM / real CFD hybrid)
+                    |
               Force Results (DF, drag, balance, L/D)
-                    ↓
-         Optimizer (Optuna) ← objective: balanced / max DF / min drag
-                    ↓
+                    |
+         Optimizer (Optuna, VLM path) <- objective: balanced / max DF / min drag
+                    |
               AI Advisor (LLM or rules)
-                    ↓
+                    |
            Recommendations + optimized setup
 ```
 
@@ -74,30 +130,42 @@ Setup Config → Simulator (analytical / VLM / CFD)
 
 | Parameter | Range | Effect |
 |-----------|-------|--------|
-| Front wing main/flap angle | -2° to 20° | Front downforce, balance |
-| Rear wing main/flap angle | 0° to 30° | Total downforce, drag |
-| Ride height F/R | 10–70 mm | Ground effect sensitivity |
-| Rake | 0° to 3.5° | Diffuser expansion, rear DF |
-| Diffuser angle | 8° to 18° | Underbody downforce |
-| Gurney flaps | 0–30 mm | Local Cl boost |
-
-## OpenFOAM CFD (optional)
-
-Install [OpenFOAM](https://www.openfoam.com/) and ensure `simpleFoam` is on PATH.
-The simulator generates case files in `data/cfd_cases/` and runs CFD automatically
-when method=`cfd` is selected.
+| Front wing main/flap angle | -5 to 35 deg (UI narrower) | Front downforce, balance |
+| Rear wing main/flap angle | -5 to 35 deg (UI narrower) | Total downforce, drag |
+| Ride height F/R | 10-70 mm | Ground effect sensitivity |
+| Rake | 0-3.5 deg | Diffuser expansion, rear downforce |
+| Diffuser angle | 8-18 deg | Underbody downforce |
+| Gurney flaps | 0-30 mm | Local lift boost |
 
 ## LLM Advisor
 
-Set `OPENAI_API_KEY` in `.env` for GPT-powered advice. Works with any OpenAI-compatible
-API (Ollama, Azure, etc.) via `LLM_BASE_URL` and `LLM_MODEL`.
+Set `OPENAI_API_KEY` in `.env` for GPT-powered advice. The advisor also works
+with any OpenAI-compatible API (Ollama, Azure, etc.) via `LLM_BASE_URL` and
+`LLM_MODEL`. Without a key, a rule-based advisor provides recommendations. When
+an optimization result is present, the rule-based advice describes the optimized
+forces/balance and labels the improvement as a normalized objective score; the
+lap delta remains the UI's same-fidelity relative proxy.
 
-Without an API key, a rule-based advisor provides setup recommendations automatically.
+## Honest Limitations
+
+- The graphical Cp field is a heuristic visualisation, not a CFD solution.
+- The real CFD tier is a 2D section simplification with empirical floor/rear
+  terms; it is labelled `rans_hybrid`.
+- V4 misses the external Zerihan/Zhang ground-effect reference. V5 is not in
+  the asymptotic range. V6 Part B is trend-only because the section geometry
+  differs from the cited wing.
+- The 28-point dataset has only 4 solver-converged points; V7/V8 targets are
+  partly unmet and the scripts report that result rather than forcing a pass.
+- The lap-time delta is a relative proxy within the same fidelity family, not a
+  predicted lap time.
+- The surrogate is used by the validation scripts, not yet by the live UI.
+
+See `docs/STATUS.md` and `docs/decisions/` for measured numbers and decisions.
 
 ## Next Steps
 
-- Import real car geometry (STL → OpenFOAM mesh)
-- Calibrate model against wind tunnel / CFD validation data
-- Add track-specific lap time simulation (Maplesoft-style)
-- Train a surrogate ML model on CFD results for real-time optimization
-- Multi-element DRS simulation
+- Full-car or multi-element CFD with a validated mesh family
+- Calibrate the VLM/CFD balance split against wind-tunnel data
+- Wire the surrogate and its uncertainty into the live optimizer
+- Track-specific lap simulation with real centerline data
+- Validate the hybrid totals against a full-car reference

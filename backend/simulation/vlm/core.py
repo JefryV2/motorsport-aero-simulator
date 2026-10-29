@@ -74,13 +74,14 @@ def solve_vlm(
     total_lift = sum(s.lift_N for s in section_results.values())
     total_drag = sum(s.drag_total_N for s in section_results.values())
 
-    # Combined Center of Pressure
-    cop_moment = sum(s.lift_N * s.cop_x_m for s in section_results.values())
-    cop_x = cop_moment / total_lift if abs(total_lift) > 1e-6 else 0.0
+    # Combined Center of Pressure.  Use the positive downforce values here so
+    # the ratio is well-defined for a downforce-producing car.
+    cop_moment = sum(s.downforce_N * s.cop_x_m for s in section_results.values())
+    cop_x = cop_moment / total_df if abs(total_df) > 1e-6 else 0.0
 
     ref_area = sum(s.chord * s.span for s in surfaces)
     q = 0.5 * rho * speed_ms**2
-    total_cl = total_lift / (q * ref_area) if q > 0 and ref_area > 0 else 0.0
+    total_cl = total_df / (q * ref_area) if q > 0 and ref_area > 0 else 0.0
     total_cd = total_drag / (q * ref_area) if q > 0 and ref_area > 0 else 0.0
     efficiency = total_df / total_drag if total_drag > 0 else 0.0
 

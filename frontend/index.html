@@ -14,36 +14,42 @@
   </script>
   <style>
     :root {
-      --bg: #0a0e17;
-      --surface: #141b2d;
-      --border: #1e2a45;
-      --accent: #e10600;
-      --accent2: #00d2be;
-      --text: #e8ecf4;
-      --muted: #8892a8;
+      --bg: #0b1220;
+      --surface: #121a2a;
+      --surface-2: #0e1624;
+      --border: #22304a;
+      --accent: #ef4444;
+      --accent2: #2dd4bf;
+      --text: #e6edf7;
+      --muted: #94a3b8;
+      --good: #34d399;
+      --warn: #fbbf24;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Segoe UI', system-ui, sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(1100px 520px at 72% -8%, rgba(45, 212, 191, 0.07), transparent 60%),
+        var(--bg);
       color: var(--text);
+      height: 100vh;
       min-height: 100vh;
-      overflow-x: hidden;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
     header {
-      background: linear-gradient(135deg, #141b2d 0%, #0a0e17 100%);
-      border-bottom: 2px solid var(--accent);
+      background: linear-gradient(135deg, rgba(18, 26, 42, 0.96) 0%, rgba(11, 18, 32, 0.98) 100%);
+      border-bottom: 1px solid var(--border);
       padding: 1rem 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.75rem;
     }
-    header h1 { font-size: 1.35rem; font-weight: 700; }
-    header p { color: var(--muted); font-size: 0.82rem; }
+    header h1 { font-size: 1.32rem; font-weight: 700; letter-spacing: -0.01em; }
+    header p { color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }
     .btn-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0 0.6rem; }
     .btn-row button { width: auto; flex: 1 1 calc(33% - 0.35rem); min-width: 72px; margin: 0; padding: 0.45rem 0.5rem; font-size: 0.72rem; }
     .eng-readout {
@@ -80,23 +86,25 @@
     .metrics-ext .metric .value { font-size: 0.95rem; }
     .layout {
       display: grid;
-      grid-template-columns: 360px 1fr;
-      grid-template-rows: 1fr auto;
+      grid-template-columns: 360px minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
       flex: 1 1 auto;
-      height: auto;
-      min-height: calc(100vh - 62px);
+      min-height: 0;
+      overflow: hidden;
     }
     @media (max-width: 960px) {
-      .layout { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; height: auto; }
+      body { height: auto; overflow: auto; }
+      .layout { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; height: auto; overflow: visible; }
     }
     .sidebar {
       border-right: 1px solid var(--border);
       overflow-y: auto;
+      min-height: 0;
       padding: 1rem;
     }
     .viewer-wrap {
       position: relative;
-      min-height: 480px;
+      min-height: 0;
       height: 100%;
       background: #060912;
       overflow: hidden;
@@ -187,19 +195,21 @@
     .bottom-panel {
       grid-column: 1 / -1;
       border-top: 1px solid var(--border);
-      padding: 1rem 1.5rem;
+      padding: 1rem 1.5rem 1.25rem;
       display: grid;
-      grid-template-columns: 1fr 1fr 1.1fr;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
       gap: 1rem;
-      max-height: 240px;
-      overflow: hidden;
+      max-height: 360px;
+      overflow-y: auto;
+      background: rgba(8, 13, 24, 0.55);
     }
-    @media (max-width: 1100px) { .bottom-panel { grid-template-columns: 1fr 1fr; max-height: none; } }
+    @media (max-width: 1100px) { .bottom-panel { grid-template-columns: 1fr 1fr; max-height: 320px; } }
     .panel {
-      background: var(--surface);
+      background: linear-gradient(180deg, rgba(24, 35, 55, 0.86), rgba(17, 26, 42, 0.92));
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 1rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
     }
     .panel h2 {
       font-size: 0.7rem;
@@ -334,8 +344,8 @@
       display: flex;
       align-items: flex-start;
       gap: 0.7rem;
-      margin: 0.75rem 1.5rem 0;
-      padding: 0.65rem 0.85rem;
+      margin: 0.6rem 1.5rem 0;
+      padding: 0.55rem 0.8rem;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: var(--surface);
@@ -429,6 +439,244 @@
       border-left: 2px solid var(--border);
     }
     .method-note.warn { border-left-color: #ffb020; color: #d8b168; }
+
+    /* --- Calmer controls, solver status and manual CFD flow --------------- */
+    .header-status {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.25rem;
+    }
+    .header-note {
+      color: var(--muted);
+      font-size: 0.68rem;
+      letter-spacing: 0.01em;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.42rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(14, 22, 36, 0.9);
+      color: var(--muted);
+      padding: 0.28rem 0.65rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex: 0 0 auto;
+    }
+    .status-pill.ok { border-color: rgba(52, 211, 153, 0.5); color: #a7f3d0; }
+    .status-pill.ok .dot { background: var(--good); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.14); }
+    .status-pill.warn { border-color: rgba(251, 191, 36, 0.5); color: #fde68a; }
+    .status-pill.warn .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.14); }
+    .status-pill.busy { border-color: rgba(45, 212, 191, 0.5); color: #99f6e4; }
+    .status-pill.busy .dot { background: var(--accent2); animation: pulse 1.2s infinite; }
+
+    .method-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.35rem;
+      margin-bottom: 0.45rem;
+    }
+    .method-tab {
+      width: 100%;
+      margin: 0;
+      padding: 0.48rem 0.3rem;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 600;
+      transition: border-color 0.18s, color 0.18s, background 0.18s;
+    }
+    .method-tab .tag {
+      display: block;
+      margin-top: 0.08rem;
+      font-size: 0.55rem;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+    .method-tab:hover { border-color: #3a4b6b; color: var(--text); }
+    .method-tab.active {
+      border-color: rgba(45, 212, 191, 0.65);
+      background: rgba(45, 212, 191, 0.1);
+      color: #ccfbf1;
+      box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.12);
+    }
+    .method-tab.active .tag { color: #99f6e4; }
+    .method-tab.cfd.active {
+      border-color: rgba(239, 68, 68, 0.65);
+      background: rgba(239, 68, 68, 0.1);
+      color: #fecaca;
+      box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.12);
+    }
+    .method-tab.cfd.active .tag { color: #fca5a5; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .solver-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.22rem;
+      margin: 0.1rem 0 0.75rem;
+      padding: 0.62rem 0.7rem;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--muted);
+      border-radius: 10px;
+      background: var(--surface-2);
+    }
+    .solver-card.ok { border-left-color: var(--good); }
+    .solver-card.warn { border-left-color: var(--warn); }
+    .solver-card-head {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      min-width: 0;
+    }
+    .solver-card-head .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex: 0 0 auto;
+    }
+    .solver-card.ok .solver-card-head .dot { background: var(--good); }
+    .solver-card.warn .solver-card-head .dot { background: var(--warn); }
+    .solver-card-head strong { font-size: 0.76rem; color: var(--text); }
+    .solver-card-head .backend {
+      margin-left: auto;
+      font-size: 0.58rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .solver-card p {
+      color: var(--muted);
+      font-size: 0.65rem;
+      line-height: 1.4;
+    }
+    #btnSimulate.primary-action {
+      background: linear-gradient(135deg, #dc2626, #ef4444);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 6px 18px rgba(239, 68, 68, 0.16);
+    }
+    #btnSimulate.primary-action.cfd-mode {
+      background: linear-gradient(135deg, #0f766e, #14b8a6);
+      box-shadow: 0 6px 18px rgba(45, 212, 191, 0.16);
+    }
+    #btnSimulate:disabled { opacity: 0.6; cursor: progress; }
+    .run-progress {
+      height: 4px;
+      margin: 0.55rem 0 0.1rem;
+      border-radius: 999px;
+      background: rgba(34, 48, 74, 0.8);
+      overflow: hidden;
+    }
+    .run-progress[hidden] { display: none; }
+    .run-progress .bar {
+      height: 100%;
+      width: 38%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+      animation: runSweep 1.4s ease-in-out infinite;
+    }
+    @keyframes runSweep {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(280%); }
+    }
+    .cfd-card {
+      margin-top: 0.7rem;
+      padding: 0.65rem 0.7rem;
+      border: 1px solid rgba(45, 212, 191, 0.24);
+      border-radius: 10px;
+      background: rgba(10, 18, 31, 0.78);
+    }
+    .cfd-card[hidden] { display: none; }
+    .cfd-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .cfd-card-head strong { font-size: 0.72rem; color: var(--text); }
+    .cfd-status {
+      font-size: 0.56rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.16rem 0.42rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .cfd-status.ok { color: #a7f3d0; border-color: rgba(52, 211, 153, 0.5); }
+    .cfd-status.warn { color: #fde68a; border-color: rgba(251, 191, 36, 0.5); }
+    .cfd-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.35rem;
+    }
+    .cfd-grid div {
+      display: flex;
+      flex-direction: column;
+      gap: 0.08rem;
+      padding: 0.3rem 0.35rem;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+    .cfd-grid span {
+      color: var(--muted);
+      font-size: 0.54rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cfd-grid b {
+      color: #d1fae5;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      font-size: 0.7rem;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cfd-note {
+      margin-top: 0.5rem;
+      color: var(--muted);
+      font-size: 0.62rem;
+      line-height: 1.45;
+    }
+    .fidelity-badge.hybrid {
+      color: #a7f3d0;
+      border-color: rgba(52, 211, 153, 0.6);
+      background: rgba(52, 211, 153, 0.1);
+    }
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 2px solid rgba(45, 212, 191, 0.65);
+      outline-offset: 2px;
+    }
+    @media (max-width: 640px) {
+      header { align-items: flex-start; }
+      .header-status { align-items: flex-start; }
+      .cfd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     @keyframes slideDown {
       from { opacity: 0; transform: translateY(-6px); }
       to { opacity: 1; transform: translateY(0); }
@@ -439,7 +687,11 @@
   <header>
     <div>
       <h1>Aero Wind Tunnel Workstation</h1>
-      <p>VLM physics · calibrated models · honest provenance</p>
+      <p>VLM live preview · OpenFOAM CFD on demand · honest provenance</p>
+    </div>
+    <div class="header-status">
+      <span class="status-pill" id="solverPill"><span class="dot"></span><span id="solverPillText">Checking solver…</span></span>
+      <span class="header-note">VLM updates live · CFD is a manual run</span>
     </div>
   </header>
 
@@ -621,13 +873,29 @@
         </select>
 
         <label>Method</label>
-        <select id="method">
+        <div class="method-tabs" id="methodTabs" role="group" aria-label="Simulation method">
+          <button type="button" class="method-tab active" data-method="analytical_enhanced">VLM<span class="tag">live preview</span></button>
+          <button type="button" class="method-tab" data-method="analytical">Analytical<span class="tag">empirical</span></button>
+          <button type="button" class="method-tab cfd" data-method="cfd">CFD<span class="tag">OpenFOAM · ~1 min</span></button>
+        </div>
+        <select id="method" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="analytical_enhanced">VLM — 3D vortex lattice (default)</option>
           <option value="panel_vlm">VLM — panel alias (legacy)</option>
           <option value="analytical">Analytical — empirical baseline</option>
-          <option value="cfd_stub">CFD — calibrated model (no OpenFOAM)</option>
+          <option value="cfd">CFD — OpenFOAM RANS + empirical</option>
+          <option value="cfd_stub">CFD — calibrated fallback (legacy)</option>
         </select>
         <p class="method-note" id="methodNote">Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.</p>
+
+        <div class="solver-card" id="solverCard">
+          <div class="solver-card-head">
+            <span class="dot" aria-hidden="true"></span>
+            <strong id="solverName">Checking solver…</strong>
+            <span class="backend" id="solverBackend"></span>
+          </div>
+          <p id="solverNote">Reading /api/health to see whether a real CFD solver is available.</p>
+        </div>
+
         <label>Optimize for</label>
         <select id="objective">
           <option value="balanced">Balanced</option>
@@ -635,7 +903,9 @@
           <option value="max_efficiency">Max L/D</option>
           <option value="min_drag">Min drag</option>
         </select>
-        <button id="btnSimulate">Simulate</button>
+        <button id="btnSimulate" class="primary-action">Run VLM preview</button>
+        <div class="run-progress" id="runProgress" hidden><div class="bar"></div></div>
+        <p class="status" id="runHint" style="margin-top:0.35rem;">VLM updates instantly. Choose CFD for a real OpenFOAM solve (about one minute).</p>
         <button id="btnOptimize" class="secondary">Optimize + AI Advice</button>
 
         <h2 style="margin-top:1rem">Aero Map (Ride Height Sweep)</h2>
@@ -737,7 +1007,7 @@
           <div class="metric" title="Force opposing forward motion through the air"><div class="value" id="m_drag">—</div><div class="label">Drag N</div></div>
           <div class="metric" title="Aero efficiency: downforce per unit drag"><div class="value" id="m_ld">—</div><div class="label">L/D</div></div>
           <div class="metric" title="Share of downforce generated at the front axle"><div class="value" id="m_bal">—</div><div class="label">Balance %F</div></div>
-          <div class="metric" title="Estimated lap time change vs baseline setup"><div class="value" id="m_lap">—</div><div class="label">Lap Δ s</div></div>
+          <div class="metric" title="Estimated lap-time change vs the saved baseline, or the first run, from the same fidelity family"><div class="value" id="m_lap">—</div><div class="label">Lap Δ s</div></div>
           <div class="metric" title="Lift coefficient"><div class="value" id="m_cl">—</div><div class="label">Cl</div></div>
           <div class="metric" title="Drag coefficient"><div class="value" id="m_cd">—</div><div class="label">Cd</div></div>
         </div>
@@ -749,6 +1019,21 @@
         </div>
         <div class="provenance-line" id="provenanceLine">
           <strong>Source:</strong> not run yet · <strong>Fidelity:</strong> — · <strong>Validation:</strong> —
+        </div>
+        <div class="cfd-card" id="cfdCard" hidden>
+          <div class="cfd-card-head">
+            <strong id="cfdTitle">OpenFOAM case details</strong>
+            <span class="cfd-status" id="cfdStatus">—</span>
+          </div>
+          <div class="cfd-grid">
+            <div><span>Case</span><b id="cfdCase">—</b></div>
+            <div><span>Cells</span><b id="cfdCells">—</b></div>
+            <div><span>Iterations</span><b id="cfdIters">—</b></div>
+            <div><span>p residual</span><b id="cfdP">—</b></div>
+            <div><span>U residual</span><b id="cfdU">—</b></div>
+            <div><span>Solve time</span><b id="cfdTime">—</b></div>
+          </div>
+          <p class="cfd-note" id="cfdNote"></p>
         </div>
       </div>
       <div class="panel">
@@ -763,7 +1048,7 @@
           <dt>Balance % front</dt>
           <dd>How much total downforce acts on the front axle. Affects turn-in and understeer/oversteer balance (typical F1 target ~40–45%).</dd>
           <dt>Lap Δ (s)</dt>
-          <dd>Estimated lap time change from your current aero setup vs a baseline — useful for comparing wing angles and ride heights.</dd>
+          <dd>Rough lap-time proxy for the current setup vs the saved baseline, or the first run, from the <strong>same fidelity family</strong>. It never compares a CFD hybrid directly against a VLM preview; use it for direction, not a predicted lap time.</dd>
           <dt>Cp (pressure on car)</dt>
           <dd>Blue = suction (low pressure), red = stagnation (high pressure at nose/wings).</dd>
           <dt>Air speed colors</dt>
@@ -771,7 +1056,7 @@
           <dt>Probe tool</dt>
           <dd>Enable Probe in the toolbar, then click the car to read local Cp and velocity at that point.</dd>
           <dt>Fidelity badge</dt>
-          <dd>Every result is labelled by what produced it. <strong>VLM</strong> = vortex-lattice physics, <strong>Empirical</strong> = correlation baseline, <strong>Synthetic model</strong> = calibrated fallback with no solver run, <strong>OpenFOAM RANS</strong> = real mesh solution. Only the last is CFD.</dd>
+          <dd>Every result is labelled by what produced it. <strong>VLM</strong> = vortex-lattice preview, <strong>Empirical</strong> = correlation baseline, <strong>Synthetic model</strong> = calibrated fallback with no solver run, <strong>RANS + empirical</strong> = a real 2D OpenFOAM front-wing section combined with empirical floor/rear terms. The last is a hybrid estimate, not full-car CFD.</dd>
         </dl>
       </div>
       <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
@@ -787,6 +1072,6 @@
     </div>
   </div>
 
-  <script type="module" src="/static/js/app.js?v=0.2.1"></script>
+  <script type="module" src="/static/js/app.js?v=0.4.2"></script>
 </body>
 </html>

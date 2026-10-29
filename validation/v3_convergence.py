@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TypedDict, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.simulation.vlm.core import VLMSurface, solve_vlm
 
 
+class RefinementLevel(TypedDict):
+    name: str
+    n_span: int
+    n_chord: int
+
+
 def run_v3_validation() -> dict:
     """Run Case V3 grid convergence study across 4 mesh refinement levels."""
-    levels = [
+    levels: list[RefinementLevel] = [
         {"name": "Level 1 (Coarse)", "n_span": 8, "n_chord": 1},
         {"name": "Level 2 (Medium)", "n_span": 16, "n_chord": 2},
         {"name": "Level 3 (Fine)", "n_span": 24, "n_chord": 3},
@@ -20,7 +27,7 @@ def run_v3_validation() -> dict:
     ]
 
     print("=== Case V3: Panel Convergence Study (AR=6 Wing) ===")
-    history = []
+    history: list[dict[str, object]] = []
 
     for lvl in levels:
         wing = VLMSurface(
@@ -50,12 +57,12 @@ def run_v3_validation() -> dict:
         )
 
     # Calculate relative change between Level 3 and Level 4
-    cl_l3 = history[2]["cl"]
-    cl_l4 = history[3]["cl"]
+    cl_l3 = cast(float, history[2]["cl"])
+    cl_l4 = cast(float, history[3]["cl"])
     rel_change_cl_pct = abs(cl_l4 - cl_l3) / cl_l4 * 100.0
 
-    cdi_l3 = history[2]["cd_i"]
-    cdi_l4 = history[3]["cd_i"]
+    cdi_l3 = cast(float, history[2]["cd_i"])
+    cdi_l4 = cast(float, history[3]["cd_i"])
     rel_change_cdi_pct = abs(cdi_l4 - cdi_l3) / cdi_l4 * 100.0
 
     passed = rel_change_cl_pct < 1.0 and rel_change_cdi_pct < 1.5

@@ -50,9 +50,9 @@ def _wing_forces(
     cl, cd_i = _wing_cl(element, in_ground_effect)
     q = 0.5 * RHO * speed_ms**2
     area = element.chord_m * element.span_m
-    lift = q * area * cl  # downforce (negative lift in aero convention)
+    lift = q * area * cl  # downforce-positive convention for the empirical wing model
     drag = q * area * (0.008 + cd_i)  # profile + induced drag
-    return abs(lift), drag
+    return lift, drag
 
 
 def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float, float, float]:

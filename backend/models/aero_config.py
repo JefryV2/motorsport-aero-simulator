@@ -100,9 +100,32 @@ class OptimizationRequest(BaseModel):
 class OptimizationResult(BaseModel):
     best_config: FormulaAeroConfig
     best_forces: AeroForces
-    improvement_pct: float
+    improvement_pct: float = Field(
+        description=(
+            "Relative improvement in the selected scalar objective score "
+            "(not a lap-time gain and not a physically calibrated percentage)"
+        )
+    )
     trials_run: int
-    pareto_front: list[dict] = Field(default_factory=list)
+    pareto_front: list[dict] = Field(
+        default_factory=list,
+        description="Non-dominated drag/downforce points from the sampled trials",
+    )
+    target_balance_pct: float | None = Field(
+        default=None,
+        description="Balance target used by the objective, if any",
+    )
+    achievable_balance_pct: list[float] = Field(
+        default_factory=list,
+        description="[min, max] front balance observed among sampled trials",
+    )
+    target_reachable: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the balance target lies inside the sampled balance range; "
+            "false means the target is outside the model's sampled feasible region"
+        ),
+    )
 
 
 class AdvisorRequest(BaseModel):
