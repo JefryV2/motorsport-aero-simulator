@@ -13,77 +13,159 @@
     }
   </script>
   <style>
+    /* ================================================================
+       Formula Aero Workstation - flat engineering skin
+       Graphite surfaces, hairline borders, tabular numerals, one accent.
+       ================================================================ */
     :root {
-      --bg: #0b1220;
-      --surface: #121a2a;
-      --surface-2: #0e1624;
-      --border: #22304a;
-      --accent: #ef4444;
-      --accent2: #2dd4bf;
-      --text: #e6edf7;
-      --muted: #94a3b8;
-      --good: #34d399;
-      --warn: #fbbf24;
+      --bg: #0e0f12;            /* page background */
+      --surface: #15161a;       /* panel surface */
+      --surface-2: #1b1d22;     /* raised surface (inputs, cards) */
+      --surface-3: #22252b;     /* hover / active surface */
+      --border: #2a2d34;        /* hairline */
+      --border-strong: #3a3e47;
+      --text: #eceef1;
+      --muted: #9298a3;
+      --faint: #6b7079;
+      --accent: #e13018;        /* primary action + CFD */
+      --accent-soft: rgba(225, 48, 24, 0.12);
+      --ok: #3fb27f;
+      --ok-soft: rgba(63, 178, 127, 0.12);
+      --warn: #d99a2b;
+      --warn-soft: rgba(217, 154, 43, 0.14);
+      --info: #6ea8dc;
+      --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background:
-        radial-gradient(1100px 520px at 72% -8%, rgba(45, 212, 191, 0.07), transparent 60%),
-        var(--bg);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
       color: var(--text);
       height: 100vh;
       min-height: 100vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      font-feature-settings: "tnum" 1;
     }
+
+    /* ---- header ---------------------------------------------------- */
     header {
-      background: linear-gradient(135deg, rgba(18, 26, 42, 0.96) 0%, rgba(11, 18, 32, 0.98) 100%);
+      background: var(--surface);
       border-bottom: 1px solid var(--border);
-      padding: 1rem 1.5rem;
+      padding: 0.55rem 1.25rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
+      gap: 0.6rem;
+      flex: 0 0 auto;
+    }
+    header h1 {
+      font-size: 0.92rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    header h1 .mark {
+      display: inline-block;
+      width: 10px; height: 10px;
+      background: var(--accent);
+      margin-right: 0.5rem;
+      transform: skewX(-14deg);
+    }
+    header p { color: var(--muted); font-size: 0.72rem; margin-top: 0.1rem; }
+    .header-status {
+      display: flex;
+      align-items: center;
       gap: 0.75rem;
     }
-    header h1 { font-size: 1.32rem; font-weight: 700; letter-spacing: -0.01em; }
-    header p { color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }
-    .btn-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0 0.6rem; }
-    .btn-row button { width: auto; flex: 1 1 calc(33% - 0.35rem); min-width: 72px; margin: 0; padding: 0.45rem 0.5rem; font-size: 0.72rem; }
-    .eng-readout {
-      font-family: ui-monospace, 'Cascadia Code', monospace;
-      font-size: 0.72rem;
-      line-height: 1.55;
-      color: var(--muted);
-      background: var(--bg);
+    .header-note {
+      color: var(--faint);
+      font-size: 0.68rem;
+      border-right: 1px solid var(--border);
+      padding-right: 0.75rem;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.55rem 0.65rem;
-      max-height: 110px;
-      overflow-y: auto;
-      white-space: pre-wrap;
+      background: var(--surface-2);
+      color: var(--muted);
+      padding: 0.3rem 0.6rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      font-family: var(--mono);
+      white-space: nowrap;
+      border-radius: 4px;
     }
-    .probe-readout {
-      position: absolute;
-      top: 52px;
-      right: 12px;
-      z-index: 6;
-      background: rgba(20, 27, 45, 0.95);
-      border: 1px solid var(--accent2);
-      border-radius: 8px;
-      padding: 0.5rem 0.65rem;
-      font-size: 0.72rem;
-      font-family: monospace;
+    .status-pill .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+      flex: 0 0 auto;
+    }
+    .status-pill.ok { color: var(--ok); border-color: rgba(63, 178, 127, 0.45); }
+    .status-pill.ok .dot { background: var(--ok); }
+    .status-pill.warn { color: var(--warn); border-color: rgba(217, 154, 43, 0.45); }
+    .status-pill.warn .dot { background: var(--warn); }
+    .status-pill.busy { color: var(--info); border-color: rgba(110, 168, 220, 0.45); }
+    .status-pill.busy .dot { background: var(--info); animation: pulse 1.2s infinite; }
+
+    /* ---- provenance banner ----------------------------------------- */
+    .provenance-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      margin: 0.6rem 1.25rem 0;
+      padding: 0.55rem 0.75rem;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--faint);
+      background: var(--surface);
+      font-size: 0.74rem;
+      line-height: 1.45;
+      flex: 0 0 auto;
+    }
+    .provenance-banner[hidden] { display: none; }
+    .provenance-banner.warn { border-left-color: var(--warn); background: var(--surface); }
+    .provenance-banner.ok { border-left-color: var(--ok); background: var(--surface); }
+    .pb-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-top: 0.3rem;
+      flex: 0 0 auto;
+      background: var(--faint);
+    }
+    .provenance-banner.warn .pb-dot { background: var(--warn); }
+    .provenance-banner.ok .pb-dot { background: var(--ok); }
+    .pb-body { flex: 1 1 auto; min-width: 0; }
+    .pb-body #pbTitle { display: block; color: var(--text); font-size: 0.78rem; font-weight: 600; }
+    .pb-body span { color: var(--muted); }
+    .pb-body span strong { color: var(--text); font-weight: 600; }
+    .pb-body code {
       color: var(--text);
-      max-width: 220px;
-      display: none;
-      pointer-events: none;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0 0.28rem;
+      font-family: var(--mono);
+      font-size: 0.7rem;
     }
-    .probe-readout.active { display: block; }
-    .metrics-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-top: 0.5rem; }
-    .metrics-ext .metric .value { font-size: 0.95rem; }
+    .provenance-banner button {
+      width: auto;
+      margin: 0;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.66rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      flex: 0 0 auto;
+      border-radius: 4px;
+    }
+    .provenance-banner button:hover { color: var(--text); border-color: var(--faint); }
+
+    /* ---- layout ----------------------------------------------------- */
     .layout {
       display: grid;
       grid-template-columns: 360px minmax(0, 1fr);
@@ -100,26 +182,27 @@
       border-right: 1px solid var(--border);
       overflow-y: auto;
       min-height: 0;
-      padding: 1rem;
+      padding: 0.85rem 0.9rem 1.4rem;
+      background: var(--bg);
     }
     .viewer-wrap {
       position: relative;
       min-height: 0;
       height: 100%;
-      background: #060912;
+      background: #08090b;
       overflow: hidden;
     }
     .viewer-wrap.drag-over::after {
       content: 'Drop STL / OBJ / GLB here';
       position: absolute;
       inset: 0;
-      background: rgba(0, 210, 190, 0.15);
-      border: 2px dashed var(--accent2);
+      background: rgba(225, 48, 24, 0.08);
+      border: 1px dashed var(--accent);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.2rem;
-      color: var(--accent2);
+      font-size: 1rem;
+      color: var(--text);
       pointer-events: none;
       z-index: 20;
     }
@@ -129,182 +212,6 @@
       width: 100%;
       height: 100%;
     }
-    .viewer-toolbar {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      right: 12px;
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      z-index: 5;
-      pointer-events: none;
-    }
-    .viewer-toolbar > * { pointer-events: auto; }
-    .toolbar-chip {
-      background: rgba(20, 27, 45, 0.92);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.35rem 0.65rem;
-      font-size: 0.75rem;
-      color: var(--muted);
-      backdrop-filter: blur(8px);
-    }
-    .toolbar-chip select {
-      background: transparent;
-      border: none;
-      color: var(--text);
-      font-size: 0.75rem;
-      margin: 0;
-      padding: 0;
-      width: auto;
-    }
-    .toolbar-chip label { display: inline; margin: 0 0.3rem 0 0; }
-    .legend {
-      position: absolute;
-      bottom: 12px;
-      right: 12px;
-      background: rgba(20, 27, 45, 0.92);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.7rem;
-      z-index: 5;
-      pointer-events: none;
-    }
-    .legend-bar {
-      width: 140px;
-      height: 12px;
-      border-radius: 4px;
-      background: linear-gradient(to right, #993300, #ffaa22, #44ddcc, #0088ff, #eefbff);
-      margin: 0.3rem 0;
-    }
-    .legend-bar.cp {
-      background: linear-gradient(to right, #003399, #3399ff, #ffffff, #ffcc44, #cc2200);
-    }
-    .metric-help {
-      font-size: 0.78rem;
-      line-height: 1.55;
-      color: var(--muted);
-      max-height: 140px;
-      overflow-y: auto;
-    }
-    .metric-help dt { color: var(--accent2); font-weight: 600; margin-top: 0.45rem; }
-    .metric-help dt:first-child { margin-top: 0; }
-    .metric-help dd { margin-left: 0; }
-    .bottom-panel {
-      grid-column: 1 / -1;
-      border-top: 1px solid var(--border);
-      padding: 1rem 1.5rem 1.25rem;
-      display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
-      gap: 1rem;
-      max-height: 360px;
-      overflow-y: auto;
-      background: rgba(8, 13, 24, 0.55);
-    }
-    @media (max-width: 1100px) { .bottom-panel { grid-template-columns: 1fr 1fr; max-height: 320px; } }
-    .panel {
-      background: linear-gradient(180deg, rgba(24, 35, 55, 0.86), rgba(17, 26, 42, 0.92));
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1rem;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-    }
-    .panel h2 {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--accent2);
-      margin-bottom: 0.75rem;
-    }
-    label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; }
-    input, select {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 0.4rem 0.6rem;
-      border-radius: 6px;
-      margin-bottom: 0.6rem;
-      font-size: 0.85rem;
-    }
-    input:focus, select:focus { outline: none; border-color: var(--accent2); }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-    button {
-      background: var(--accent);
-      color: white;
-      border: none;
-      padding: 0.6rem 1rem;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      width: 100%;
-      margin-top: 0.4rem;
-      font-size: 0.85rem;
-    }
-    button:hover { opacity: 0.85; }
-    button.secondary { background: transparent; border: 1px solid var(--accent2); color: var(--accent2); }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.75rem; }
-    @media (min-width: 900px) { .metrics { grid-template-columns: repeat(7, 1fr); } }
-    .metric {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.5rem;
-      text-align: center;
-    }
-    .metric .value { font-size: 1.1rem; font-weight: 700; color: var(--accent2); }
-    .metric .label { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; }
-    .advice-box {
-      font-size: 0.8rem;
-      line-height: 1.55;
-      max-height: 120px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      color: var(--muted);
-    }
-    .status { font-size: 0.72rem; color: var(--muted); margin-top: 0.35rem; }
-    .loading { color: var(--accent2); animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-    .section-title { font-size: 0.8rem; font-weight: 600; margin: 0.6rem 0 0.35rem; }
-    #modelInput { display: none; }
-    .slider-row { margin-bottom: 0.65rem; }
-    .slider-row label { display: flex; justify-content: space-between; align-items: center; }
-    .slider-row label span { color: var(--accent2); font-weight: 600; font-size: 0.75rem; }
-    input[type=range] {
-      width: 100%;
-      accent-color: var(--accent2);
-      margin: 0.25rem 0 0.5rem;
-      padding: 0;
-    }
-    .toggle-row { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin: 0.5rem 0; }
-    .toggle-row label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; margin: 0; cursor: pointer; }
-    .toggle-row input { width: auto; margin: 0; }
-    .flow-hud {
-      position: absolute;
-      bottom: 12px;
-      left: 12px;
-      z-index: 6;
-      background: rgba(20, 27, 45, 0.92);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.45rem 0.75rem;
-      font-size: 0.72rem;
-      color: var(--accent2);
-      font-family: monospace;
-      pointer-events: none;
-    }
-    .view-hints {
-      position: absolute;
-      bottom: 52px;
-      left: 12px;
-      z-index: 6;
-      font-size: 0.68rem;
-      color: var(--muted);
-      pointer-events: none;
-      line-height: 1.5;
-    }
     #viewer3d canvas {
       display: block;
       width: 100% !important;
@@ -312,281 +219,336 @@
       cursor: grab;
     }
     #viewer3d canvas:active { cursor: grabbing; }
+
+    /* viewer overlays */
+    .viewer-toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .viewer-toolbar > * { pointer-events: auto; }
+    .toolbar-chip {
+      background: rgba(14, 15, 18, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.3rem 0.55rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .toolbar-chip select {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 0.72rem;
+      margin: 0;
+      padding: 0;
+      width: auto;
+    }
+    .toolbar-chip select option { background: var(--surface); color: var(--text); }
+    .toolbar-chip label { display: inline; margin: 0 0.3rem 0 0; color: var(--muted); }
+    .flow-hud {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      z-index: 6;
+      background: rgba(14, 15, 18, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.7rem;
+      color: var(--text);
+      font-family: var(--mono);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .view-hints {
+      position: absolute;
+      bottom: 44px;
+      left: 10px;
+      z-index: 6;
+      font-size: 0.64rem;
+      color: var(--faint);
+      pointer-events: none;
+      line-height: 1.5;
+    }
+    .probe-readout {
+      position: absolute;
+      top: 52px;
+      right: 10px;
+      z-index: 6;
+      background: rgba(14, 15, 18, 0.95);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      color: var(--text);
+      max-width: 230px;
+      display: none;
+      pointer-events: none;
+    }
+    .probe-readout.active { display: block; }
     .aero-badge {
       position: absolute;
-      top: 12px;
-      right: 12px;
+      top: 10px;
+      right: 10px;
       z-index: 6;
-      background: rgba(0, 210, 190, 0.15);
-      border: 1px solid var(--accent2);
-      color: var(--accent2);
-      padding: 0.35rem 0.75rem;
-      border-radius: 20px;
-      font-size: 0.72rem;
+      background: var(--ok-soft);
+      border: 1px solid rgba(63, 178, 127, 0.45);
+      color: var(--ok);
+      padding: 0.28rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.68rem;
       font-weight: 600;
+      font-family: var(--mono);
       opacity: 0;
       transition: opacity 0.3s;
       pointer-events: none;
     }
     .aero-badge.active { opacity: 1; }
-    #bootError {
-      display: none;
-      background: #3a1010;
-      border: 1px solid var(--accent);
-      color: #ff9999;
-      padding: 1rem;
-      margin: 1rem;
-      border-radius: 8px;
-    }
-
-    /* --- Provenance / fidelity UI ------------------------------------- */
-    .provenance-banner {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.7rem;
-      margin: 0.6rem 1.5rem 0;
-      padding: 0.55rem 0.8rem;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      font-size: 0.78rem;
-      line-height: 1.45;
-      animation: slideDown 0.35s ease-out;
-    }
-    .provenance-banner[hidden] { display: none; }
-    .provenance-banner.warn {
-      border-color: #b7791f;
-      background: linear-gradient(90deg, rgba(183, 121, 31, 0.22), rgba(20, 27, 45, 0.92) 55%);
-    }
-    .provenance-banner.ok {
-      border-color: #1f9d55;
-      background: linear-gradient(90deg, rgba(31, 157, 85, 0.18), rgba(20, 27, 45, 0.92) 55%);
-    }
-    .pb-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      margin-top: 0.32rem;
-      flex: 0 0 auto;
-      background: var(--muted);
-      box-shadow: 0 0 0 3px rgba(136, 146, 168, 0.15);
-    }
-    .provenance-banner.warn .pb-dot { background: #ffb020; box-shadow: 0 0 0 3px rgba(255, 176, 32, 0.18); }
-    .provenance-banner.ok .pb-dot { background: #35d07f; box-shadow: 0 0 0 3px rgba(53, 208, 127, 0.18); }
-    .pb-body { flex: 1 1 auto; min-width: 0; }
-    .pb-body #pbTitle { display: block; color: var(--text); font-size: 0.8rem; letter-spacing: 0.01em; }
-    .pb-body span { color: var(--muted); }
-    .pb-body span strong { display: inline; color: var(--text); font-weight: 600; }
-    .pb-body code {
-      color: var(--text);
-      background: rgba(0, 0, 0, 0.3);
+    .legend {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(14, 15, 18, 0.92);
       border: 1px solid var(--border);
       border-radius: 4px;
-      padding: 0.02rem 0.3rem;
-      font-size: 0.72rem;
-    }
-    .provenance-banner button {
-      width: auto;
-      margin: 0;
-      padding: 0.22rem 0.55rem;
-      font-size: 0.68rem;
-      background: transparent;
-      border: 1px solid var(--border);
+      padding: 0.45rem 0.6rem;
+      font-size: 0.66rem;
       color: var(--muted);
-      flex: 0 0 auto;
+      z-index: 5;
+      pointer-events: none;
     }
-    .provenance-banner button:hover { color: var(--text); border-color: var(--muted); }
+    .legend-bar {
+      width: 130px;
+      height: 10px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #993300, #ffaa22, #44ddcc, #0088ff, #eefbff);
+      margin: 0.25rem 0;
+    }
+    .legend-bar.cp {
+      background: linear-gradient(to right, #003399, #3399ff, #ffffff, #ffcc44, #cc2200);
+    }
 
-    .panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
+    /* ---- panels & sections ------------------------------------------ */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.85rem 0.9rem;
+    }
+    h2 {
+      font-size: 0.62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.3rem;
       margin-bottom: 0.6rem;
     }
-    .panel-head h2 { margin-bottom: 0; }
-    .fidelity-badge {
-      font-size: 0.6rem;
+    .section-title {
+      font-size: 0.58rem;
       font-weight: 700;
-      letter-spacing: 0.09em;
-      padding: 0.2rem 0.5rem;
-      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin: 0.7rem 0 0.35rem;
+    }
+    label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 0.2rem; }
+    input, select {
+      width: 100%;
+      background: var(--surface-2);
       border: 1px solid var(--border);
-      background: var(--bg);
-      color: var(--muted);
-      white-space: nowrap;
-      transition: color 0.25s, border-color 0.25s, background 0.25s;
+      color: var(--text);
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.55rem;
+      font-size: 0.78rem;
+      font-family: var(--mono);
     }
-    .fidelity-badge.vlm { color: var(--accent2); border-color: var(--accent2); background: rgba(0, 210, 190, 0.1); }
-    .fidelity-badge.empirical { color: #7fb2ff; border-color: #7fb2ff; background: rgba(127, 178, 255, 0.1); }
-    .fidelity-badge.synthetic { color: #ffb020; border-color: #ffb020; background: rgba(255, 176, 32, 0.12); }
-    .fidelity-badge.rans { color: #35d07f; border-color: #35d07f; background: rgba(53, 208, 127, 0.1); }
-    .provenance-line {
-      margin-top: 0.55rem;
-      padding-top: 0.45rem;
-      border-top: 1px dashed var(--border);
-      font-size: 0.66rem;
-      line-height: 1.45;
-      color: var(--muted);
-    }
-    .provenance-line strong { color: var(--text); font-weight: 600; }
-    .method-note {
-      font-size: 0.68rem;
-      line-height: 1.4;
-      color: var(--muted);
-      margin: -0.2rem 0 0.6rem;
-      padding-left: 0.5rem;
-      border-left: 2px solid var(--border);
-    }
-    .method-note.warn { border-left-color: #ffb020; color: #d8b168; }
-
-    /* --- Calmer controls, solver status and manual CFD flow --------------- */
-    .header-status {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 0.25rem;
-    }
-    .header-note {
-      color: var(--muted);
-      font-size: 0.68rem;
-      letter-spacing: 0.01em;
-    }
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.42rem;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: rgba(14, 22, 36, 0.9);
-      color: var(--muted);
-      padding: 0.28rem 0.65rem;
-      font-size: 0.7rem;
+    select option { background: var(--surface); }
+    input:focus, select:focus { outline: none; border-color: var(--border-strong); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    button {
+      background: var(--surface-3);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      padding: 0.45rem 0.8rem;
+      border-radius: 4px;
       font-weight: 600;
-      white-space: nowrap;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 0.35rem;
+      font-size: 0.74rem;
+      transition: background 0.15s, border-color 0.15s;
     }
-    .status-pill .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--muted);
-      flex: 0 0 auto;
-    }
-    .status-pill.ok { border-color: rgba(52, 211, 153, 0.5); color: #a7f3d0; }
-    .status-pill.ok .dot { background: var(--good); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.14); }
-    .status-pill.warn { border-color: rgba(251, 191, 36, 0.5); color: #fde68a; }
-    .status-pill.warn .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.14); }
-    .status-pill.busy { border-color: rgba(45, 212, 191, 0.5); color: #99f6e4; }
-    .status-pill.busy .dot { background: var(--accent2); animation: pulse 1.2s infinite; }
+    button:hover { background: var(--surface-2); border-color: var(--faint); }
+    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    button.secondary:hover { color: var(--text); border-color: var(--faint); background: var(--surface-2); }
 
+    /* ---- controls ---------------------------------------------------- */
+    .slider-row { margin-bottom: 0.55rem; }
+    .slider-row label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.72rem;
+    }
+    .slider-row label span {
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.7rem;
+      font-family: var(--mono);
+    }
+    input[type=range] {
+      width: 100%;
+      accent-color: var(--muted);
+      margin: 0.3rem 0 0.4rem;
+      padding: 0;
+      border: none;
+      background: transparent;
+      height: 14px;
+    }
+    input[type=range]:focus { outline: none; }
+    .toggle-row { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; margin: 0.45rem 0; }
+    .toggle-row label { display: flex; align-items: center; gap: 0.32rem; font-size: 0.7rem; margin: 0; cursor: pointer; }
+    .toggle-row label:hover { color: var(--text); }
+    .toggle-row input { width: auto; margin: 0; accent-color: var(--muted); }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.3rem 0 0.5rem; }
+    .btn-row button { width: auto; flex: 1 1 calc(33% - 0.3rem); min-width: 64px; margin: 0; padding: 0.38rem 0.4rem; font-size: 0.68rem; font-family: var(--mono); }
+    .eng-readout {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      line-height: 1.55;
+      color: var(--muted);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.5rem 0.55rem;
+      max-height: 110px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .metrics-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-top: 0.4rem; }
+    .metrics-ext .metric .value { font-size: 0.88rem; }
+
+    /* ---- method tabs (segmented control) ----------------------------- */
     .method-tabs {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.35rem;
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+      padding: 0;
       margin-bottom: 0.45rem;
     }
     .method-tab {
       width: 100%;
       margin: 0;
-      padding: 0.48rem 0.3rem;
-      border: 1px solid var(--border);
-      border-radius: 9px;
+      padding: 0.42rem 0.25rem;
+      border: none;
+      border-radius: 0;
       background: var(--surface-2);
       color: var(--muted);
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       font-weight: 600;
-      transition: border-color 0.18s, color 0.18s, background 0.18s;
+      transition: background 0.15s, color 0.15s;
     }
     .method-tab .tag {
       display: block;
-      margin-top: 0.08rem;
-      font-size: 0.55rem;
+      margin-top: 0.02rem;
+      font-size: 0.54rem;
       font-weight: 500;
-      color: var(--muted);
+      color: var(--faint);
       letter-spacing: 0.02em;
+      font-family: var(--mono);
     }
-    .method-tab:hover { border-color: #3a4b6b; color: var(--text); }
+    .method-tab:hover { background: var(--surface-3); color: var(--text); }
     .method-tab.active {
-      border-color: rgba(45, 212, 191, 0.65);
-      background: rgba(45, 212, 191, 0.1);
-      color: #ccfbf1;
-      box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.12);
+      background: #26282f;
+      color: var(--text);
     }
-    .method-tab.active .tag { color: #99f6e4; }
+    .method-tab.active .tag { color: var(--muted); }
     .method-tab.cfd.active {
-      border-color: rgba(239, 68, 68, 0.65);
-      background: rgba(239, 68, 68, 0.1);
-      color: #fecaca;
-      box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.12);
+      background: var(--accent);
+      color: #fff;
     }
-    .method-tab.cfd.active .tag { color: #fca5a5; }
+    .method-tab.cfd.active .tag { color: rgba(255, 255, 255, 0.8); }
     .sr-only {
       position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
       overflow: hidden;
       clip: rect(0, 0, 0, 0);
       white-space: nowrap;
       border: 0;
     }
+    .method-note {
+      font-size: 0.66rem;
+      line-height: 1.4;
+      color: var(--muted);
+      margin: 0 0 0.6rem;
+      padding: 0 0 0 0.55rem;
+      border-left: 2px solid var(--border);
+    }
+    .method-note.warn { border-left-color: var(--warn); color: #d8b168; }
+
+    /* ---- solver card -------------------------------------------------- */
     .solver-card {
       display: flex;
       flex-direction: column;
       gap: 0.22rem;
-      margin: 0.1rem 0 0.75rem;
-      padding: 0.62rem 0.7rem;
+      margin: 0.1rem 0 0.7rem;
+      padding: 0.55rem 0.6rem;
       border: 1px solid var(--border);
-      border-left: 3px solid var(--muted);
-      border-radius: 10px;
+      border-left: 3px solid var(--faint);
+      border-radius: 4px;
       background: var(--surface-2);
     }
-    .solver-card.ok { border-left-color: var(--good); }
+    .solver-card.ok { border-left-color: var(--ok); }
     .solver-card.warn { border-left-color: var(--warn); }
-    .solver-card-head {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      min-width: 0;
-    }
+    .solver-card-head { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
     .solver-card-head .dot {
-      width: 7px;
-      height: 7px;
+      width: 7px; height: 7px;
       border-radius: 50%;
-      background: var(--muted);
+      background: var(--faint);
       flex: 0 0 auto;
     }
-    .solver-card.ok .solver-card-head .dot { background: var(--good); }
+    .solver-card.ok .solver-card-head .dot { background: var(--ok); }
     .solver-card.warn .solver-card-head .dot { background: var(--warn); }
-    .solver-card-head strong { font-size: 0.76rem; color: var(--text); }
+    .solver-card-head strong { font-size: 0.72rem; color: var(--text); }
     .solver-card-head .backend {
       margin-left: auto;
-      font-size: 0.58rem;
+      font-size: 0.55rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--muted);
+      color: var(--faint);
+      font-family: var(--mono);
     }
-    .solver-card p {
-      color: var(--muted);
-      font-size: 0.65rem;
-      line-height: 1.4;
-    }
+    .solver-card p { color: var(--muted); font-size: 0.62rem; line-height: 1.4; }
+
+    /* ---- run actions --------------------------------------------------- */
     #btnSimulate.primary-action {
-      background: linear-gradient(135deg, #dc2626, #ef4444);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 6px 18px rgba(239, 68, 68, 0.16);
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
     }
-    #btnSimulate.primary-action.cfd-mode {
-      background: linear-gradient(135deg, #0f766e, #14b8a6);
-      box-shadow: 0 6px 18px rgba(45, 212, 191, 0.16);
-    }
-    #btnSimulate:disabled { opacity: 0.6; cursor: progress; }
+    #btnSimulate.primary-action:hover { background: #c42a13; border-color: #c42a13; }
+    #btnSimulate:disabled { opacity: 0.55; cursor: progress; }
     .run-progress {
-      height: 4px;
-      margin: 0.55rem 0 0.1rem;
-      border-radius: 999px;
-      background: rgba(34, 48, 74, 0.8);
+      height: 3px;
+      margin: 0.5rem 0 0.1rem;
+      border-radius: 2px;
+      background: var(--surface-3);
       overflow: hidden;
     }
     .run-progress[hidden] { display: none; }
@@ -594,19 +556,22 @@
       height: 100%;
       width: 38%;
       border-radius: inherit;
-      background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+      background: var(--accent);
       animation: runSweep 1.4s ease-in-out infinite;
     }
     @keyframes runSweep {
       0% { transform: translateX(-110%); }
       100% { transform: translateX(280%); }
     }
+
+    /* ---- CFD case card -------------------------------------------------- */
     .cfd-card {
-      margin-top: 0.7rem;
-      padding: 0.65rem 0.7rem;
-      border: 1px solid rgba(45, 212, 191, 0.24);
-      border-radius: 10px;
-      background: rgba(10, 18, 31, 0.78);
+      margin-top: 0.6rem;
+      padding: 0.55rem 0.6rem;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--info);
+      border-radius: 4px;
+      background: var(--surface-2);
     }
     .cfd-card[hidden] { display: none; }
     .cfd-card-head {
@@ -614,63 +579,291 @@
       align-items: center;
       justify-content: space-between;
       gap: 0.5rem;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.45rem;
     }
-    .cfd-card-head strong { font-size: 0.72rem; color: var(--text); }
+    .cfd-card-head strong { font-size: 0.68rem; color: var(--text); }
     .cfd-status {
-      font-size: 0.56rem;
+      font-size: 0.54rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      padding: 0.16rem 0.42rem;
-      border-radius: 999px;
+      padding: 0.14rem 0.4rem;
+      border-radius: 3px;
       border: 1px solid var(--border);
       color: var(--muted);
+      font-family: var(--mono);
     }
-    .cfd-status.ok { color: #a7f3d0; border-color: rgba(52, 211, 153, 0.5); }
-    .cfd-status.warn { color: #fde68a; border-color: rgba(251, 191, 36, 0.5); }
+    .cfd-status.ok { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); }
+    .cfd-status.warn { color: var(--warn); border-color: rgba(217, 154, 43, 0.5); }
+    .cfd-status.fail { color: #e06c5a; border-color: rgba(224, 108, 90, 0.5); }
     .cfd-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.35rem;
+      gap: 0.3rem;
     }
     .cfd-grid div {
       display: flex;
       flex-direction: column;
-      gap: 0.08rem;
-      padding: 0.3rem 0.35rem;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.025);
+      gap: 0.05rem;
+      padding: 0.28rem 0.32rem;
+      border-radius: 3px;
+      background: var(--surface);
+      border: 1px solid var(--border);
     }
     .cfd-grid span {
-      color: var(--muted);
-      font-size: 0.54rem;
+      color: var(--faint);
+      font-size: 0.52rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .cfd-grid b {
-      color: #d1fae5;
-      font-family: ui-monospace, 'Cascadia Code', monospace;
-      font-size: 0.7rem;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.68rem;
       font-weight: 600;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .cfd-note {
-      margin-top: 0.5rem;
+    .cfd-note { margin-top: 0.45rem; color: var(--muted); font-size: 0.6rem; line-height: 1.45; }
+
+    /* ---- bottom panel ---------------------------------------------------- */
+    .bottom-panel {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--border);
+      padding: 0.8rem 1.25rem 1rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0.8rem;
+      max-height: 360px;
+      overflow-y: auto;
+      background: var(--bg);
+    }
+    @media (max-width: 1100px) { .bottom-panel { grid-template-columns: 1fr 1fr; max-height: 320px; } }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-bottom: 0.6rem; }
+    @media (min-width: 900px) { .metrics { grid-template-columns: repeat(7, 1fr); } }
+    .metric {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.42rem 0.3rem;
+      text-align: center;
+    }
+    .metric .value {
+      font-size: 0.98rem;
+      font-weight: 600;
+      color: var(--text);
+      font-family: var(--mono);
+      letter-spacing: -0.01em;
+    }
+    .metric .label {
+      font-size: 0.54rem;
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 0.1rem;
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.55rem;
+    }
+    .panel-head h2 { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+    .fidelity-badge {
+      font-size: 0.56rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      padding: 0.18rem 0.45rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
       color: var(--muted);
+      white-space: nowrap;
+      font-family: var(--mono);
+      transition: color 0.25s, border-color 0.25s, background 0.25s;
+    }
+    .fidelity-badge.vlm { color: var(--info); border-color: rgba(110, 168, 220, 0.5); background: rgba(110, 168, 220, 0.1); }
+    .fidelity-badge.empirical { color: var(--info); border-color: rgba(110, 168, 220, 0.5); background: rgba(110, 168, 220, 0.1); }
+    .fidelity-badge.synthetic { color: var(--warn); border-color: rgba(217, 154, 43, 0.5); background: var(--warn-soft); }
+    .fidelity-badge.rans { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); background: var(--ok-soft); }
+    .fidelity-badge.hybrid { color: var(--ok); border-color: rgba(63, 178, 127, 0.6); background: var(--ok-soft); }
+    .provenance-line {
+      margin-top: 0.5rem;
+      padding-top: 0.4rem;
+      border-top: 1px dashed var(--border);
       font-size: 0.62rem;
       line-height: 1.45;
+      color: var(--muted);
     }
-    .fidelity-badge.hybrid {
-      color: #a7f3d0;
-      border-color: rgba(52, 211, 153, 0.6);
-      background: rgba(52, 211, 153, 0.1);
+    .provenance-line strong { color: var(--text); font-weight: 600; }
+    .metric-help { font-size: 0.72rem; line-height: 1.5; color: var(--muted); max-height: 140px; overflow-y: auto; }
+    .metric-help dt { color: var(--text); font-weight: 600; margin-top: 0.45rem; font-size: 0.7rem; }
+    .metric-help dt:first-child { margin-top: 0; }
+    .metric-help dd { margin-left: 0; }
+    .advice-box {
+      font-size: 0.72rem;
+      line-height: 1.55;
+      max-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: var(--muted);
     }
+    .status { font-size: 0.66rem; color: var(--muted); margin-top: 0.35rem; }
+    .loading { color: var(--info); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    #modelInput { display: none; }
+    #bootError {
+      display: none;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      color: #f3b0a8;
+      padding: 0.8rem 1rem;
+      margin: 0.8rem 1.25rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    /* ---- chat / advisor -------------------------------------------------- */
+    .chat-scroll {
+      flex-grow: 1;
+      overflow-y: auto;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.55rem 0.6rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.7rem;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      min-height: 105px;
+      max-height: 130px;
+    }
+    .chat-msg { color: var(--muted); }
+    .chat-msg strong { color: var(--text); font-weight: 600; }
+    .chat-row { display: flex; gap: 0.35rem; align-items: center; width: 100%; }
+    #chatInput {
+      margin-bottom: 0;
+      padding: 0.32rem 0.45rem;
+      font-size: 0.72rem;
+      flex-grow: 1;
+      min-width: 0;
+    }
+    #btnSendChat {
+      width: auto;
+      margin-top: 0;
+      padding: 0.32rem 0.6rem;
+      font-size: 0.7rem;
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+    }
+    #btnSendChat:hover { border-color: var(--faint); }
+
+    /* ---- inline utility panels (DRS, aero map) ---------------------------- */
+    .inline-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.5rem 0.55rem;
+      margin-bottom: 0.55rem;
+    }
+    .inline-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+      margin-bottom: 0.45rem;
+    }
+    .inline-card-head .name { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; color: var(--text); }
+    .inline-card-head .name small { display: block; color: var(--faint); font-weight: 400; letter-spacing: 0.02em; margin-top: 0.05rem; text-transform: none; font-size: 0.6rem; }
+    .drs-btn {
+      width: auto;
+      margin: 0;
+      padding: 0.28rem 0.5rem;
+      font-size: 0.62rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border-strong);
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .drs-btn .dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #3a3d44;
+      transition: background 0.2s;
+    }
+    .drs-btn.enabled { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); }
+    .drs-btn.enabled .dot { background: var(--ok); }
+    .aero-map-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .aero-map-tools { width: 100%; display: flex; justify-content: space-between; margin-bottom: 0.4rem; gap: 0.3rem; }
+    .aero-map-tools button {
+      margin-top: 0;
+      font-size: 0.66rem;
+      padding: 0.32rem 0.45rem;
+      flex-grow: 1;
+    }
+    .aero-map-tools select { margin-bottom: 0; width: 105px; font-size: 0.66rem; padding: 0.14rem 0.28rem; }
+    .aero-map-frame {
+      position: relative;
+      width: 100%;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #08090b;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #aeroMapCanvas { display: none; cursor: crosshair; }
+    .aero-map-placeholder {
+      color: var(--muted);
+      font-size: 0.62rem;
+      text-align: center;
+      padding: 0.5rem;
+      line-height: 1.5;
+    }
+    .aero-map-axes {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      font-size: 0.52rem;
+      color: var(--faint);
+      font-family: var(--mono);
+      margin-top: 0.3rem;
+    }
+    .wand-box, .slice-box {
+      display: none;
+      border-left: 2px solid var(--border-strong);
+      padding-left: 0.55rem;
+      margin: 0.45rem 0 0.6rem;
+    }
+    .wand-box.active, .slice-box.active { display: block; }
+
+    /* focus visibility */
     button:focus-visible, select:focus-visible, input:focus-visible {
-      outline: 2px solid rgba(45, 212, 191, 0.65);
-      outline-offset: 2px;
+      outline: 2px solid rgba(110, 168, 220, 0.55);
+      outline-offset: 1px;
     }
     @media (max-width: 640px) {
       header { align-items: flex-start; }
@@ -681,17 +874,17 @@
       from { opacity: 0; transform: translateY(-6px); }
       to { opacity: 1; transform: translateY(0); }
     }
-  </style>
+</style>
 </head>
 <body>
   <header>
     <div>
-      <h1>Aero Wind Tunnel Workstation</h1>
-      <p>VLM live preview · OpenFOAM CFD on demand · honest provenance</p>
+      <h1><span class="mark" aria-hidden="true"></span>Formula Aero Workstation</h1>
+      <p>VLM live preview &middot; OpenFOAM CFD on demand &middot; per-run provenance</p>
     </div>
     <div class="header-status">
-      <span class="status-pill" id="solverPill"><span class="dot"></span><span id="solverPillText">Checking solver…</span></span>
-      <span class="header-note">VLM updates live · CFD is a manual run</span>
+      <span class="header-note">VLM updates live &middot; CFD is a manual run</span>
+      <span class="status-pill" id="solverPill"><span class="dot"></span><span id="solverPillText">Checking solver...</span></span>
     </div>
   </header>
 
@@ -750,13 +943,13 @@
           <option value="ring">Ring inlet</option>
         </select>
 
-        <div id="wand_controls" style="display: none; border-left: 2px solid var(--accent2); padding-left: 0.55rem; margin: 0.5rem 0 0.8rem;">
+        <div id="wand_controls" class="wand-box" style="display: none;">
           <div class="slider-row" style="margin-bottom: 0.4rem;">
-            <label>Wand Height (Y) <span id="wand_y_val">0.25 m</span></label>
+            <label>Wand height (Y) <span id="wand_y_val">0.25 m</span></label>
             <input type="range" id="wand_y" min="0" max="1" value="0.25" step="0.01" />
           </div>
           <div class="slider-row" style="margin-bottom: 0;">
-            <label>Wand Lateral (Z) <span id="wand_z_val">0.00 m</span></label>
+            <label>Wand lateral (Z) <span id="wand_z_val">0.00 m</span></label>
             <input type="range" id="wand_z" min="-0.5" max="0.5" value="0.00" step="0.01" />
           </div>
         </div>
@@ -807,25 +1000,25 @@
         <div class="toggle-row">
           <label><input type="checkbox" id="show_slice" /> Show CFD Slice Plane</label>
         </div>
-        <div id="slice_controls" style="display: none; border-left: 2px solid var(--accent2); padding-left: 0.55rem; margin: 0.5rem 0 0.8rem;">
-          <label>Slice Axis</label>
+        <div id="slice_controls" class="slice-box" style="display: none;">
+          <label>Slice axis</label>
           <select id="slice_axis" style="margin-bottom: 0.5rem;">
-            <option value="z" selected>Z-Axis (Centerline / Lateral)</option>
-            <option value="y">Y-Axis (Ground effect / Height)</option>
-            <option value="x">X-Axis (Lengthwise cross-section)</option>
+            <option value="z" selected>Z &mdash; centerline</option>
+            <option value="y">Y &mdash; ground effect</option>
+            <option value="x">X &mdash; lengthwise</option>
           </select>
           <div class="slider-row" style="margin-bottom: 0.5rem;">
-            <label>Slice Position <span id="slice_pos_val">0.00 m</span></label>
+            <label>Slice position <span id="slice_pos_val">0.00 m</span></label>
             <input type="range" id="slice_pos" min="-0.5" max="0.5" value="0.00" step="0.01" />
           </div>
-          <label>Color Map Mode</label>
+          <label>Color map</label>
           <select id="slice_mode" style="margin-bottom: 0;">
             <option value="pressure" selected>Pressure (Cp)</option>
             <option value="velocity">Velocity magnitude</option>
           </select>
         </div>
 
-        <p class="status">Open flow by default — air spawns right in front of the car with no wall in between.</p>
+        <p class="status">Flow spawns in front of the car with no wall between source and body.</p>
 
         <h2 style="margin-top:1rem">Vehicle Setup</h2>
         <div class="section-title">Front Wing</div>
@@ -855,12 +1048,14 @@
           <div><label>RH (mm)</label><input type="number" id="diff_rh" value="30"></div>
         </div>
         <div class="section-title">Systems & Track</div>
-        <div style="display:flex; align-items:center; justify-content:space-between; background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; margin-bottom: 0.6rem;">
-          <span style="font-size: 0.76rem; font-weight: 600; color: var(--text);">DRS (Drag Reduction System)</span>
-          <button type="button" id="btnDRS" style="width: auto; margin-top: 0; padding: 0.35rem 0.6rem; font-size: 0.7rem; background: var(--bg); color: var(--muted); border: 1px solid var(--border); transition: all 0.3s; display: flex; align-items: center; gap: 0.35rem; font-weight: 700;">
-            <span id="drsIndicator" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #444; box-shadow: 0 0 4px #000; transition: background 0.3s;"></span>
-            <span id="drsText">DISABLED</span>
-          </button>
+        <div class="inline-card" style="margin-bottom:0.55rem;">
+          <div class="inline-card-head">
+            <span class="name">DRS<small>Drag Reduction System</small></span>
+            <button type="button" id="btnDRS" class="drs-btn">
+              <span id="drsIndicator" class="dot" aria-hidden="true"></span>
+              <span id="drsText">OFF</span>
+            </button>
+          </div>
         </div>
         
         <label>Track Profile</label>
@@ -905,28 +1100,28 @@
         </select>
         <button id="btnSimulate" class="primary-action">Run VLM preview</button>
         <div class="run-progress" id="runProgress" hidden><div class="bar"></div></div>
-        <p class="status" id="runHint" style="margin-top:0.35rem;">VLM updates instantly. Choose CFD for a real OpenFOAM solve (about one minute).</p>
-        <button id="btnOptimize" class="secondary">Optimize + AI Advice</button>
+        <p class="status" id="runHint" style="margin-top:0.35rem;">VLM updates instantly. CFD runs a real OpenFOAM solve, about one minute per case.</p>
+        <button id="btnOptimize" class="secondary">Optimize + AI advice</button>
 
-        <h2 style="margin-top:1rem">Aero Map (Ride Height Sweep)</h2>
-        <p class="status" style="margin-bottom:0.5rem">Simulate a grid sweep of Front vs Rear Ride Heights to map stability. Click a cell to apply.</p>
-        <div style="background: rgba(20, 27, 45, 0.4); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; display: flex; flex-direction: column; align-items: center; margin-bottom: 0.5rem;">
-          <div style="width: 100%; display: flex; justify-content: space-between; margin-bottom: 0.4rem; gap: 0.3rem;">
-            <button type="button" id="btnGenerateAeroMap" class="secondary" style="margin-top:0; font-size:0.7rem; padding: 0.35rem 0.5rem; flex-grow: 1;">Generate Aero Map</button>
-            <select id="aeroMapMetric" style="margin-bottom:0; width: 110px; font-size:0.7rem; padding: 0.15rem 0.3rem;">
+        <h2 style="margin-top:1.1rem">Aero Map (Ride Height Sweep)</h2>
+        <p class="status" style="margin-bottom:0.5rem">Front vs rear ride-height sweep on the fast VLM path. Click a cell to apply it.</p>
+        <div class="aero-map-box">
+          <div class="aero-map-tools">
+            <button type="button" id="btnGenerateAeroMap" class="secondary">Generate aero map</button>
+            <select id="aeroMapMetric">
               <option value="downforce" selected>Downforce (N)</option>
               <option value="balance">Balance (%F)</option>
-              <option value="efficiency">L/D Ratio</option>
+              <option value="efficiency">L/D ratio</option>
             </select>
           </div>
-          <div style="position: relative; width: 100%; height: 160px; display: flex; align-items: center; justify-content: center; background: #060912; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;">
-            <canvas id="aeroMapCanvas" width="220" height="150" style="display: none; cursor: crosshair;"></canvas>
-            <div id="aeroMapPlaceholder" style="color: var(--muted); font-size: 0.68rem; text-align: center; padding: 0.5rem;">Click Generate to compute a 5x5 aerodynamic map.</div>
-            <div id="aeroMapLoading" style="display:none; color: var(--accent2); font-size: 0.72rem;" class="loading">Running 25 simulations...</div>
+          <div class="aero-map-frame">
+            <canvas id="aeroMapCanvas" width="220" height="150" style="display: none;"></canvas>
+            <div id="aeroMapPlaceholder" class="aero-map-placeholder">Neutral: click Generate to compute the 5&times;5 ride-height sweep. Click a cell to apply it.</div>
+            <div id="aeroMapLoading" style="display:none;" class="loading">Running 25 simulations...</div>
           </div>
-          <div style="display:flex; justify-content:space-between; width: 100%; font-size:0.6rem; color:var(--muted); margin-top:0.25rem;">
-            <span>Y: Rear RH (20-80mm)</span>
-            <span>X: Front RH (10-50mm)</span>
+          <div class="aero-map-axes">
+            <span>Y: rear RH (20&ndash;80 mm)</span>
+            <span>X: front RH (10&ndash;50 mm)</span>
           </div>
         </div>
 
@@ -992,7 +1187,7 @@
         <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:0.65rem">
           <span>slow (entrance)</span><span>fast (exit)</span>
         </div>
-        <div id="cpRange" style="margin-top:0.35rem;color:var(--accent2)">Adjust sliders to update</div>
+        <div id="cpRange" style="margin-top:0.35rem;color:var(--muted)">Adjust sliders to update</div>
       </div>
     </div>
 
@@ -1059,19 +1254,19 @@
           <dd>Every result is labelled by what produced it. <strong>VLM</strong> = vortex-lattice preview, <strong>Empirical</strong> = correlation baseline, <strong>Synthetic model</strong> = calibrated fallback with no solver run, <strong>RANS + empirical</strong> = a real 2D OpenFOAM front-wing section combined with empirical floor/rear terms. The last is a hybrid estimate, not full-car CFD.</dd>
         </dl>
       </div>
-      <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
-        <h2>AI Aero Assistant</h2>
-        <div id="chatHistory" style="flex-grow: 1; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; margin-bottom: 0.5rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 110px; max-height: 130px;">
-          <div style="line-height: 1.4; color: var(--muted);"><strong>Assistant:</strong> Air now follows the car shape. Adjust sliders to update, or ask me setup or track questions below! (e.g. <i>"How to reduce understeer?"</i>)</div>
+        <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
+          <h2>Setup Advisor</h2>
+          <div id="chatHistory" class="chat-scroll">
+            <div class="chat-msg assistant"><strong>Advisor:</strong><br>The VLM preview updates live as you change the setup. Ask about trade-offs, e.g. <em>&ldquo;how do I cut drag without losing balance?&rdquo;</em></div>
+          </div>
+          <div class="chat-row">
+            <input type="text" id="chatInput" placeholder="Ask setup advice..." />
+            <button type="button" id="btnSendChat">Ask</button>
+          </div>
         </div>
-        <div style="display: flex; gap: 0.4rem; align-items: center; width: 100%;">
-          <input type="text" id="chatInput" placeholder="Ask setup advice..." style="margin-bottom: 0; padding: 0.35rem 0.5rem; font-size: 0.76rem; flex-grow: 1; min-width: 0;" />
-          <button type="button" id="btnSendChat" style="width: auto; margin-top: 0; padding: 0.35rem 0.65rem; font-size: 0.75rem; background: var(--accent2); color: var(--bg);">Ask</button>
-        </div>
-      </div>
     </div>
   </div>
 
-  <script type="module" src="/static/js/app.js?v=0.4.2"></script>
+  <script type="module" src="/static/js/app.js?v=0.5.0"></script>
 </body>
 </html>

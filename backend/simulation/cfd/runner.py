@@ -34,7 +34,7 @@ from backend.simulation.cfd.models import (
     MeshLevel,
     MeshStats,
 )
-from backend.simulation.cfd.parser import evaluate_convergence, parse_mesh_stats
+from backend.simulation.cfd.parser import evaluate_convergence, parse_mesh_stats, parse_y_plus
 
 SYNTHETIC_SOLVER_VERSION = "none (calibrated-synthetic-v1)"
 DEFAULT_TIMEOUT_S = 900.0
@@ -196,7 +196,7 @@ def _copy_from_wsl(case_dir: Path, wsl_case: PurePosixPath) -> None:
 
 
 def _solver_version(case_dir: Path) -> str:
-    for name in ("log.blockMesh", "log.simpleFoam", "log.snappyHexMesh"):
+    for name in ("log.checkMesh", "log.simpleFoam"):
         path = case_dir / name
         if not path.exists():
             continue
@@ -212,9 +212,6 @@ def _solver_version(case_dir: Path) -> str:
 def _failure_message(case_dir: Path) -> str:
     chunks: list[str] = []
     for name in (
-        "log.blockMesh",
-        "log.surfaceFeatureExtract",
-        "log.snappyHexMesh",
         "log.checkMesh",
         "log.simpleFoam",
     ):
@@ -252,6 +249,13 @@ def _actual_mesh_stats(
     area = _domain_area(case_dir)
     if cells > 0 and area is not None:
         mesh_stats.grid_spacing_h = math.sqrt(area / cells)
+    y_plus = parse_y_plus(case_dir)
+    mesh_stats.y_plus_min = y_plus["y_plus_min"]
+    mesh_stats.y_plus_max = y_plus["y_plus_max"]
+    mesh_stats.y_plus_avg = y_plus["y_plus_avg"]
+    for key, value in y_plus.items():
+        if value is not None:
+            info[key] = value
     return mesh_stats, info
 
 
@@ -338,6 +342,10 @@ def _result_from_logs(
                 "points": mesh_stats.num_points,
                 "grid_spacing_h": mesh_stats.grid_spacing_h,
                 "estimated_y_plus": mesh_stats.estimated_y_plus,
+                "first_cell_height_m": mesh_stats.first_cell_height_m,
+                "y_plus_min": mesh_stats.y_plus_min,
+                "y_plus_max": mesh_stats.y_plus_max,
+                "y_plus_avg": mesh_stats.y_plus_avg,
                 "max_non_orthogonality_deg": float(mesh_info["max_non_orthogonality_deg"]),
                 "severe_non_orthogonal_faces": int(mesh_info["severe_non_orthogonal_faces"]),
                 "failed_mesh_checks": int(mesh_info["failed_mesh_checks"]),

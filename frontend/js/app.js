@@ -307,7 +307,7 @@ function updateMethodNote() {
 
 
 let chatHistory = [
-  { sender: 'assistant', text: 'Air now follows the car shape. Adjust sliders to update, or ask me setup or track questions below! (e.g. "How to reduce understeer?")' }
+  { sender: 'assistant', text: 'The VLM preview updates live as you change the setup. Ask the advisor about trade-offs, e.g. "how do I cut drag without losing balance?"' }
 ];
 
 function getConfig() {
@@ -740,25 +740,9 @@ async function runOptimize() {
 function toggleDRS() {
   drsActive = !drsActive;
   const btn = document.getElementById('btnDRS');
-  const indicator = document.getElementById('drsIndicator');
   const txt = document.getElementById('drsText');
-  
-  if (drsActive) {
-    btn.style.background = 'var(--accent2)';
-    btn.style.color = 'var(--bg)';
-    btn.style.borderColor = 'var(--accent2)';
-    indicator.style.background = '#e10600';
-    indicator.style.boxShadow = '0 0 10px #e10600';
-    txt.textContent = 'ACTIVE';
-  } else {
-    btn.style.background = 'var(--bg)';
-    btn.style.color = 'var(--muted)';
-    btn.style.borderColor = 'var(--border)';
-    indicator.style.background = '#444';
-    indicator.style.boxShadow = 'none';
-    txt.textContent = 'DISABLED';
-  }
-  
+  if (btn) btn.classList.toggle('enabled', drsActive);
+  if (txt) txt.textContent = drsActive ? 'ACTIVE' : 'OFF';
   if (isCfdMethod()) {
     refreshVisualization();
     const status = document.getElementById('status');
@@ -994,27 +978,22 @@ function handleAeroMapClick(e) {
 function renderChat() {
   const container = document.getElementById('chatHistory');
   if (!container) return;
-  
+
   container.innerHTML = chatHistory.map(msg => {
     const isUser = msg.sender === 'user';
-    const bg = isUser ? 'rgba(0, 210, 190, 0.15)' : 'rgba(255, 255, 255, 0.03)';
-    const border = isUser ? '1px solid var(--accent2)' : '1px solid var(--border)';
-    const align = isUser ? 'flex-end' : 'flex-start';
-    const label = isUser ? '<strong>Engineer (You):</strong>' : '<strong>Assistant:</strong>';
-    
+    const label = isUser ? '<strong>Engineer:</strong>' : '<strong>Advisor:</strong>';
+
     let text = msg.text
       .replace(/## (.*)/g, '<strong>$1</strong>')
       .replace(/### (.*)/g, '<strong>$1</strong>')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/- (.*)/g, '• $1')
+      .replace(/- (.*)/g, '&ndash; $1')
       .replace(/\n/g, '<br>');
-      
-    return `<div style="background: ${bg}; border: ${border}; border-radius: 8px; padding: 0.45rem 0.55rem; width: 90%; align-self: ${align}; word-wrap: break-word; line-height: 1.4;">
-      ${label}<br>${text}
-    </div>`;
+
+    return `<div class="chat-msg ${isUser ? 'user' : 'assistant'}">${label}<br>${text}</div>`;
   }).join('');
-  
+
   container.scrollTop = container.scrollHeight;
 }
 

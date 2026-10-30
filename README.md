@@ -42,8 +42,8 @@ The app works without OpenFOAM: the VLM preview runs immediately, and the CFD
 tab reports an explicitly-labelled synthetic fallback when no solver is found.
 
 To run real CFD on Windows, install OpenFOAM inside WSL2 (for example,
-Ubuntu 22.04 with OpenFOAM 1912), then expose `simpleFoam`, `blockMesh`, and
-`snappyHexMesh` inside the distro. Restart the server after installing; the
+Ubuntu 22.04 with OpenFOAM 1912), then expose `simpleFoam`, `checkMesh`, and
+`yPlus` inside the distro. Restart the server after installing; the
 health endpoint reports the detected backend and solver version.
 
 The CFD tab is deliberately **manual**, because a medium case takes roughly one
@@ -58,8 +58,10 @@ What the real path does:
 
 - Generates a 2D inverted NACA 4412 section from the current front-wing chord,
   total angle, and front ride height.
-- Meshes it with `blockMesh` + `snappyHexMesh` and solves steady
-  k-omega-SST RANS with a moving ground plane.
+- Writes the body-fitted O-grid directly as an OpenFOAM `polyMesh` (wall
+  facets exactly on the NACA section, first-cell height set from the target
+  y+, moving-ground wall patch) and solves steady k-omega-SST RANS.
+- Reports measured y+ statistics and `checkMesh` quality metrics per run.
 - Combines the section coefficients with empirical floor and rear-wing terms.
 
 What it does **not** do:
@@ -68,8 +70,10 @@ What it does **not** do:
   estimate.
 - A real solver failure returns HTTP 503 and a failed case card. It never
   silently replaces the run with synthetic numbers.
-- Mesh independence is **not** demonstrated on the current meshes; see
-  `docs/STATUS.md` for the measured GCI.
+- The mesh family is a 2D O-grid with y+ ≈ 30 wall treatment and a constant
+  1.5 refinement ratio between levels. The measured GCI on this family is
+  0.615 % (fine) with an asymptotic ratio of 0.985 — mesh independence is now
+  demonstrated for the section Cl. See `docs/STATUS.md` for V5/V6 numbers.
 
 ## API Endpoints
 

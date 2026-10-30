@@ -17,7 +17,8 @@ formula. That violated the project's honesty rule: do not name a method after
 something it does not do.
 
 OpenFOAM 1912 is now installed in WSL2 Ubuntu 22.04. `detect_cfd_backend()`
-returns `wsl`; `simpleFoam`, `blockMesh`, and `snappyHexMesh` execute real cases.
+returns `wsl`; `simpleFoam`, `checkMesh`, and `yPlus` execute real cases on the
+body-fitted O-grid family (ADR 0006).
 The question is no longer "can we label a synthetic model honestly?" but "what
 exactly is the real path, and what happens when it fails?"
 
@@ -25,8 +26,8 @@ exactly is the real path, and what happens when it fails?"
 
 1. **Use the real solver when it is detected.** The `cfd` method runs a 2D
    single-element inverted NACA 4412 section with a moving ground plane,
-   `blockMesh` + `snappyHexMesh`, and steady k-omega-SST RANS. It is a section
-   simplification, not the full multi-element wing or the full car.
+   a body-fitted O-grid polyMesh (ADR 0006), and steady k-omega-SST RANS. It
+   is a section simplification, not the full multi-element wing or the full car.
 
 2. **Label the total honestly as `rans_hybrid`.** The 2D section supplies the
    front-wing contribution; the floor and rear wing remain empirical terms. The

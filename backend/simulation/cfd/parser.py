@@ -133,7 +133,7 @@ def parse_mesh_stats(case_dir: Path) -> dict[str, float | int]:
     severe_non_ortho = 0
     failed_checks = 0
 
-    for name in ("log.checkMesh", "log.snappyHexMesh"):
+    for name in ("log.checkMesh",):
         path = case_dir / name
         if not path.exists():
             continue
@@ -163,6 +163,45 @@ def parse_mesh_stats(case_dir: Path) -> dict[str, float | int]:
         "severe_non_orthogonal_faces": severe_non_ortho,
         "failed_mesh_checks": failed_checks,
     }
+
+
+def parse_y_plus(case_dir: Path) -> dict[str, float | None]:
+    """Read the wall y+ history written by the ``yPlus`` function object.
+
+    OpenFOAM writes ``postProcessing/yPlus/<time>/yPlus.dat`` with columns
+    ``Time patch min max average``.  The patch name is not numeric, so numeric
+    token filtering leaves ``[time, min, max, average]``.
+    """
+    post_dir = case_dir / "postProcessing"
+    paths = sorted(
+        list(post_dir.glob("yPlus*/*/yPlus.dat"))
+        + list(post_dir.glob("yPlus*/*/yPlus_*.dat"))
+    )
+    result: dict[str, float | None] = {
+        "y_plus_min": None,
+        "y_plus_max": None,
+        "y_plus_avg": None,
+    }
+    for path in reversed(paths):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            numbers: list[float] = []
+            for token in line.split():
+                try:
+                    numbers.append(float(token))
+                except ValueError:
+                    continue
+            if len(numbers) >= 4:
+                result["y_plus_min"] = numbers[-3]
+                result["y_plus_max"] = numbers[-2]
+                result["y_plus_avg"] = numbers[-1]
+                return result
+    return result
 
 
 def evaluate_convergence(

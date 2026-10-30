@@ -2,10 +2,9 @@
 
 The case is a real, runnable OpenFOAM case:
 
-* ``blockMesh`` builds a box background mesh.
-* ``surfaceFeatureExtract`` extracts the airfoil feature edges.
-* ``snappyHexMesh`` inserts the extruded NACA section from an STL.
-* ``simpleFoam`` solves k-omega SST with a forceCoeffs function object.
+* the body-fitted O-grid is written directly as a ``polyMesh``;
+* ``simpleFoam`` solves k-omega SST with a forceCoeffs function object;
+* ``checkMesh`` records the measured cell count and mesh quality.
 
 The builder never writes a fake solver log.  Solver metadata is written by the
 runner only after a real solve.
@@ -22,15 +21,12 @@ from backend.simulation.cfd.mesh_builder import (
     MESH_LEVELS,
     SPAN_M,
     build_profile,
-    generate_blockmesh_dict,
-    generate_snappy_dict,
-    generate_surface_feature_dict,
-    write_airfoil_stl,
+    write_ogrid_mesh,
 )
 from backend.simulation.cfd.models import AirfoilGeometry, MeshLevel, MeshStats
 
 DEFAULT_WORK_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "cfd_cases"
-CASE_FORMAT_VERSION = "real-airfoil-rans-v4"
+CASE_FORMAT_VERSION = "real-airfoil-rans-v10-ogrid-moving-ground"
 
 
 def foam_header(cls: str, obj: str) -> str:
@@ -60,7 +56,7 @@ def compute_case_hash(
     nu: float = 1.5e-5,
     turbulence_intensity: float = 0.01,
     rho: float = 1.225,
-    max_iterations: int = 400,
+    max_iterations: int = 2000,
 ) -> str:
     """Compute a deterministic SHA-256 hash for the given simulation parameters."""
     payload = {
@@ -107,7 +103,7 @@ def build_openfoam_case(
     nu: float = 1.5e-5,
     rho: float = 1.225,
     turbulence_intensity: float = 0.01,
-    max_iterations: int = 400,
+    max_iterations: int = 2000,
 ) -> tuple[Path, MeshStats]:
     """Generate a complete, deterministic, runnable OpenFOAM case directory.
 
@@ -126,8 +122,8 @@ def build_openfoam_case(
     target_dir = (base_dir or DEFAULT_WORK_DIR) / f"case_{case_hash}"
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    profile = build_profile(airfoil)
-    _, _, surf_level, _ = MESH_LEVELS[mesh_level]
+    profile = build_profile(airfoil, num_points=MESH_LEVELS[mesh_level].n_surface)
+    resolution = MESH_LEVELS[mesh_level]
 
     u_mag = float(speed_ms)
     k_inlet = 1.5 * (u_mag * turbulence_intensity) ** 2
@@ -139,18 +135,21 @@ def build_openfoam_case(
     dir_0 = target_dir / "0"
     dir_constant = target_dir / "constant"
     dir_system = target_dir / "system"
-    dir_tri = dir_constant / "triSurface"
-    for d in (dir_0, dir_constant, dir_system, dir_tri):
+    for d in (dir_0, dir_constant, dir_system):
         d.mkdir(exist_ok=True)
 
     has_ground = profile.ground_height_m is not None
 
-    # 0/U -----------------------------------------------------------------
+    # The far field of an O-grid is one continuous outer curve, so the four
+    # patch labels are bookkeeping rather than a physical inlet/outlet split.
+    # Treating them as a slip-walled channel with a small pressure outlet blocks
+    # the flow and diverges; freestream lets each face switch on its own flux.
     ground_u = (
         "    ground\n    {\n        type movingWallVelocity;\n"
-        "        value uniform (0 0 0);\n    }\n"
+        f"        value uniform ({u_mag:.6f} 0 0);\n    }}\n"
         if has_ground
-        else "    ground\n    {\n        type slip;\n    }\n"
+        else "    ground\n    {\n        type freestream;\n"
+        f"        freestreamValue uniform ({u_mag:.6f} 0 0);\n    }}\n"
     )
     (dir_0 / "U").write_text(
         _field(
@@ -160,16 +159,18 @@ def build_openfoam_case(
             "uniform (0 0 0)",
             f"""    inlet
     {{
-        type fixedValue;
-        value uniform ({u_mag:.6f} 0 0);
+        type freestream;
+        freestreamValue uniform ({u_mag:.6f} 0 0);
     }}
     outlet
     {{
-        type zeroGradient;
+        type freestream;
+        freestreamValue uniform ({u_mag:.6f} 0 0);
     }}
     top
     {{
-        type slip;
+        type freestream;
+        freestreamValue uniform ({u_mag:.6f} 0 0);
     }}
 {ground_u}    airfoil
     {{
@@ -186,18 +187,26 @@ def build_openfoam_case(
     )
 
     # 0/p -----------------------------------------------------------------
+    # A moving-wall ground patch cannot carry freestreamPressure (it reads the
+    # velocity BC), so it uses the standard wall pressure condition instead.
+    # The belt moves with the freestream, which is the road-relative setup a car
+    # sees; a stationary ground is a different (wind-tunnel-floor) experiment.
+    ground_p = (
+        "    ground      { type fixedFluxPressure; value uniform 0; }\n"
+        if has_ground
+        else "    ground      { type freestreamPressure; freestreamValue uniform 0; }\n"
+    )
     (dir_0 / "p").write_text(
         _field(
             "p",
             "volScalarField",
             "[0 2 -2 0 0 0 0]",
             "uniform 0",
-            """    inlet       { type zeroGradient; }
-    outlet      { type fixedValue; value uniform 0; }
-    top         { type zeroGradient; }
-    ground      { type zeroGradient; }
-    airfoil     { type zeroGradient; }
-    frontAndBack { type empty; }
+            f"""    inlet       {{ type freestreamPressure; freestreamValue uniform 0; }}
+    outlet      {{ type freestreamPressure; freestreamValue uniform 0; }}
+    top         {{ type freestreamPressure; freestreamValue uniform 0; }}
+{ground_p}    airfoil     {{ type zeroGradient; }}
+    frontAndBack {{ type empty; }}
 """,
         ),
         encoding="utf-8",
@@ -208,7 +217,7 @@ def build_openfoam_case(
     ground_k = (
         f"    ground      {{ type kqRWallFunction; value uniform {k_inlet:.6e}; }}\n"
         if has_ground
-        else "    ground      { type zeroGradient; }\n"
+        else f"    ground      {{ type inletOutlet; inletValue uniform {k_inlet:.6e}; value uniform {k_inlet:.6e}; }}\n"
     )
     (dir_0 / "k").write_text(
         _field(
@@ -216,9 +225,9 @@ def build_openfoam_case(
             "volScalarField",
             "[0 2 -2 0 0 0 0]",
             f"uniform {k_inlet:.6e}",
-            f"""    inlet       {{ type fixedValue; value uniform {k_inlet:.6e}; }}
-    outlet      {{ type zeroGradient; }}
-    top         {{ type zeroGradient; }}
+            f"""    inlet       {{ type inletOutlet; inletValue uniform {k_inlet:.6e}; value uniform {k_inlet:.6e}; }}
+    outlet      {{ type inletOutlet; inletValue uniform {k_inlet:.6e}; value uniform {k_inlet:.6e}; }}
+    top         {{ type inletOutlet; inletValue uniform {k_inlet:.6e}; value uniform {k_inlet:.6e}; }}
 {ground_k}    airfoil     {{ type kqRWallFunction; value uniform {k_inlet:.6e}; }}
     frontAndBack {{ type empty; }}
 """,
@@ -231,7 +240,7 @@ def build_openfoam_case(
     ground_omega = (
         f"    ground      {{ type omegaWallFunction; value uniform {omega_inlet:.6e}; }}\n"
         if has_ground
-        else "    ground      { type zeroGradient; }\n"
+        else f"    ground      {{ type inletOutlet; inletValue uniform {omega_inlet:.6e}; value uniform {omega_inlet:.6e}; }}\n"
     )
     (dir_0 / "omega").write_text(
         _field(
@@ -239,9 +248,9 @@ def build_openfoam_case(
             "volScalarField",
             "[0 0 -1 0 0 0 0]",
             f"uniform {omega_inlet:.6e}",
-            f"""    inlet       {{ type fixedValue; value uniform {omega_inlet:.6e}; }}
-    outlet      {{ type zeroGradient; }}
-    top         {{ type zeroGradient; }}
+            f"""    inlet       {{ type inletOutlet; inletValue uniform {omega_inlet:.6e}; value uniform {omega_inlet:.6e}; }}
+    outlet      {{ type inletOutlet; inletValue uniform {omega_inlet:.6e}; value uniform {omega_inlet:.6e}; }}
+    top         {{ type inletOutlet; inletValue uniform {omega_inlet:.6e}; value uniform {omega_inlet:.6e}; }}
 {ground_omega}    airfoil     {{ type omegaWallFunction; value uniform {omega_inlet:.6e}; }}
     frontAndBack {{ type empty; }}
 """,
@@ -254,7 +263,7 @@ def build_openfoam_case(
     ground_nut = (
         "    ground      { type nutkWallFunction; value uniform 0; }\n"
         if has_ground
-        else "    ground      { type calculated; value uniform 0; }\n"
+        else f"    ground      {{ type calculated; value uniform {nut_inlet:.6e}; }}\n"
     )
     (dir_0 / "nut").write_text(
         _field(
@@ -264,7 +273,7 @@ def build_openfoam_case(
             f"uniform {nut_inlet:.6e}",
             f"""    inlet       {{ type calculated; value uniform {nut_inlet:.6e}; }}
     outlet      {{ type calculated; value uniform {nut_inlet:.6e}; }}
-    top         {{ type calculated; value uniform 0; }}
+    top         {{ type calculated; value uniform {nut_inlet:.6e}; }}
 {ground_nut}    airfoil     {{ type nutkWallFunction; value uniform 0; }}
     frontAndBack {{ type empty; }}
 """,
@@ -288,23 +297,13 @@ def build_openfoam_case(
         newline="\n",
     )
 
-    write_airfoil_stl(dir_tri / "airfoil.stl", profile)
-
-    # system --------------------------------------------------------------
-    (dir_system / "surfaceFeatureExtractDict").write_text(
-        generate_surface_feature_dict(), encoding="utf-8", newline="\n"
-    )
-    (dir_system / "snappyHexMeshDict").write_text(
-        generate_snappy_dict(airfoil, mesh_level), encoding="utf-8", newline="\n"
-    )
-
-    _, stats = generate_blockmesh_dict(
-        airfoil=airfoil,
-        mesh_level=mesh_level,
-        speed_ms=speed_ms,
-        chord_m=airfoil.chord_m,
-        output_path=dir_system / "blockMeshDict",
+    stats = write_ogrid_mesh(
+        target_dir,
+        profile,
+        mesh_level,
+        speed_ms,
         nu=nu,
+        rho=rho,
     )
 
     # Force coefficients: positive Cl means downforce for the front wing and
@@ -350,6 +349,14 @@ functions
         lRef            {airfoil.chord_m:.6f};
         Aref            {airfoil.chord_m * SPAN_M:.6f};
         CofR            ({cof_x:.6f} {cof_y:.6f} {cof_z:.6f});
+    }}
+    yPlus
+    {{
+        type            yPlus;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    timeStep;
+        writeInterval   100;
+        patches         (airfoil);
     }}
 }}
 """,
@@ -413,16 +420,16 @@ SIMPLE
     pRefValue       0;
     residualControl
     {
-        p               1e-4;
-        U               1e-4;
-        k               1e-4;
-        omega           1e-4;
+        p               1e-5;
+        U               1e-5;
+        k               1e-5;
+        omega           1e-5;
     }
 }
 relaxationFactors
 {
-    fields { p 0.2; }
-    equations { U 0.5; k 0.6; omega 0.6; }
+    fields { p 0.3; }
+    equations { U 0.7; k 0.7; omega 0.7; }
 }
 """,
         encoding="utf-8",
@@ -442,10 +449,7 @@ else
         if [ -f "$f" ]; then . "$f"; break; fi
     done
 fi
-blockMesh > log.blockMesh 2>&1
-surfaceFeatureExtract > log.surfaceFeatureExtract 2>&1
-snappyHexMesh -overwrite > log.snappyHexMesh 2>&1
-checkMesh > log.checkMesh 2>&1 || true
+checkMesh > log.checkMesh 2>&1
 simpleFoam > log.simpleFoam 2>&1
 """,
         encoding="utf-8",
@@ -464,7 +468,9 @@ simpleFoam > log.simpleFoam 2>&1
         "speed_ms": speed_ms,
         "reynolds": speed_ms * airfoil.chord_m / nu,
         "mesh_level": mesh_level.value,
-        "surface_level": surf_level,
+        "n_surface": 2 * resolution.n_surface - 1,
+        "n_radial": resolution.n_radial,
+        "first_cell_height_m": stats.first_cell_height_m,
         "cells_estimated": stats.num_cells,
         "y_plus_estimated": stats.estimated_y_plus,
         "rho": rho,

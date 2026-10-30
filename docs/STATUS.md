@@ -48,7 +48,7 @@ re-measured with real CFD. Acceptance pending.
 | `backend/simulation/analytical.py` | KEEP, DEMOTE | works | `fidelity="empirical"`; sign handling corrected |
 | `backend/simulation/panel_method.py` | KEEP | works | 3D VLM; `fidelity="low_fidelity_vlm"` |
 | `backend/simulation/vlm/` | KEEP | works | Horseshoe Biot-Savart, image ground, Trefftz drag |
-| `backend/simulation/cfd/` | REAL | works | STL, blockMesh, snappyHexMesh, simpleFoam, parsers, cache |
+| `backend/simulation/cfd/` | REAL | works | Body-fitted O-grid polyMesh, simpleFoam, checkMesh + y+ parsers, result cache |
 | `backend/simulation/cfd/openfoam_runner.py` | REAL + HYBRID | works | 2D section + empirical floor/rear; manual API path |
 | `backend/ml/dataset.py` | REAL HF | works | 28 real WSL points; per-point failure rows; medium mesh |
 | `backend/ml/surrogate.py` | VALIDATION ONLY | works | GP + AR1; not wired into the live UI |
@@ -66,7 +66,7 @@ re-measured with real CFD. Acceptance pending.
 | Step 0 Reality check | accepted 2026-10-27 | |
 | 0 Hygiene and honest naming | accepted 2026-10-27 | |
 | 1 Real VLM | accepted 2026-10-27 | V4 external reference still fails |
-| 2 CFD pipeline | **implemented with real solver; measured limitations; acceptance pending** | V5 NOT DEMONSTRATED, V6 Part A partly fails, Part B trend-only |
+| 2 CFD pipeline | **implemented with real solver; mesh independence demonstrated on the O-grid family** | V5 PASSED (GCI 0.615 %); V6 re-measured on the O-grid family, see section 4 |
 | 3 Dataset and surrogate | **real 28-point HF dataset; V7/V8 targets partly unmet** | 4/28 solver-converged points |
 | 4 Active learning and sensitivity | not started | |
 | 5 Lap simulation | not started | |
@@ -89,9 +89,9 @@ The V5/V6/V7/V8 runs used the real WSL OpenFOAM 1912 backend.
 | V3 | VLM grid convergence | passing | monotonic, GCI < 1.5 % over 4 grids | Roache (1998) |
 | V4a | Ground-effect trend vs potential-flow image system | passing | 1.120, 1.313, 1.618, 2.055, 2.585; max error 3.7 % vs image-system targets; monotonic | Tuck (1975), Wieselsberger |
 | V4b | External ground-effect comparison | **PENDING** | model 2.585 vs published 1.34 at h/c=0.15 (~1.93x); modelled section is not the Zerihan & Zhang geometry; no digitized data | Zerihan & Zhang (2000) |
-| V5 | CFD mesh independence | **NOT DEMONSTRATED** | coarse 8,215 cells Cl 0.45158; medium 21,078 Cl 0.40384; fine 43,971 Cl 0.34433 (unconverged). r21=1.444, r32=1.602, p=0.500, GCI fine 107.049 %, asymptotic ratio 0.432 | Roache (1998), Celik et al. (2008) |
-| V6A | NACA 0012 polar | **measured; tight targets not met** | Cl 0.0615/0.4038/0.6925/0.8967/0.7628 at 0/4/8/10/12 deg; Cd 0.01128/0.01894/0.03838/0.05913/0.10052; Cd0 delta 0.00308; lift slope 0.0789/deg vs 0.1081/deg (27.05 % error) | McCroskey (1987), Ladson (1988) |
-| V6B | Ground-effect trend | **trend only** | Cl ratio 1.187 / 1.292 / 1.509 / 1.917 / 2.439 at h/c 1.00/0.50/0.30/0.20/0.15; direction matches, geometry is an inverted NACA 4412 section, not Zerihan/Zhang | Zerihan & Zhang (2000), trend only |
+| V5 | CFD mesh independence | **PASSED (O-grid family, 2026-10-30)** | coarse 7,616 cells Cl 0.37922 (converged); medium 17,184 Cl 0.36170 (converged); fine 38,736 Cl 0.35696 (iter-cap; force-stability flag unconverged). r21=1.501, r32=1.502, p=3.219, extrapolated Cl 0.35520, fine rel. error 1.327 %, GCI fine 0.615 %, asymptotic ratio 0.985 -> in asymptotic range | Roache (1998), Celik et al. (2008) |
+| V6A | NACA 0012 polar (O-grid family) | **measured; tight targets partly met** | Cl 0.0000/0.3617/0.7216/0.9009/1.0731 at 0/4/8/10/12 deg; Cd 0.0075/0.0117/0.0245/0.0347/0.0486; all five cases converged. Cd0 delta 0.00071 (target < 0.0015, met); lift slope 0.0902/deg vs 0.1081/deg (16.58 % error; target < 4 %, not met) | McCroskey (1987), Ladson (1988) |
+| V6B | Ground-effect trend (O-grid coarse) | **trend only** | Cl ratio 1.652 / 2.100 / 2.486 / 3.063 / 3.446 at h/c 1.00/0.50/0.30/0.20/0.15, all converged; direction matches, geometry is an inverted NACA 4412 section, not Zerihan/Zhang | Zerihan & Zhang (2000), trend only |
 | V7 | Surrogate cross-validation | **targets partly unmet** | real 28 rows, 4 converged. AR1 Cl R² 0.6879, Cd R² 0.9605; MAPE 7.08 % / 0.92 %; 95 % coverage 82.1 % / 89.3 % | Kennedy & O'Hagan (2000) |
 | V8 | Multi-fidelity vs single-fidelity | **targets partly unmet** | train 19 / test 5. Budgets N=6/12/19: SF RMSE 0.1294/0.1576/0.1933, AR1 0.1050/0.1566/0.1765, reduction 18.9 %/0.6 %/8.7 %; 95 % coverage 100 %, width 0.5833; test R² 0.5751 | Forrester et al. (2007) |
 | V9 | Active learning sample efficiency | pending | | |
@@ -112,11 +112,14 @@ force a pass.
   is an inverted NACA 4412 with a moving ground plane; floor and rear-wing
   contributions are empirical. The total is labelled `rans_hybrid`, not
   `rans`.
-- **Mesh independence is not demonstrated.** `snappyHexMesh` produces severe
-  non-orthogonal faces; the fine NACA 0012 case is force-unconverged and GCI is
-  107 %. A mesh-family rebuild is required before claiming mesh independence.
-- **V6 Part A uses fully turbulent RANS at Re=3.0M.** It overpredicts drag and
-  underpredicts lift near stall; the old tight tolerances are not met.
+- **Mesh independence is demonstrated on the body-fitted O-grid family**
+  (ADR 0006): GCI fine 0.615 %, asymptotic ratio 0.985, fine Cl within 1.33 %
+  of the Richardson extrapolation. The fine solve reached the 2000-iteration
+  cap and is flagged unconverged by the force-stability test, which is stated
+  alongside the result rather than hidden.
+- **V6 Part A uses fully turbulent RANS at Re=3.0M.** On the O-grid family it
+  still underpredicts lift (12.8-17.8 % per point) and overpredicts drag; the
+  Cd0 target is now met, the lift-curve slope target is not (16.58 % error).
 - **V6 Part B is trend-only.** The modelled section is not the Zerihan/Zhang
   multi-element wing, so absolute ratios are not a geometry validation.
 - **V4 external validation is still pending.** The potential-flow image-system
@@ -130,6 +133,9 @@ force a pass.
 - **The 28-point HF dataset is small and mostly unconverged.** 4/28 points have
   `convergence_flag=True`; the rest are real solves that hit the force-stability
   threshold. Rows are retained with their measured status, not relabelled.
+  It was generated on the retired snappy medium family; with the O-grid family
+  (ADR 0006) accepted, the dataset should be regenerated so V7/V8 evidence
+  matches the mesh family that survives V5.
 - **V7/V8 targets are partly unmet.** Reported above. The dataset is too small
   and the hybrid/VLM relationship is not smooth enough for the historical
   R² > 0.90 / MAPE < 5 % targets.
@@ -198,4 +204,5 @@ force a pass.
 | 2026-10-28 | Phase 3 checkpoint | Surrogate pipeline committed as-is | `f6e939d` |
 | 2026-10-28 | Provenance fix | Real solver labels, no fake logs, synthetic dataset regenerated, UI badges | `5a1c681` |
 | 2026-10-28 | Real CFD + UI | OpenFOAM 1912 WSL, real V5/V6 runs, manual CFD UI, 503 path, 28-point real dataset, V7/V8 re-run, true Pareto, layout redesign, 30-trial UI, consistent optimizer advice; 27 fast + 4 slow tests pass, ruff/mypy clean | `4bd531e` |
-| 2026-10-29 | Validation reporting | V4 split into potential-flow pass and PENDING external reference; V2 error corrected to 15.4% at AR=2; generated dataset logs ignored; 27 fast tests, ruff/mypy clean | pending |
+| 2026-10-29 | Validation reporting | V4 split into potential-flow pass and PENDING external reference; V2 error corrected to 15.4% at AR=2; generated dataset logs ignored; 27 fast tests, ruff/mypy clean | `dac74eb` |
+| 2026-10-30 | Mesh hardening | snappyHexMesh replaced by body-fitted O-grid polyMesh family (r=1.5, y+ 30), moving-ground wall, y+ instrumentation; V5 re-measured: GCI fine 0.615 %, asymptotic 0.985, PASSED; ADR 0006; 33 fast tests, ruff/mypy clean | pending |

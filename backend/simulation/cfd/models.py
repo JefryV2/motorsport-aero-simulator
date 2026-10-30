@@ -45,6 +45,10 @@ class MeshStats:
     num_points: int
     grid_spacing_h: float
     estimated_y_plus: float
+    first_cell_height_m: float | None = None
+    y_plus_min: float | None = None
+    y_plus_max: float | None = None
+    y_plus_avg: float | None = None
 
 
 @dataclass
