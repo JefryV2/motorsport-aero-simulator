@@ -496,7 +496,7 @@ function showCfdError(message) {
   if (title) title.textContent = 'OpenFOAM case failed';
   if (status) {
     status.textContent = 'FAILED';
-    status.className = 'cfd-status warn';
+    status.className = 'cfd-status fail';
   }
   ['cfdCase', 'cfdCells', 'cfdIters', 'cfdP', 'cfdU', 'cfdTime'].forEach((id) => {
     const el = document.getElementById(id);

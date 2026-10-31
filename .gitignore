@@ -41,3 +41,6 @@ dist/
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# OpenDesigner review artifacts (probes, plans, findings)
+opendesigner/

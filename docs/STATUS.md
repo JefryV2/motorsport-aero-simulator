@@ -136,6 +136,20 @@ force a pass.
   It was generated on the retired snappy medium family; with the O-grid family
   (ADR 0006) accepted, the dataset should be regenerated so V7/V8 evidence
   matches the mesh family that survives V5.
+- **The first O-grid regeneration attempt failed 0/18 and was aborted.**
+  Every sampled point (ride-height 15-50 mm over a 0.47 m chord, i.e.
+  h/c = 0.032-0.106) solved but produced section Cl of 8-20 - far outside the
+  h/c >= 0.15 envelope V5/V6 validated - or blew up outright (one case Cl
+  -12254). The `abs(Cl) > 10` plausibility guard in `parser.py` labels those
+  points DIVERGED, which is the honest verdict; the solver evidence lives in
+  `data/datasets/generate_real_dataset_ogrid.log` and the per-case WSL logs.
+  Diagnosis, not yet fixed: the O-grid radial spacing (tuned for h/c >= 0.15)
+  is far too coarse in the wing-ground gap at those ride heights, so the mesh
+  is unvalidated there. Next steps agreed with the findings: either constrain
+  the LHS design space to the validated envelope (ride height >= 70 mm at
+  0.47 m chord) or add adaptive gap refinement to `mesh_builder.py` first.
+  The dataset on disk is still the snappy-family 28-point run (7,616-cell
+  cases), unchanged and backed up.
 - **V7/V8 targets are partly unmet.** Reported above. The dataset is too small
   and the hybrid/VLM relationship is not smooth enough for the historical
   R² > 0.90 / MAPE < 5 % targets.
@@ -205,4 +219,5 @@ force a pass.
 | 2026-10-28 | Provenance fix | Real solver labels, no fake logs, synthetic dataset regenerated, UI badges | `5a1c681` |
 | 2026-10-28 | Real CFD + UI | OpenFOAM 1912 WSL, real V5/V6 runs, manual CFD UI, 503 path, 28-point real dataset, V7/V8 re-run, true Pareto, layout redesign, 30-trial UI, consistent optimizer advice; 27 fast + 4 slow tests pass, ruff/mypy clean | `4bd531e` |
 | 2026-10-29 | Validation reporting | V4 split into potential-flow pass and PENDING external reference; V2 error corrected to 15.4% at AR=2; generated dataset logs ignored; 27 fast tests, ruff/mypy clean | `dac74eb` |
-| 2026-10-30 | Mesh hardening | snappyHexMesh replaced by body-fitted O-grid polyMesh family (r=1.5, y+ 30), moving-ground wall, y+ instrumentation; V5 re-measured: GCI fine 0.615 %, asymptotic 0.985, PASSED; ADR 0006; 33 fast tests, ruff/mypy clean | pending |
+| 2026-10-30 | Mesh hardening | snappyHexMesh replaced by body-fitted O-grid polyMesh family (r=1.5, y+ 30), moving-ground wall, y+ instrumentation; V5 re-measured: GCI fine 0.615 %, asymptotic 0.985, PASSED; V6 re-measured (all cases converge, Cd0 target met); ADR 0006; flat engineering UI redesign; 33 fast + 4 slow tests, ruff/mypy clean | `3fb7498` |
+| 2026-10-31 | UI audit pass | OpenDesigner review: 7 errors/5 warnings reduced to 0/0 (contrast tokens >= 4.5:1, 31 label associations, 4 px spacing grid, 12 px type floor, reduce-motion support, one-line labels, main landmark); tools + tokens documented in docs/DESIGN.md; O-grid dataset regeneration aborted 0/18 with h/c-envelope diagnosis (unchanged dataset); probe artifacts gitignored | this commit |

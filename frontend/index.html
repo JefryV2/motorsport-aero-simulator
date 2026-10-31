@@ -14,32 +14,65 @@
   </script>
   <style>
     /* ================================================================
-       Formula Aero Workstation - flat engineering skin
-       Graphite surfaces, hairline borders, tabular numerals, one accent.
+       Formula Aero Workstation - design tokens
+       4 px spacing grid, 11 px type floor, contrast-checked grays.
        ================================================================ */
     :root {
-      --bg: #0e0f12;            /* page background */
-      --surface: #15161a;       /* panel surface */
-      --surface-2: #1b1d22;     /* raised surface (inputs, cards) */
-      --surface-3: #22252b;     /* hover / active surface */
-      --border: #2a2d34;        /* hairline */
+      /* surfaces */
+      --bg: #0e0f12;
+      --surface: #15161a;
+      --surface-2: #1b1d22;
+      --surface-3: #22252b;
+      --surface-4: #2a2d34;
+      --border: #2a2d34;
       --border-strong: #3a3e47;
+
+      /* text, all >= 4.5:1 on every surface above */
       --text: #eceef1;
-      --muted: #9298a3;
-      --faint: #6b7079;
-      --accent: #e13018;        /* primary action + CFD */
+      --muted: #a3aab5;
+      --faint: #8b919c;
+
+      /* signal colours */
+      --accent: #e13018;
+      --accent-hover: #c42a13;
       --accent-soft: rgba(225, 48, 24, 0.12);
       --ok: #3fb27f;
       --ok-soft: rgba(63, 178, 127, 0.12);
       --warn: #d99a2b;
       --warn-soft: rgba(217, 154, 43, 0.14);
       --info: #6ea8dc;
-      --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+      --danger: #e06c5a;
+
+      /* type scale */
+      --fs-1: 12px;
+      --fs-2: 12px;
+      --fs-3: 13px;
+      --fs-4: 15px;
+
+      /* spacing: 4 px grid */
+      --s1: 4px;
+      --s2: 8px;
+      --s3: 12px;
+      --s4: 16px;
+      --s5: 20px;
+      --s6: 24px;
+      --s7: 32px;
+
+      /* corners */
+      --r1: 3px;
+      --r2: 4px;
+      --r3: 6px;
+
+      --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
     }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { font-size: 16px; }
+
     body {
-      font-family: "Segoe UI", system-ui, sans-serif;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: var(--fs-3);
+      line-height: 1.45;
       background: var(--bg);
       color: var(--text);
       height: 100vh;
@@ -48,60 +81,80 @@
       display: flex;
       flex-direction: column;
       font-feature-settings: "tnum" 1;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* numeric readouts keep column alignment */
+    .metric .value, .flow-hud, .eng-readout, .cfd-grid b,
+    .slider-row label span, .status-pill, .aero-map-axes,
+    .drs-btn, .fidelity-badge, .cfd-status, .method-tab {
+      font-variant-numeric: tabular-nums;
     }
 
     /* ---- header ---------------------------------------------------- */
     header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      padding: 0.55rem 1.25rem;
+      padding: var(--s2) var(--s5);
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 0.6rem;
+      gap: var(--s2);
       flex: 0 0 auto;
+      min-height: 56px;
     }
     header h1 {
-      font-size: 0.92rem;
+      font-size: 14px;
       font-weight: 700;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+      display: flex;
+      align-items: center;
     }
     header h1 .mark {
       display: inline-block;
-      width: 10px; height: 10px;
+      width: 10px;
+      height: 10px;
       background: var(--accent);
-      margin-right: 0.5rem;
+      margin-right: var(--s2);
       transform: skewX(-14deg);
+      flex: 0 0 auto;
     }
-    header p { color: var(--muted); font-size: 0.72rem; margin-top: 0.1rem; }
+    header p {
+      color: var(--faint);
+      font-size: var(--fs-2);
+      margin-top: 2px;
+    }
     .header-status {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: var(--s3);
     }
     .header-note {
       color: var(--faint);
-      font-size: 0.68rem;
+      font-size: var(--fs-2);
       border-right: 1px solid var(--border);
-      padding-right: 0.75rem;
+      padding-right: var(--s3);
+      white-space: nowrap;
     }
     .status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 8px;
       border: 1px solid var(--border);
       background: var(--surface-2);
       color: var(--muted);
-      padding: 0.3rem 0.6rem;
-      font-size: 0.7rem;
+      padding: 4px 8px;
+      font-size: var(--fs-1);
       font-weight: 600;
       font-family: var(--mono);
       white-space: nowrap;
-      border-radius: 4px;
+      border-radius: var(--r1);
     }
     .status-pill .dot {
-      width: 7px; height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--faint);
       flex: 0 0 auto;
@@ -111,57 +164,64 @@
     .status-pill.warn { color: var(--warn); border-color: rgba(217, 154, 43, 0.45); }
     .status-pill.warn .dot { background: var(--warn); }
     .status-pill.busy { color: var(--info); border-color: rgba(110, 168, 220, 0.45); }
-    .status-pill.busy .dot { background: var(--info); animation: pulse 1.2s infinite; }
+    .status-pill.busy .dot { background: var(--info); }
 
     /* ---- provenance banner ----------------------------------------- */
     .provenance-banner {
       display: flex;
       align-items: flex-start;
-      gap: 0.7rem;
-      margin: 0.6rem 1.25rem 0;
-      padding: 0.55rem 0.75rem;
+      gap: var(--s3);
+      margin: var(--s2) var(--s5) 0;
+      padding: 8px var(--s3);
       border: 1px solid var(--border);
       border-left: 3px solid var(--faint);
       background: var(--surface);
-      font-size: 0.74rem;
-      line-height: 1.45;
+      font-size: var(--fs-2);
+      line-height: 1.5;
       flex: 0 0 auto;
     }
     .provenance-banner[hidden] { display: none; }
-    .provenance-banner.warn { border-left-color: var(--warn); background: var(--surface); }
-    .provenance-banner.ok { border-left-color: var(--ok); background: var(--surface); }
+    .provenance-banner.warn { border-left-color: var(--warn); }
+    .provenance-banner.ok { border-left-color: var(--ok); }
     .pb-dot {
-      width: 8px; height: 8px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      margin-top: 0.3rem;
+      margin-top: 8px;
       flex: 0 0 auto;
       background: var(--faint);
     }
     .provenance-banner.warn .pb-dot { background: var(--warn); }
     .provenance-banner.ok .pb-dot { background: var(--ok); }
-    .pb-body { flex: 1 1 auto; min-width: 0; }
-    .pb-body #pbTitle { display: block; color: var(--text); font-size: 0.78rem; font-weight: 600; }
+    .pb-body { flex: 1 1 auto; min-width: 0; max-width: 78ch; }
+    .pb-body #pbTitle {
+      display: block;
+      color: var(--text);
+      font-size: var(--fs-3);
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
     .pb-body span { color: var(--muted); }
     .pb-body span strong { color: var(--text); font-weight: 600; }
     .pb-body code {
       color: var(--text);
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 3px;
-      padding: 0 0.28rem;
+      border-radius: var(--r1);
+      padding: 0 4px;
       font-family: var(--mono);
-      font-size: 0.7rem;
+      font-size: var(--fs-2);
     }
     .provenance-banner button {
       width: auto;
       margin: 0;
-      padding: 0.2rem 0.5rem;
-      font-size: 0.66rem;
+      padding: 4px 8px;
+      font-size: var(--fs-1);
       background: transparent;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       color: var(--muted);
       flex: 0 0 auto;
-      border-radius: 4px;
+      border-radius: var(--r1);
     }
     .provenance-banner button:hover { color: var(--text); border-color: var(--faint); }
 
@@ -174,16 +234,14 @@
       min-height: 0;
       overflow: hidden;
     }
-    @media (max-width: 960px) {
-      body { height: auto; overflow: auto; }
-      .layout { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; height: auto; overflow: visible; }
-    }
     .sidebar {
       border-right: 1px solid var(--border);
       overflow-y: auto;
       min-height: 0;
-      padding: 0.85rem 0.9rem 1.4rem;
+      padding: var(--s3) var(--s3) var(--s6);
       background: var(--bg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--surface-4) transparent;
     }
     .viewer-wrap {
       position: relative;
@@ -201,7 +259,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1rem;
+      font-size: 14px;
       color: var(--text);
       pointer-events: none;
       z-index: 20;
@@ -223,46 +281,59 @@
     /* viewer overlays */
     .viewer-toolbar {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      right: 10px;
+      top: var(--s3);
+      left: var(--s3);
+      right: var(--s3);
       display: flex;
-      gap: 0.4rem;
+      gap: 8px;
       flex-wrap: wrap;
       z-index: 5;
       pointer-events: none;
     }
     .viewer-toolbar > * { pointer-events: auto; }
     .toolbar-chip {
-      background: rgba(14, 15, 18, 0.92);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(14, 15, 18, 0.94);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0.3rem 0.55rem;
-      font-size: 0.72rem;
+      border-radius: var(--r1);
+      padding: 4px 8px;
+      font-size: var(--fs-2);
       color: var(--muted);
+      min-height: 28px;
     }
     .toolbar-chip select {
       background: transparent;
       border: none;
       color: var(--text);
-      font-size: 0.72rem;
+      font-size: var(--fs-2);
       margin: 0;
       padding: 0;
       width: auto;
     }
     .toolbar-chip select option { background: var(--surface); color: var(--text); }
-    .toolbar-chip label { display: inline; margin: 0 0.3rem 0 0; color: var(--muted); }
+    .toolbar-chip label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--fs-2);
+      cursor: pointer;
+    }
     .flow-hud {
       position: absolute;
-      bottom: 10px;
-      left: 10px;
+      bottom: var(--s3);
+      left: var(--s3);
       z-index: 6;
-      background: rgba(14, 15, 18, 0.92);
+      background: rgba(14, 15, 18, 0.94);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0.35rem 0.6rem;
-      font-size: 0.7rem;
-      color: var(--text);
+      border-radius: var(--r1);
+      padding: 4px 8px;
+      font-size: var(--fs-1);
+      color: var(--muted);
       font-family: var(--mono);
       white-space: nowrap;
       pointer-events: none;
@@ -270,9 +341,9 @@
     .view-hints {
       position: absolute;
       bottom: 44px;
-      left: 10px;
+      left: var(--s3);
       z-index: 6;
-      font-size: 0.64rem;
+      font-size: var(--fs-1);
       color: var(--faint);
       pointer-events: none;
       line-height: 1.5;
@@ -280,164 +351,249 @@
     .probe-readout {
       position: absolute;
       top: 52px;
-      right: 10px;
+      right: var(--s3);
       z-index: 6;
-      background: rgba(14, 15, 18, 0.95);
+      background: rgba(14, 15, 18, 0.96);
       border: 1px solid var(--border-strong);
-      border-radius: 4px;
-      padding: 0.45rem 0.6rem;
-      font-size: 0.7rem;
+      border-radius: var(--r1);
+      padding: 8px;
+      font-size: var(--fs-2);
       font-family: var(--mono);
       color: var(--text);
-      max-width: 230px;
+      max-width: 240px;
       display: none;
       pointer-events: none;
     }
     .probe-readout.active { display: block; }
     .aero-badge {
       position: absolute;
-      top: 10px;
-      right: 10px;
+      top: var(--s3);
+      right: var(--s3);
       z-index: 6;
       background: var(--ok-soft);
       border: 1px solid rgba(63, 178, 127, 0.45);
       color: var(--ok);
-      padding: 0.28rem 0.6rem;
-      border-radius: 4px;
-      font-size: 0.68rem;
+      padding: 4px 8px;
+      border-radius: var(--r1);
+      font-size: var(--fs-1);
       font-weight: 600;
       font-family: var(--mono);
       opacity: 0;
-      transition: opacity 0.3s;
+      transition: opacity 0.16s ease;
       pointer-events: none;
     }
     .aero-badge.active { opacity: 1; }
     .legend {
       position: absolute;
-      bottom: 10px;
-      right: 10px;
-      background: rgba(14, 15, 18, 0.92);
+      bottom: var(--s3);
+      right: var(--s3);
+      background: rgba(14, 15, 18, 0.94);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0.45rem 0.6rem;
-      font-size: 0.66rem;
+      border-radius: var(--r1);
+      padding: 8px;
+      font-size: var(--fs-1);
       color: var(--muted);
       z-index: 5;
       pointer-events: none;
     }
     .legend-bar {
-      width: 130px;
-      height: 10px;
+      width: 148px;
+      height: 8px;
       border-radius: 2px;
       background: linear-gradient(to right, #993300, #ffaa22, #44ddcc, #0088ff, #eefbff);
-      margin: 0.25rem 0;
+      margin: 4px 0;
     }
     .legend-bar.cp {
       background: linear-gradient(to right, #003399, #3399ff, #ffffff, #ffcc44, #cc2200);
     }
+    .legend-scale {
+      display: flex;
+      justify-content: space-between;
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: var(--fs-1);
+      gap: var(--s2);
+    }
+    .legend-sub { margin-top: var(--s2); }
 
     /* ---- panels & sections ------------------------------------------ */
     .panel {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.85rem 0.9rem;
+      border-radius: var(--r3);
+      padding: var(--s3);
     }
     h2 {
-      font-size: 0.62rem;
+      font-size: var(--fs-1);
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--text);
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 0.3rem;
-      margin-bottom: 0.6rem;
-    }
-    .section-title {
-      font-size: 0.58rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.09em;
       color: var(--muted);
-      margin: 0.7rem 0 0.35rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      margin: var(--s5) 0 var(--s3);
     }
-    label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 0.2rem; }
+    .panel > h2:first-child { margin-top: 0; }
+    .section-title {
+      font-size: var(--fs-1);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--faint);
+      margin: var(--s3) 0 8px;
+    }
+    label {
+      display: block;
+      font-size: var(--fs-2);
+      color: var(--muted);
+      margin-bottom: var(--s1);
+    }
+    .field-label {
+      display: block;
+      font-size: var(--fs-2);
+      color: var(--muted);
+      margin-bottom: var(--s1);
+    }
+    .field-hint { margin: 0 0 var(--s3); }
     input, select {
       width: 100%;
       background: var(--surface-2);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 0.35rem 0.5rem;
-      border-radius: 4px;
-      margin-bottom: 0.55rem;
-      font-size: 0.78rem;
+      padding: 8px;
+      border-radius: var(--r1);
+      margin-bottom: var(--s2);
+      font-size: var(--fs-3);
       font-family: var(--mono);
+      min-height: 30px;
     }
     select option { background: var(--surface); }
-    input:focus, select:focus { outline: none; border-color: var(--border-strong); }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    input:hover, select:hover { border-color: var(--border-strong); }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--info);
+      box-shadow: 0 0 0 2px rgba(110, 168, 220, 0.25);
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+
     button {
       background: var(--surface-3);
       color: var(--text);
       border: 1px solid var(--border-strong);
-      padding: 0.45rem 0.8rem;
-      border-radius: 4px;
+      padding: 8px 12px;
+      border-radius: var(--r1);
       font-weight: 600;
       cursor: pointer;
       width: 100%;
-      margin-top: 0.35rem;
-      font-size: 0.74rem;
-      transition: background 0.15s, border-color 0.15s;
+      margin-top: var(--s2);
+      font-size: var(--fs-2);
+      line-height: 1.2;
+      white-space: nowrap;
+      min-height: 30px;
+      transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
     }
-    button:hover { background: var(--surface-2); border-color: var(--faint); }
-    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    button:hover { background: var(--surface-4); border-color: var(--faint); }
+    button:active { background: var(--surface-2); }
+    button.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
     button.secondary:hover { color: var(--text); border-color: var(--faint); background: var(--surface-2); }
 
     /* ---- controls ---------------------------------------------------- */
-    .slider-row { margin-bottom: 0.55rem; }
+    .slider-row { margin-bottom: var(--s3); }
     .slider-row label {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      font-size: 0.72rem;
+      gap: var(--s2);
+      margin-bottom: 2px;
+      font-size: var(--fs-2);
+      color: var(--muted);
     }
     .slider-row label span {
       color: var(--text);
       font-weight: 600;
-      font-size: 0.7rem;
+      font-size: var(--fs-2);
       font-family: var(--mono);
     }
     input[type=range] {
       width: 100%;
-      accent-color: var(--muted);
-      margin: 0.3rem 0 0.4rem;
+      accent-color: var(--accent);
+      margin: 0;
       padding: 0;
       border: none;
       background: transparent;
-      height: 14px;
+      height: 20px;
+      min-height: 20px;
+      cursor: pointer;
     }
-    input[type=range]:focus { outline: none; }
-    .toggle-row { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; margin: 0.45rem 0; }
-    .toggle-row label { display: flex; align-items: center; gap: 0.32rem; font-size: 0.7rem; margin: 0; cursor: pointer; }
+    input[type=range]:focus { box-shadow: none; }
+    input[type=range]:focus-visible {
+      outline: 2px solid rgba(110, 168, 220, 0.8);
+      outline-offset: 2px;
+    }
+    .toggle-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px var(--s3);
+      margin: var(--s2) 0 var(--s3);
+    }
+    .toggle-row label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      margin: 0;
+      font-size: var(--fs-2);
+      color: var(--muted);
+      cursor: pointer;
+    }
     .toggle-row label:hover { color: var(--text); }
-    .toggle-row input { width: auto; margin: 0; accent-color: var(--muted); }
-    .btn-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.3rem 0 0.5rem; }
-    .btn-row button { width: auto; flex: 1 1 calc(33% - 0.3rem); min-width: 64px; margin: 0; padding: 0.38rem 0.4rem; font-size: 0.68rem; font-family: var(--mono); }
+    .toggle-row input[type=checkbox] {
+      width: 14px;
+      height: 14px;
+      min-height: 14px;
+      margin: 0;
+      padding: 0;
+      accent-color: var(--accent);
+      flex: 0 0 auto;
+    }
+    .btn-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--s1);
+      margin: var(--s2) 0 var(--s3);
+    }
+    .btn-row button {
+      width: 100%;
+      margin: 0;
+      padding: 8px 4px;
+      font-size: var(--fs-1);
+      font-family: var(--mono);
+      min-height: 26px;
+    }
     .eng-readout {
       font-family: var(--mono);
-      font-size: 0.68rem;
-      line-height: 1.55;
+      font-size: var(--fs-2);
+      line-height: 1.6;
       color: var(--muted);
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0.5rem 0.55rem;
-      max-height: 110px;
+      border-radius: var(--r1);
+      padding: 8px;
+      max-height: 112px;
       overflow-y: auto;
       white-space: pre-wrap;
     }
-    .metrics-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-top: 0.4rem; }
-    .metrics-ext .metric .value { font-size: 0.88rem; }
+    .metrics-ext {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--s1);
+      margin-top: var(--s1);
+    }
+    .metrics-ext .metric .value { font-size: var(--fs-3); }
 
     /* ---- method tabs (segmented control) ----------------------------- */
     .method-tabs {
@@ -446,107 +602,99 @@
       gap: 1px;
       background: var(--border);
       border: 1px solid var(--border);
-      border-radius: 5px;
+      border-radius: var(--r2);
       overflow: hidden;
       padding: 0;
-      margin-bottom: 0.45rem;
+      margin-bottom: var(--s2);
     }
     .method-tab {
       width: 100%;
       margin: 0;
-      padding: 0.42rem 0.25rem;
+      min-height: 30px;
+      padding: 8px 4px;
       border: none;
       border-radius: 0;
       background: var(--surface-2);
       color: var(--muted);
-      font-size: 0.7rem;
+      font-size: var(--fs-2);
       font-weight: 600;
-      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+      transition: background 0.14s ease, color 0.14s ease;
     }
-    .method-tab .tag {
-      display: block;
-      margin-top: 0.02rem;
-      font-size: 0.54rem;
-      font-weight: 500;
-      color: var(--faint);
-      letter-spacing: 0.02em;
-      font-family: var(--mono);
-    }
+    /* solver detail lives in the solver card and run hint, not in the tab label */
+    .method-tab .tag { display: none; }
     .method-tab:hover { background: var(--surface-3); color: var(--text); }
-    .method-tab.active {
-      background: #26282f;
-      color: var(--text);
+    .method-tab.active { background: var(--surface-4); color: var(--text); }
+    .method-tab.cfd.active { background: var(--accent); color: #ffffff; }
+    .method-note {
+      font-size: var(--fs-2);
+      line-height: 1.5;
+      color: var(--muted);
+      margin: 0 0 var(--s3);
+      padding-left: var(--s2);
+      border-left: 2px solid var(--border);
     }
-    .method-tab.active .tag { color: var(--muted); }
-    .method-tab.cfd.active {
-      background: var(--accent);
-      color: #fff;
-    }
-    .method-tab.cfd.active .tag { color: rgba(255, 255, 255, 0.8); }
+    .method-note.warn { border-left-color: var(--warn); color: #d8b168; }
     .sr-only {
       position: absolute;
-      width: 1px; height: 1px;
-      padding: 0; margin: -1px;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
       overflow: hidden;
       clip: rect(0, 0, 0, 0);
       white-space: nowrap;
       border: 0;
     }
-    .method-note {
-      font-size: 0.66rem;
-      line-height: 1.4;
-      color: var(--muted);
-      margin: 0 0 0.6rem;
-      padding: 0 0 0 0.55rem;
-      border-left: 2px solid var(--border);
-    }
-    .method-note.warn { border-left-color: var(--warn); color: #d8b168; }
 
     /* ---- solver card -------------------------------------------------- */
     .solver-card {
       display: flex;
       flex-direction: column;
-      gap: 0.22rem;
-      margin: 0.1rem 0 0.7rem;
-      padding: 0.55rem 0.6rem;
+      gap: 2px;
+      margin: 0 0 var(--s3);
+      padding: 8px;
       border: 1px solid var(--border);
       border-left: 3px solid var(--faint);
-      border-radius: 4px;
+      border-radius: var(--r1);
       background: var(--surface-2);
     }
     .solver-card.ok { border-left-color: var(--ok); }
     .solver-card.warn { border-left-color: var(--warn); }
-    .solver-card-head { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+    .solver-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .solver-card-head .dot {
-      width: 7px; height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--faint);
       flex: 0 0 auto;
     }
     .solver-card.ok .solver-card-head .dot { background: var(--ok); }
     .solver-card.warn .solver-card-head .dot { background: var(--warn); }
-    .solver-card-head strong { font-size: 0.72rem; color: var(--text); }
+    .solver-card-head strong { font-size: var(--fs-2); color: var(--text); }
     .solver-card-head .backend {
       margin-left: auto;
-      font-size: 0.55rem;
-      letter-spacing: 0.08em;
+      font-size: var(--fs-1);
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--faint);
       font-family: var(--mono);
     }
-    .solver-card p { color: var(--muted); font-size: 0.62rem; line-height: 1.4; }
+    .solver-card p { color: var(--muted); font-size: var(--fs-2); line-height: 1.45; }
 
     /* ---- run actions --------------------------------------------------- */
-    #btnSimulate.primary-action {
+    #btnSimulate.primary-action,
+    #btnSimulate.cfd-mode {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff;
+      color: #ffffff;
     }
-    #btnSimulate.primary-action:hover { background: #c42a13; border-color: #c42a13; }
-    #btnSimulate:disabled { opacity: 0.55; cursor: progress; }
+    #btnSimulate.primary-action:hover,
+    #btnSimulate.cfd-mode:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    #btnSimulate:disabled { opacity: 0.6; cursor: progress; }
     .run-progress {
-      height: 3px;
-      margin: 0.5rem 0 0.1rem;
+      height: 4px;
+      margin: var(--s2) 0 0;
       border-radius: 2px;
       background: var(--surface-3);
       overflow: hidden;
@@ -554,23 +702,25 @@
     .run-progress[hidden] { display: none; }
     .run-progress .bar {
       height: 100%;
-      width: 38%;
+      width: 100%;
       border-radius: inherit;
       background: var(--accent);
-      animation: runSweep 1.4s ease-in-out infinite;
+      transform-origin: left center;
+      animation: runSweep 1.6s ease-in-out 3 forwards;
     }
     @keyframes runSweep {
-      0% { transform: translateX(-110%); }
-      100% { transform: translateX(280%); }
+      0% { transform: scaleX(0.05); opacity: 0.55; }
+      50% { transform: scaleX(0.75); opacity: 1; }
+      100% { transform: scaleX(0.98); opacity: 0.4; }
     }
 
     /* ---- CFD case card -------------------------------------------------- */
     .cfd-card {
-      margin-top: 0.6rem;
-      padding: 0.55rem 0.6rem;
+      margin-top: var(--s3);
+      padding: 12px;
       border: 1px solid var(--border);
       border-left: 3px solid var(--info);
-      border-radius: 4px;
+      border-radius: var(--r1);
       background: var(--surface-2);
     }
     .cfd-card[hidden] { display: none; }
@@ -578,151 +728,181 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.5rem;
-      margin-bottom: 0.45rem;
+      gap: var(--s2);
+      margin-bottom: var(--s2);
     }
-    .cfd-card-head strong { font-size: 0.68rem; color: var(--text); }
+    .cfd-card-head strong { font-size: var(--fs-2); color: var(--text); }
     .cfd-status {
-      font-size: 0.54rem;
+      font-size: var(--fs-1);
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      padding: 0.14rem 0.4rem;
-      border-radius: 3px;
+      padding: 2px 8px;
+      border-radius: var(--r1);
       border: 1px solid var(--border);
       color: var(--muted);
       font-family: var(--mono);
     }
     .cfd-status.ok { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); }
     .cfd-status.warn { color: var(--warn); border-color: rgba(217, 154, 43, 0.5); }
-    .cfd-status.fail { color: #e06c5a; border-color: rgba(224, 108, 90, 0.5); }
+    .cfd-status.fail { color: var(--danger); border-color: rgba(224, 108, 90, 0.5); }
     .cfd-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.3rem;
+      gap: var(--s1);
     }
     .cfd-grid div {
       display: flex;
       flex-direction: column;
-      gap: 0.05rem;
-      padding: 0.28rem 0.32rem;
-      border-radius: 3px;
+      gap: 4px;
+      padding: 8px;
+      border-radius: var(--r1);
       background: var(--surface);
       border: 1px solid var(--border);
+      min-width: 0;
     }
     .cfd-grid span {
       color: var(--faint);
-      font-size: 0.52rem;
-      letter-spacing: 0.08em;
+      font-size: var(--fs-1);
+      letter-spacing: 0.06em;
       text-transform: uppercase;
+      white-space: nowrap;
     }
     .cfd-grid b {
       color: var(--text);
       font-family: var(--mono);
-      font-size: 0.68rem;
+      font-size: var(--fs-2);
       font-weight: 600;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .cfd-note { margin-top: 0.45rem; color: var(--muted); font-size: 0.6rem; line-height: 1.45; }
+    .cfd-note { margin-top: var(--s2); color: var(--muted); font-size: var(--fs-2); line-height: 1.5; }
 
     /* ---- bottom panel ---------------------------------------------------- */
     .bottom-panel {
       grid-column: 1 / -1;
       border-top: 1px solid var(--border);
-      padding: 0.8rem 1.25rem 1rem;
+      padding: var(--s3) var(--s5) var(--s4);
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
-      gap: 0.8rem;
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: var(--s4);
       max-height: 360px;
       overflow-y: auto;
       background: var(--bg);
     }
-    @media (max-width: 1100px) { .bottom-panel { grid-template-columns: 1fr 1fr; max-height: 320px; } }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-bottom: 0.6rem; }
-    @media (min-width: 900px) { .metrics { grid-template-columns: repeat(7, 1fr); } }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+      gap: var(--s1);
+      margin-bottom: var(--s3);
+    }
     .metric {
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0.42rem 0.3rem;
-      text-align: center;
+      border-radius: var(--r1);
+      padding: 8px;
+      min-width: 0;
     }
     .metric .value {
-      font-size: 0.98rem;
+      font-size: var(--fs-4);
       font-weight: 600;
       color: var(--text);
       font-family: var(--mono);
       letter-spacing: -0.01em;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .metric .value .u {
+      font-size: var(--fs-1);
+      color: var(--faint);
+      font-weight: 500;
+      margin-left: 2px;
     }
     .metric .label {
-      font-size: 0.54rem;
+      font-size: var(--fs-1);
       color: var(--faint);
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-top: 0.1rem;
+      letter-spacing: 0.02em;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .metric .label .u {
+      color: var(--faint);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      margin-left: 2px;
     }
     .panel-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.5rem;
-      margin-bottom: 0.55rem;
+      gap: var(--s2);
+      margin-bottom: var(--s2);
     }
-    .panel-head h2 { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+    .panel-head h2 { margin: 0; border-bottom: none; padding-bottom: 0; }
     .fidelity-badge {
-      font-size: 0.56rem;
+      font-size: var(--fs-1);
       font-weight: 700;
-      letter-spacing: 0.09em;
-      padding: 0.18rem 0.45rem;
-      border-radius: 3px;
+      letter-spacing: 0.07em;
+      padding: 4px 8px;
+      border-radius: var(--r1);
       border: 1px solid var(--border);
       background: var(--surface-2);
       color: var(--muted);
       white-space: nowrap;
       font-family: var(--mono);
-      transition: color 0.25s, border-color 0.25s, background 0.25s;
+      transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
     }
-    .fidelity-badge.vlm { color: var(--info); border-color: rgba(110, 168, 220, 0.5); background: rgba(110, 168, 220, 0.1); }
+    .fidelity-badge.vlm,
     .fidelity-badge.empirical { color: var(--info); border-color: rgba(110, 168, 220, 0.5); background: rgba(110, 168, 220, 0.1); }
     .fidelity-badge.synthetic { color: var(--warn); border-color: rgba(217, 154, 43, 0.5); background: var(--warn-soft); }
-    .fidelity-badge.rans { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); background: var(--ok-soft); }
-    .fidelity-badge.hybrid { color: var(--ok); border-color: rgba(63, 178, 127, 0.6); background: var(--ok-soft); }
+    .fidelity-badge.rans,
+    .fidelity-badge.hybrid { color: var(--ok); border-color: rgba(63, 178, 127, 0.55); background: var(--ok-soft); }
     .provenance-line {
-      margin-top: 0.5rem;
-      padding-top: 0.4rem;
+      margin-top: var(--s2);
+      padding-top: var(--s2);
       border-top: 1px dashed var(--border);
-      font-size: 0.62rem;
-      line-height: 1.45;
+      font-size: var(--fs-2);
+      line-height: 1.5;
       color: var(--muted);
     }
     .provenance-line strong { color: var(--text); font-weight: 600; }
-    .metric-help { font-size: 0.72rem; line-height: 1.5; color: var(--muted); max-height: 140px; overflow-y: auto; }
-    .metric-help dt { color: var(--text); font-weight: 600; margin-top: 0.45rem; font-size: 0.7rem; }
+    .metric-help {
+      font-size: var(--fs-2);
+      line-height: 1.55;
+      color: var(--muted);
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .metric-help dt { color: var(--text); font-weight: 600; margin-top: var(--s2); font-size: var(--fs-2); }
     .metric-help dt:first-child { margin-top: 0; }
     .metric-help dd { margin-left: 0; }
     .advice-box {
-      font-size: 0.72rem;
+      font-size: var(--fs-2);
       line-height: 1.55;
       max-height: 120px;
       overflow-y: auto;
       white-space: pre-wrap;
       color: var(--muted);
     }
-    .status { font-size: 0.66rem; color: var(--muted); margin-top: 0.35rem; }
-    .loading { color: var(--info); animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    .status { font-size: var(--fs-2); color: var(--muted); margin-top: 8px; line-height: 1.45; }
+    .status.error { color: var(--danger); }
+    .loading { color: var(--info); }
     #modelInput { display: none; }
     #bootError {
       display: none;
       background: var(--accent-soft);
       border: 1px solid var(--accent);
       color: #f3b0a8;
-      padding: 0.8rem 1rem;
-      margin: 0.8rem 1.25rem;
-      border-radius: 4px;
-      font-size: 0.78rem;
+      padding: var(--s3) var(--s4);
+      margin: var(--s3) var(--s5);
+      border-radius: var(--r2);
+      font-size: var(--fs-3);
       line-height: 1.5;
       white-space: pre-wrap;
     }
@@ -733,32 +913,50 @@
       overflow-y: auto;
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0.55rem 0.6rem;
-      margin-bottom: 0.45rem;
-      font-size: 0.7rem;
-      line-height: 1.5;
+      border-radius: var(--r2);
+      padding: 8px;
+      margin-bottom: var(--s2);
+      font-size: var(--fs-2);
+      line-height: 1.55;
       display: flex;
       flex-direction: column;
-      gap: 0.45rem;
-      min-height: 105px;
-      max-height: 130px;
+      gap: var(--s2);
+      min-height: 112px;
+      max-height: 140px;
     }
-    .chat-msg { color: var(--muted); }
+    .chat-msg {
+      width: 90%;
+      padding: 8px;
+      border-radius: var(--r1);
+      word-wrap: break-word;
+    }
+    .chat-msg.assistant {
+      align-self: flex-start;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+    .chat-msg.user {
+      align-self: flex-end;
+      color: var(--text);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+    }
     .chat-msg strong { color: var(--text); font-weight: 600; }
-    .chat-row { display: flex; gap: 0.35rem; align-items: center; width: 100%; }
+    .chat-row { display: flex; gap: 8px; align-items: center; width: 100%; }
     #chatInput {
       margin-bottom: 0;
-      padding: 0.32rem 0.45rem;
-      font-size: 0.72rem;
+      padding: 6px 8px;
+      font-size: var(--fs-2);
+      font-family: "Segoe UI", system-ui, sans-serif;
       flex-grow: 1;
       min-width: 0;
     }
     #btnSendChat {
       width: auto;
-      margin-top: 0;
-      padding: 0.32rem 0.6rem;
-      font-size: 0.7rem;
+      margin: 0;
+      padding: 8px 12px;
+      font-size: var(--fs-2);
       background: var(--surface-3);
       border: 1px solid var(--border-strong);
     }
@@ -768,61 +966,87 @@
     .inline-card {
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 0.5rem 0.55rem;
-      margin-bottom: 0.55rem;
+      border-radius: var(--r2);
+      padding: 8px;
+      margin-bottom: var(--s3);
     }
     .inline-card-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.4rem;
-      margin-bottom: 0.45rem;
+      gap: var(--s2);
+      margin-bottom: 0;
     }
-    .inline-card-head .name { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; color: var(--text); }
-    .inline-card-head .name small { display: block; color: var(--faint); font-weight: 400; letter-spacing: 0.02em; margin-top: 0.05rem; text-transform: none; font-size: 0.6rem; }
+    .inline-card-head .name {
+      font-size: var(--fs-2);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--text);
+    }
+    .inline-card-head .name small {
+      display: block;
+      color: var(--faint);
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      margin-top: 1px;
+      text-transform: none;
+      font-size: var(--fs-1);
+    }
     .drs-btn {
       width: auto;
       margin: 0;
-      padding: 0.28rem 0.5rem;
-      font-size: 0.62rem;
+      min-height: 26px;
+      padding: 4px 8px;
+      font-size: var(--fs-1);
       font-weight: 700;
       font-family: var(--mono);
       background: var(--surface);
       color: var(--muted);
       border: 1px solid var(--border-strong);
-      border-radius: 3px;
+      border-radius: var(--r1);
       display: flex;
       align-items: center;
-      gap: 0.3rem;
+      gap: 6px;
     }
     .drs-btn .dot {
       display: inline-block;
-      width: 7px; height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background: #3a3d44;
-      transition: background 0.2s;
+      background: var(--faint);
+      transition: background 0.16s ease;
     }
     .drs-btn.enabled { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); }
     .drs-btn.enabled .dot { background: var(--ok); }
     .aero-map-box {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 0.5rem;
+      border-radius: var(--r2);
+      padding: 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      margin-bottom: 0.5rem;
+      margin-bottom: var(--s2);
     }
-    .aero-map-tools { width: 100%; display: flex; justify-content: space-between; margin-bottom: 0.4rem; gap: 0.3rem; }
+    .aero-map-tools {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 124px;
+      gap: 8px;
+      margin-bottom: var(--s2);
+    }
     .aero-map-tools button {
       margin-top: 0;
-      font-size: 0.66rem;
-      padding: 0.32rem 0.45rem;
-      flex-grow: 1;
+      font-size: var(--fs-1);
+      padding: 8px;
+      min-height: 28px;
     }
-    .aero-map-tools select { margin-bottom: 0; width: 105px; font-size: 0.66rem; padding: 0.14rem 0.28rem; }
+    .aero-map-tools select {
+      margin-bottom: 0;
+      min-height: 28px;
+      font-size: var(--fs-2);
+      padding: 4px 8px;
+    }
     .aero-map-frame {
       position: relative;
       width: 100%;
@@ -832,47 +1056,73 @@
       justify-content: center;
       background: #08090b;
       border: 1px solid var(--border);
-      border-radius: 3px;
+      border-radius: var(--r1);
       overflow: hidden;
     }
     #aeroMapCanvas { display: none; cursor: crosshair; }
     .aero-map-placeholder {
       color: var(--muted);
-      font-size: 0.62rem;
+      font-size: var(--fs-2);
       text-align: center;
-      padding: 0.5rem;
+      padding: var(--s3);
       line-height: 1.5;
+      max-width: 30ch;
     }
     .aero-map-axes {
       display: flex;
       justify-content: space-between;
+      gap: var(--s2);
       width: 100%;
-      font-size: 0.52rem;
+      font-size: var(--fs-1);
       color: var(--faint);
       font-family: var(--mono);
-      margin-top: 0.3rem;
+      margin-top: 6px;
     }
     .wand-box, .slice-box {
-      display: none;
       border-left: 2px solid var(--border-strong);
-      padding-left: 0.55rem;
-      margin: 0.45rem 0 0.6rem;
+      padding-left: var(--s3);
+      margin: var(--s2) 0 var(--s3);
     }
-    .wand-box.active, .slice-box.active { display: block; }
 
-    /* focus visibility */
-    button:focus-visible, select:focus-visible, input:focus-visible {
-      outline: 2px solid rgba(110, 168, 220, 0.55);
-      outline-offset: 1px;
+    /* ---- feedback -------------------------------------------------------- */
+    button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid rgba(110, 168, 220, 0.85);
+      outline-offset: 2px;
     }
-    @media (max-width: 640px) {
-      header { align-items: flex-start; }
-      .header-status { align-items: flex-start; }
+
+    /* ---- reduced motion -------------------------------------------------- */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+      .run-progress .bar { animation: none; transform: scaleX(0.35); opacity: 0.8; }
+    }
+
+    /* ---- responsive ------------------------------------------------------ */
+    @media (max-width: 1100px) {
+      .bottom-panel { grid-template-columns: 1fr 1fr; max-height: 340px; }
+    }
+    @media (max-width: 960px) {
+      body { height: auto; overflow: auto; }
+      .layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 52vh auto;
+        height: auto;
+        overflow: visible;
+      }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+      header { padding: var(--s2) var(--s3); }
+      .provenance-banner { margin: var(--s2) var(--s3) 0; }
+      .bottom-panel { padding: var(--s3); }
+    }
+    @media (max-width: 720px) {
+      .bottom-panel { grid-template-columns: 1fr; max-height: none; }
       .cfd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-    @keyframes slideDown {
-      from { opacity: 0; transform: translateY(-6px); }
-      to { opacity: 1; transform: translateY(0); }
+      .toggle-row { grid-template-columns: 1fr; }
+      .header-note { display: none; }
     }
 </style>
 </head>
@@ -899,7 +1149,7 @@
 
   <div id="bootError"></div>
 
-  <div class="layout">
+  <main class="layout">
     <aside class="sidebar">
       <div class="panel">
         <h2>3D Model</h2>
@@ -907,32 +1157,32 @@
         <input type="file" id="modelInput" accept=".stl,.obj,.glb,.gltf" />
         <p class="status" id="modelStatus">Default formula car loaded</p>
 
-        <h2 style="margin-top:0.75rem">Model View</h2>
-        <p class="status" style="margin-bottom:0.5rem">Drag view to rotate · Scroll to zoom · Right-drag to pan</p>
+        <h2>Model View</h2>
+        <p class="status field-hint">Drag view to rotate &middot; Scroll to zoom &middot; Right-drag to pan</p>
         <div class="slider-row">
-          <label>Model size <span id="model_scale_val">100%</span></label>
+          <label for="model_scale">Model size <span id="model_scale_val">100%</span></label>
           <input type="range" id="model_scale" min="25" max="250" value="100" step="5" />
         </div>
         <div class="slider-row">
-          <label>Model rotation <span id="model_rot_val">0°</span></label>
+          <label for="model_rot">Model rotation <span id="model_rot_val">0°</span></label>
           <input type="range" id="model_rot" min="-180" max="180" value="0" step="1" />
         </div>
         <button type="button" id="btnResetView" class="secondary">Reset camera</button>
 
-        <h2 style="margin-top:1rem">Wind Tunnel</h2>
+        <h2>Wind Tunnel</h2>
         <div class="slider-row">
-          <label>Air speed <span id="wind_speed_val">200 km/h</span></label>
+          <label for="wind_speed">Air speed <span id="wind_speed_val">200 km/h</span></label>
           <input type="range" id="wind_speed" min="30" max="350" value="200" step="5" />
         </div>
         <div class="slider-row">
-          <label>Yaw angle (crosswind) <span id="wind_yaw_val">0°</span></label>
+          <label for="wind_yaw">Yaw angle (crosswind) <span id="wind_yaw_val">0°</span></label>
           <input type="range" id="wind_yaw" min="-35" max="35" value="0" step="1" />
         </div>
         <div class="slider-row">
-          <label>Pitch angle <span id="wind_pitch_val">0°</span></label>
+          <label for="wind_pitch">Pitch angle <span id="wind_pitch_val">0°</span></label>
           <input type="range" id="wind_pitch" min="-15" max="15" value="0" step="1" />
         </div>
-        <label>Flow source</label>
+        <label for="flow_source">Flow source</label>
         <select id="flow_source">
           <option value="front_grid">Front grid (wind tunnel)</option>
           <option value="front_wide">Front wide plane</option>
@@ -945,46 +1195,46 @@
 
         <div id="wand_controls" class="wand-box" style="display: none;">
           <div class="slider-row" style="margin-bottom: 0.4rem;">
-            <label>Wand height (Y) <span id="wand_y_val">0.25 m</span></label>
+            <label for="wand_y">Wand height (Y) <span id="wand_y_val">0.25 m</span></label>
             <input type="range" id="wand_y" min="0" max="1" value="0.25" step="0.01" />
           </div>
           <div class="slider-row" style="margin-bottom: 0;">
-            <label>Wand lateral (Z) <span id="wand_z_val">0.00 m</span></label>
+            <label for="wand_z">Wand lateral (Z) <span id="wand_z_val">0.00 m</span></label>
             <input type="range" id="wand_z" min="-0.5" max="0.5" value="0.00" step="0.01" />
           </div>
         </div>
 
         <div class="slider-row">
-          <label>Turbulence <span id="turbulence_val">12%</span></label>
+          <label for="turbulence">Turbulence <span id="turbulence_val">12%</span></label>
           <input type="range" id="turbulence" min="0" max="50" value="12" step="1" />
         </div>
         <div class="slider-row">
-          <label>Particle density <span id="particle_count_val">300</span></label>
+          <label for="particle_count">Particle density <span id="particle_count_val">300</span></label>
           <input type="range" id="particle_count" min="50" max="600" value="300" step="25" />
         </div>
         <div class="slider-row">
-          <label>Streamlines <span id="streamline_count_val">28</span></label>
+          <label for="streamline_count">Streamlines <span id="streamline_count_val">28</span></label>
           <input type="range" id="streamline_count" min="8" max="60" value="28" step="2" />
         </div>
 
-        <label>Streamline Style</label>
-        <select id="streamline_style" style="margin-bottom: 0.6rem;">
+        <label for="streamline_style">Streamline Style</label>
+        <select id="streamline_style">
           <option value="tubes" selected>Volumetric 3D Tubes (CFD / CAD)</option>
           <option value="dashed">Flowing Smoke (Dashed)</option>
           <option value="solid">Continuous Lines (Solid)</option>
         </select>
 
         <div class="slider-row">
-          <label>Flow animation speed <span id="time_scale_val">100%</span></label>
+          <label for="time_scale">Flow animation speed <span id="time_scale_val">100%</span></label>
           <input type="range" id="time_scale" min="25" max="300" value="100" step="5" />
         </div>
         <div class="slider-row">
-          <label>Particle size <span id="particle_size_val">80</span></label>
+          <label for="particle_size">Particle size <span id="particle_size_val">80</span></label>
           <input type="range" id="particle_size" min="40" max="200" value="80" step="5" />
         </div>
 
-        <label>Particle Style</label>
-        <select id="particle_style" style="margin-bottom: 0.6rem;">
+        <label for="particle_style">Particle Style</label>
+        <select id="particle_style">
           <option value="smoke" selected>Volumetric Smoke</option>
           <option value="dots">Classic Particles (Dots)</option>
         </select>
@@ -1001,18 +1251,18 @@
           <label><input type="checkbox" id="show_slice" /> Show CFD Slice Plane</label>
         </div>
         <div id="slice_controls" class="slice-box" style="display: none;">
-          <label>Slice axis</label>
-          <select id="slice_axis" style="margin-bottom: 0.5rem;">
+          <label for="slice_axis">Slice axis</label>
+          <select id="slice_axis">
             <option value="z" selected>Z &mdash; centerline</option>
             <option value="y">Y &mdash; ground effect</option>
             <option value="x">X &mdash; lengthwise</option>
           </select>
           <div class="slider-row" style="margin-bottom: 0.5rem;">
-            <label>Slice position <span id="slice_pos_val">0.00 m</span></label>
+            <label for="slice_pos">Slice position <span id="slice_pos_val">0.00 m</span></label>
             <input type="range" id="slice_pos" min="-0.5" max="0.5" value="0.00" step="0.01" />
           </div>
-          <label>Color map</label>
-          <select id="slice_mode" style="margin-bottom: 0;">
+          <label for="slice_mode">Color map</label>
+          <select id="slice_mode">
             <option value="pressure" selected>Pressure (Cp)</option>
             <option value="velocity">Velocity magnitude</option>
           </select>
@@ -1023,29 +1273,29 @@
         <h2 style="margin-top:1rem">Vehicle Setup</h2>
         <div class="section-title">Front Wing</div>
         <div class="row">
-          <div><label>Main (°)</label><input type="number" id="fw_main" value="2" step="0.5"></div>
-          <div><label>Flap (°)</label><input type="number" id="fw_flap" value="8" step="0.5"></div>
+          <div><label for="fw_main">Main (°)</label><input type="number" id="fw_main" value="2" step="0.5"></div>
+          <div><label for="fw_flap">Flap (°)</label><input type="number" id="fw_flap" value="8" step="0.5"></div>
         </div>
         <div class="section-title">Rear Wing</div>
         <div class="row">
-          <div><label>Main (°)</label><input type="number" id="rw_main" value="5" step="0.5"></div>
-          <div><label>Flap (°)</label><input type="number" id="rw_flap" value="15" step="0.5"></div>
+          <div><label for="rw_main">Main (°)</label><input type="number" id="rw_main" value="5" step="0.5"></div>
+          <div><label for="rw_flap">Flap (°)</label><input type="number" id="rw_flap" value="15" step="0.5"></div>
         </div>
         <div class="section-title">Chassis</div>
         <div class="row">
-          <div><label>RH front (mm)</label><input type="number" id="rh_front" value="25"></div>
-          <div><label>RH rear (mm)</label><input type="number" id="rh_rear" value="45"></div>
+          <div><label for="rh_front">RH front (mm)</label><input type="number" id="rh_front" value="25"></div>
+          <div><label for="rh_rear">RH rear (mm)</label><input type="number" id="rh_rear" value="45"></div>
         </div>
 
 
         <div class="row">
-          <div><label>Rake (°)</label><input type="number" id="rake" value="1.5" step="0.1"></div>
-          <div><label>Speed sync</label><input type="number" id="speed" value="200" step="10" readonly title="Synced from air speed"></div>
+          <div><label for="rake">Rake (°)</label><input type="number" id="rake" value="1.5" step="0.1"></div>
+          <div><label for="speed">Speed sync</label><input type="number" id="speed" value="200" step="10" readonly title="Synced from air speed"></div>
         </div>
         <div class="section-title">Diffuser</div>
         <div class="row">
-          <div><label>Angle (°)</label><input type="number" id="diff_angle" value="12" step="0.5"></div>
-          <div><label>RH (mm)</label><input type="number" id="diff_rh" value="30"></div>
+          <div><label for="diff_angle">Angle (°)</label><input type="number" id="diff_angle" value="12" step="0.5"></div>
+          <div><label for="diff_rh">RH (mm)</label><input type="number" id="diff_rh" value="30"></div>
         </div>
         <div class="section-title">Systems & Track</div>
         <div class="inline-card" style="margin-bottom:0.55rem;">
@@ -1058,7 +1308,7 @@
           </div>
         </div>
         
-        <label>Track Profile</label>
+        <label for="track_profile">Track Profile</label>
         <select id="track_profile">
           <option value="balanced" selected>Silverstone (Balanced)</option>
           <option value="monza">Monza (Low Drag - Speed)</option>
@@ -1067,7 +1317,7 @@
           <option value="singapore">Singapore (High Downforce - Tight)</option>
         </select>
 
-        <label>Method</label>
+        <p class="field-label">Method</p>
         <div class="method-tabs" id="methodTabs" role="group" aria-label="Simulation method">
           <button type="button" class="method-tab active" data-method="analytical_enhanced">VLM<span class="tag">live preview</span></button>
           <button type="button" class="method-tab" data-method="analytical">Analytical<span class="tag">empirical</span></button>
@@ -1091,7 +1341,7 @@
           <p id="solverNote">Reading /api/health to see whether a real CFD solver is available.</p>
         </div>
 
-        <label>Optimize for</label>
+        <label for="objective">Optimize for</label>
         <select id="objective">
           <option value="balanced">Balanced</option>
           <option value="max_downforce">Max downforce</option>
@@ -1100,11 +1350,11 @@
         </select>
         <button id="btnSimulate" class="primary-action">Run VLM preview</button>
         <div class="run-progress" id="runProgress" hidden><div class="bar"></div></div>
-        <p class="status" id="runHint" style="margin-top:0.35rem;">VLM updates instantly. CFD runs a real OpenFOAM solve, about one minute per case.</p>
+        <p class="status" id="runHint">VLM updates instantly. CFD runs a real OpenFOAM solve, about one minute per case.</p>
         <button id="btnOptimize" class="secondary">Optimize + AI advice</button>
 
-        <h2 style="margin-top:1.1rem">Aero Map (Ride Height Sweep)</h2>
-        <p class="status" style="margin-bottom:0.5rem">Front vs rear ride-height sweep on the fast VLM path. Click a cell to apply it.</p>
+        <h2>Aero Map (Ride Height Sweep)</h2>
+        <p class="status field-hint">Front vs rear ride-height sweep on the fast VLM path. Click a cell to apply it.</p>
         <div class="aero-map-box">
           <div class="aero-map-tools">
             <button type="button" id="btnGenerateAeroMap" class="secondary">Generate aero map</button>
@@ -1120,12 +1370,12 @@
             <div id="aeroMapLoading" style="display:none;" class="loading">Running 25 simulations...</div>
           </div>
           <div class="aero-map-axes">
-            <span>Y: rear RH (20&ndash;80 mm)</span>
-            <span>X: front RH (10&ndash;50 mm)</span>
+            <span>Rear RH 20&ndash;80</span>
+            <span>Front RH 10&ndash;50</span>
           </div>
         </div>
 
-        <h2 style="margin-top:1rem">Engineering Tools</h2>
+        <h2>Engineering Tools</h2>
         <div class="section-title">Standard views</div>
         <div class="btn-row">
           <button type="button" class="secondary" data-view="iso">Iso</button>
@@ -1154,7 +1404,7 @@
       <div class="flow-hud" id="flowHud">200 km/h · 55.6 m/s · Re=4.23M</div>
       <div class="viewer-toolbar">
         <div class="toolbar-chip">
-          <label>View</label>
+          <label for="viewMode">View</label>
           <select id="viewMode">
             <option value="pressure" selected>Pressure (Cp)</option>
             <option value="velocity">Surface speed</option>
@@ -1176,18 +1426,18 @@
         </div>
       </div>
       <div class="probe-readout" id="probeReadout"></div>
-      <div class="legend">
+      <div class="legend" title="Cp colour scale: -2 suction (left) to +1 stagnation (right)">
         <div>Surface pressure (Cp)</div>
         <div class="legend-bar cp"></div>
-        <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:0.65rem">
-          <span>−2 suction</span><span>0 neutral</span><span>+1 stagnation</span>
+        <div class="legend-scale">
+          <span>&minus;2</span><span>0</span><span>+1</span>
         </div>
-        <div style="margin-top:0.45rem">Air speed (particles &amp; streamlines)</div>
+        <div class="legend-sub">Air speed (particles &amp; streamlines)</div>
         <div class="legend-bar"></div>
-        <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:0.65rem">
-          <span>slow (entrance)</span><span>fast (exit)</span>
+        <div class="legend-scale">
+          <span>slow</span><span>fast</span>
         </div>
-        <div id="cpRange" style="margin-top:0.35rem;color:var(--muted)">Adjust sliders to update</div>
+        <div id="cpRange" class="legend-sub">Adjust sliders to update</div>
       </div>
     </div>
 
@@ -1198,19 +1448,19 @@
           <span class="fidelity-badge" id="fidelityBadge">NO DATA</span>
         </div>
         <div class="metrics">
-          <div class="metric" title="Total vertical force pushing the car into the track"><div class="value" id="m_df">—</div><div class="label">Downforce N</div></div>
-          <div class="metric" title="Force opposing forward motion through the air"><div class="value" id="m_drag">—</div><div class="label">Drag N</div></div>
+          <div class="metric" title="Total vertical force pushing the car into the track"><div class="value" id="m_df">—</div><div class="label">Downforce <span class="u">N</span></div></div>
+          <div class="metric" title="Force opposing forward motion through the air"><div class="value" id="m_drag">—</div><div class="label">Drag <span class="u">N</span></div></div>
           <div class="metric" title="Aero efficiency: downforce per unit drag"><div class="value" id="m_ld">—</div><div class="label">L/D</div></div>
-          <div class="metric" title="Share of downforce generated at the front axle"><div class="value" id="m_bal">—</div><div class="label">Balance %F</div></div>
-          <div class="metric" title="Estimated lap-time change vs the saved baseline, or the first run, from the same fidelity family"><div class="value" id="m_lap">—</div><div class="label">Lap Δ s</div></div>
+          <div class="metric" title="Share of downforce generated at the front axle"><div class="value" id="m_bal">—</div><div class="label">Balance <span class="u">%F</span></div></div>
+          <div class="metric" title="Estimated lap-time change vs the saved baseline, or the first run, from the same fidelity family"><div class="value" id="m_lap">—</div><div class="label">Lap &Delta; <span class="u">s</span></div></div>
           <div class="metric" title="Lift coefficient"><div class="value" id="m_cl">—</div><div class="label">Cl</div></div>
           <div class="metric" title="Drag coefficient"><div class="value" id="m_cd">—</div><div class="label">Cd</div></div>
         </div>
         <div class="metrics-ext">
-          <div class="metric" title="Front axle downforce"><div class="value" id="m_df_f">—</div><div class="label">DF front N</div></div>
-          <div class="metric" title="Rear axle downforce"><div class="value" id="m_df_r">—</div><div class="label">DF rear N</div></div>
-          <div class="metric" title="Center of pressure"><div class="value" id="m_cop">—</div><div class="label">CoP m</div></div>
-          <div class="metric" title="Dynamic pressure q"><div class="value" id="m_q">—</div><div class="label">q kPa</div></div>
+          <div class="metric" title="Front axle downforce"><div class="value" id="m_df_f">—</div><div class="label">Front <span class="u">N</span></div></div>
+          <div class="metric" title="Rear axle downforce"><div class="value" id="m_df_r">—</div><div class="label">Rear <span class="u">N</span></div></div>
+          <div class="metric" title="Center of pressure"><div class="value" id="m_cop">—</div><div class="label">CoP <span class="u">m</span></div></div>
+          <div class="metric" title="Dynamic pressure q"><div class="value" id="m_q">—</div><div class="label">q <span class="u">kPa</span></div></div>
         </div>
         <div class="provenance-line" id="provenanceLine">
           <strong>Source:</strong> not run yet · <strong>Fidelity:</strong> — · <strong>Validation:</strong> —
@@ -1260,13 +1510,13 @@
             <div class="chat-msg assistant"><strong>Advisor:</strong><br>The VLM preview updates live as you change the setup. Ask about trade-offs, e.g. <em>&ldquo;how do I cut drag without losing balance?&rdquo;</em></div>
           </div>
           <div class="chat-row">
-            <input type="text" id="chatInput" placeholder="Ask setup advice..." />
+            <input type="text" id="chatInput" placeholder="Ask setup advice..." aria-label="Ask the setup advisor" />
             <button type="button" id="btnSendChat">Ask</button>
           </div>
         </div>
     </div>
-  </div>
+  </main>
 
-  <script type="module" src="/static/js/app.js?v=0.5.0"></script>
+  <script type="module" src="/static/js/app.js?v=0.5.2"></script>
 </body>
 </html>
