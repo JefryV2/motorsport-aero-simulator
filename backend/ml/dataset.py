@@ -39,7 +39,14 @@ class ParameterBound:
 DESIGN_SPACE: list[ParameterBound] = [
     ParameterBound("fw_main_angle", 0.0, 8.0, "deg", "Front wing main element angle"),
     ParameterBound("fw_flap_angle", 4.0, 20.0, "deg", "Front wing flap angle"),
-    ParameterBound("ride_height_front_mm", 15.0, 50.0, "mm", "Front ride height"),
+    # 71-150 mm keeps the CFD section inside the O-grid family's validated
+    # ground-effect envelope: h/c = 0.15-0.32 for the 0.47 m chord (ADR 0006,
+    # V6 Part B). The mesh is unvalidated below h/c 0.15 - sampled points there
+    # solve to spurious Cl 8-20 or diverge outright, so they are excluded
+    # until adaptive gap refinement exists.
+    ParameterBound(
+        "ride_height_front_mm", 71.0, 150.0, "mm", "Front ride height (validated envelope)"
+    ),
     ParameterBound("rear_wing_main_angle", 5.0, 25.0, "deg", "Rear wing main element angle"),
     ParameterBound("speed_kmh", 100.0, 300.0, "km/h", "Freestream vehicle speed"),
 ]

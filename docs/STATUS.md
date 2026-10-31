@@ -145,11 +145,13 @@ force a pass.
   `data/datasets/generate_real_dataset_ogrid.log` and the per-case WSL logs.
   Diagnosis, not yet fixed: the O-grid radial spacing (tuned for h/c >= 0.15)
   is far too coarse in the wing-ground gap at those ride heights, so the mesh
-  is unvalidated there. Next steps agreed with the findings: either constrain
-  the LHS design space to the validated envelope (ride height >= 70 mm at
-  0.47 m chord) or add adaptive gap refinement to `mesh_builder.py` first.
-  The dataset on disk is still the snappy-family 28-point run (7,616-cell
-  cases), unchanged and backed up.
+  is unvalidated there. Decision taken 2026-10-31: the LHS design space is
+  constrained to the validated envelope - `ride_height_front_mm` 71-150 mm
+  (`h/c` = 0.15-0.32), with the pydantic upper bounds widened to match - until
+  adaptive gap refinement exists in `mesh_builder.py`; the user-facing VLM
+  sliders stay wider because the live analytic path is valid everywhere.
+  Evidence: `data/datasets/generate_real_dataset_ogrid_aborted.log` (original
+  attempt) and the per-case WSL logs.
 - **V7/V8 targets are partly unmet.** Reported above. The dataset is too small
   and the hybrid/VLM relationship is not smooth enough for the historical
   R² > 0.90 / MAPE < 5 % targets.

@@ -41,8 +41,8 @@ class FormulaAeroConfig(BaseModel):
     rear_wing_flap: WingElement = Field(
         default_factory=lambda: WingElement(angle_deg=15.0, chord_m=0.15, span_m=0.90)
     )
-    ride_height_front_mm: float = Field(default=25.0, ge=5.0, le=80.0)
-    ride_height_rear_mm: float = Field(default=45.0, ge=10.0, le=100.0)
+    ride_height_front_mm: float = Field(default=25.0, ge=5.0, le=200.0)
+    ride_height_rear_mm: float = Field(default=45.0, ge=10.0, le=250.0)
     rake_deg: float = Field(default=1.5, ge=-2.0, le=4.0, description="Nose-up rake angle")
     diffuser_angle_deg: float = Field(default=12.0, ge=5.0, le=20.0)
     diffuser_ride_height_mm: float = Field(default=30.0, ge=10.0, le=60.0)
