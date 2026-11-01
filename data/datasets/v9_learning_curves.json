@@ -1,0 +1,147 @@
+{
+  "case": "V9 active learning vs random vs space-filling at equal HF budget",
+  "dataset": "data/datasets/aero_surrogate_v1.parquet (28 real openfoam_wsl rows)",
+  "hf_oracle": "lenient: every pool row returns its measured HF value; strict: only converged rows return data, force-unstable queries consume budget",
+  "test_rows": [
+    1,
+    18,
+    22,
+    23,
+    27
+  ],
+  "budgets": [
+    4,
+    6,
+    9,
+    13
+  ],
+  "curves": {
+    "lenient": {
+      "al": {
+        "4": {
+          "rmse_cl": 0.6163322111294702,
+          "hf_observed": 4.0
+        },
+        "6": {
+          "rmse_cl": 0.8462669204395253,
+          "hf_observed": 6.0
+        },
+        "9": {
+          "rmse_cl": 0.22623072727107746,
+          "hf_observed": 9.0
+        },
+        "13": {
+          "rmse_cl": 0.048412546749608217,
+          "hf_observed": 13.0
+        }
+      },
+      "maximin": {
+        "4": {
+          "rmse_cl": 0.32239142462283016,
+          "hf_observed": 4.0
+        },
+        "6": {
+          "rmse_cl": 0.30634177372036514,
+          "hf_observed": 6.0
+        },
+        "9": {
+          "rmse_cl": 0.15600929960376667,
+          "hf_observed": 9.0
+        },
+        "13": {
+          "rmse_cl": 0.04146333067600702,
+          "hf_observed": 13.0
+        }
+      },
+      "random": {
+        "4": {
+          "rmse_cl": 0.6010905718146082,
+          "rmse_std": 0.19843114533594575,
+          "hf_observed": 4.0
+        },
+        "6": {
+          "rmse_cl": 0.34460410083090304,
+          "rmse_std": 0.14211550016950897,
+          "hf_observed": 6.0
+        },
+        "9": {
+          "rmse_cl": 0.13081072077754927,
+          "rmse_std": 0.10000490361470513,
+          "hf_observed": 9.0
+        },
+        "13": {
+          "rmse_cl": 0.05875105730236097,
+          "rmse_std": 0.03719178322242175,
+          "hf_observed": 13.0
+        }
+      }
+    },
+    "strict": {
+      "al": {
+        "4": {
+          "rmse_cl": 0.43773930084209883,
+          "hf_observed": 2.0
+        },
+        "6": {
+          "rmse_cl": 0.43773930084209883,
+          "hf_observed": 2.0
+        },
+        "9": {
+          "rmse_cl": 0.43773930084209883,
+          "hf_observed": 2.0
+        },
+        "13": {
+          "rmse_cl": 0.5136965886202968,
+          "hf_observed": 5.0
+        }
+      },
+      "maximin": {
+        "4": {
+          "rmse_cl": 0.5274772686247994,
+          "hf_observed": 3.0
+        },
+        "6": {
+          "rmse_cl": 0.5274772686247994,
+          "hf_observed": 3.0
+        },
+        "9": {
+          "rmse_cl": 0.5767687456515367,
+          "hf_observed": 5.0
+        },
+        "13": {
+          "rmse_cl": 0.3986095166395812,
+          "hf_observed": 7.0
+        }
+      },
+      "random": {
+        "4": {
+          "rmse_cl": 10.956785926355591,
+          "rmse_std": 23.359606249161544,
+          "hf_observed": 1.5833333333333333
+        },
+        "6": {
+          "rmse_cl": 11.833634343760123,
+          "rmse_std": 24.209958289304094,
+          "hf_observed": 2.4166666666666665
+        },
+        "9": {
+          "rmse_cl": 0.36274993429801017,
+          "rmse_std": 0.15656482241434463,
+          "hf_observed": 3.5833333333333335
+        },
+        "13": {
+          "rmse_cl": 0.3507083795391936,
+          "rmse_std": 0.18263196681762447,
+          "hf_observed": 5.0
+        }
+      }
+    }
+  },
+  "scorecard": {
+    "reduction_vs_random_pct": 17.59714808117554,
+    "reduction_vs_maximin_pct": -16.75990799654307,
+    "strict_yield_al": 5.0,
+    "strict_yield_random": 5.0,
+    "targets_met": false
+  }
+}

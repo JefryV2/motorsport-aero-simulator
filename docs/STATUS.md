@@ -3,12 +3,14 @@
 Living document. The agent updates this at the end of every task. Only record
 facts verified by running code.
 
-**Last updated:** 2026-11-01 by Agent (O-grid envelope dataset + V7/V8 scorecards)
+**Last updated:** 2026-11-01 by Agent (Phase 4: V9 active learning + Sobol sensitivity)
 **Current phase:** Phase 2 real CFD implemented (O-grid family); Phase 3
 dataset/surrogate re-measured on the validated envelope - V7 all targets met,
-V8 2 of 3. Acceptance pending.
+V8 2 of 3; Phase 4 measured - **V9 targets NOT met (1 of 3 checks)**, P4.3
+Sobol sensitivity passing and reproducible. Acceptance for Phases 2-4 pending.
 **Git baseline tag:** `v0.1.0-baseline`
-**Working branch:** `fix/provenance-honesty`
+**Working branch:** `master` (Phase 2/3/4 work fast-forwarded from
+`fix/provenance-honesty`; that branch is now fully contained in master)
 
 > **Read this first:** OpenFOAM 1912 is installed inside WSL2 Ubuntu 22.04 on
 > this machine. `detect_cfd_backend()` returns `wsl` and `/api/health` reports
@@ -69,7 +71,7 @@ V8 2 of 3. Acceptance pending.
 | 1 Real VLM | accepted 2026-10-27 | V4 external reference still fails |
 | 2 CFD pipeline | **implemented with real solver; mesh independence demonstrated on the O-grid family** | V5 PASSED (GCI 0.615 %); V6 re-measured on the O-grid family, see section 4 |
 | 3 Dataset and surrogate | **real 28-point O-grid envelope dataset; V7 all targets met, V8 2 of 3** | 13/28 solver-converged, 0 diverged; V7 Cl R² 0.9952 / Cd R² 0.9907; V8 small-budget (N=6) AR1 FAIL |
-| 4 Active learning and sensitivity | not started | |
+| 4 Active learning and sensitivity | **measured - V9 targets NOT met (1 of 3); P4.3 Sobol passing** | AL beats random (+17.6 % RMSE at N=13) but loses to maximin (-16.8 %) and only ties random on strict-oracle yield (5.0 vs 5.0); Sobol indices stable to N=512, ride height dominates both outputs |
 | 5 Lap simulation | not started | |
 | 6 Multi-objective optimization | partial | True Pareto + normalized balance; no 3D Pareto/constraints |
 | 7 Correlation and calibration | not started | |
@@ -95,7 +97,8 @@ The V5/V6/V7/V8 runs used the real WSL OpenFOAM 1912 backend.
 | V6B | Ground-effect trend (O-grid coarse) | **trend only** | Cl ratio 1.652 / 2.100 / 2.486 / 3.063 / 3.446 at h/c 1.00/0.50/0.30/0.20/0.15, all converged; direction matches, geometry is an inverted NACA 4412 section, not Zerihan/Zhang | Zerihan & Zhang (2000), trend only |
 | V7 | Surrogate cross-validation | **all four targets met (O-grid envelope, 2026-11-01)** | real 28 rows, 13 converged, 0 diverged; incidence <= 8 deg, h/c 0.15-0.32. AR1 Cl R² 0.9952 (RMSE 0.0674, MAPE 1.15 %), Cd R² 0.9907 (RMSE 0.0034, MAPE 0.23 %); coverage 100.0 % / 96.4 %. SF baselines: Cl R² 0.9898, Cd R² 0.9937 | Kennedy & O'Hagan (2000) |
 | V8 | Multi-fidelity vs single-fidelity | **targets partly met (O-grid envelope, 2026-11-01)** | train 19 / test 5. Budgets N=6/12/19: SF RMSE 0.1545/0.1616/0.0930, AR1 0.7893/0.1492/0.0566, reduction -410.8 %/+7.7 %/+39.1 %; N=6 FAIL (correlation un-estimable at 6 HF points; AR1 wins from N=12 up), final R² 0.9979 PASS, coverage 95 % = 100 % PASS (intervals conservative: 80 % empirical at 50 % nominal, mean width 0.4368) | Forrester et al. (2007) |
-| V9 | Active learning sample efficiency | pending | | |
+| V9 | Active learning sample efficiency | **targets NOT met (1 of 3, O-grid envelope, 2026-11-01)** | AR1 learning curves, lenient + strict oracle, test rows 1/18/22/23/27, budgets N=4/6/9/13. Lenient RMSE_Cl: AL 0.616/0.846/0.226/0.048, maximin 0.322/0.306/0.156/0.042, random 0.601/0.345/0.131/0.059. Checks: AL beats random **+17.6 %** PASS, AL beats space-filling **-16.8 %** FAIL (maximin wins at every budget), strict yield AL 5.0 vs random 5.0 FAIL (tie). Measured answer stands: variance acquisition does not pay for itself on 28 real rows at these budgets | Jones, Schonlau & Welch (1998), Forrester et al. (2007) |
+| P4.3 | Sobol global sensitivity on the surrogate | **passing (2026-11-01)** | Saltelli N=256 + N=512 bootstrap check on SF GPs, sampled only inside the CFD-validated envelope box. Total-order ST: Cl - ride_height_front_mm 0.575 +/- 0.112, speed_kmh 0.226 +/- 0.040, rear_wing 0.139 +/- 0.029; Cd - ride_height_front_mm 0.850 +/- 0.130, rear_wing 0.112 +/- 0.024, speed 0.034 +/- 0.008. Max abs dST between budgets 0.0008 (Cl) / 0.0056 (Cd) -> stable, targets_met True. Caveat: indices describe the surrogate inside the validated envelope, not the raw design space; bootstrap CIs are seed-pinned so the artifact is reproducible | Sobol (1993), Saltelli et al. (2010) |
 | V10 | Lap-sim analytic cases | pending | | |
 | V11 | Pareto candidates re-verified in CFD | pending | | |
 | V12 | Calibration recovers injected bias | pending | | |
@@ -235,4 +238,5 @@ force a pass.
 | 2026-10-29 | Validation reporting | V4 split into potential-flow pass and PENDING external reference; V2 error corrected to 15.4% at AR=2; generated dataset logs ignored; 27 fast tests, ruff/mypy clean | `dac74eb` |
 | 2026-10-30 | Mesh hardening | snappyHexMesh replaced by body-fitted O-grid polyMesh family (r=1.5, y+ 30), moving-ground wall, y+ instrumentation; V5 re-measured: GCI fine 0.615 %, asymptotic 0.985, PASSED; V6 re-measured (all cases converge, Cd0 target met); ADR 0006; flat engineering UI redesign; 33 fast + 4 slow tests, ruff/mypy clean | `3fb7498` |
 | 2026-10-31 | UI audit pass | OpenDesigner review: 7 errors/5 warnings reduced to 0/0 (contrast tokens >= 4.5:1, 31 label associations, 4 px spacing grid, 12 px type floor, reduce-motion support, one-line labels, main landmark); tools + tokens documented in docs/DESIGN.md; O-grid dataset regeneration aborted 0/18 with h/c-envelope diagnosis (unchanged dataset); probe artifacts gitignored | `bc12812` |
-| 2026-11-01 | Dataset envelope + V7/V8 | LHS constrained to the V6-validated envelope (incidence <= 8 deg, ride height 71-150 mm); two aborted attempts kept as evidence (0/18, then 3/26); final run: 28 real rows, 13 converged, 0 diverged, 8 min warmed; guarded V7/V8 runner (`scripts/run_v7_v8.py`); V7 all 4 targets met (AR1 Cl R² 0.9952 / Cd 0.9907), V8 2 of 3 (final R² 0.9979 PASS, coverage PASS, N=6 reduction -410.8 % FAIL with cause); 33 fast tests, ruff/mypy clean | this commit |
+| 2026-11-01 | Dataset envelope + V7/V8 | LHS constrained to the V6-validated envelope (incidence <= 8 deg, ride height 71-150 mm); two aborted attempts kept as evidence (0/18, then 3/26); final run: 28 real rows, 13 converged, 0 diverged, 8 min warmed; guarded V7/V8 runner (`scripts/run_v7_v8.py`); V7 all 4 targets met (AR1 Cl R² 0.9952 / Cd 0.9907), V8 2 of 3 (final R² 0.9979 PASS, coverage PASS, N=6 reduction -410.8 % FAIL with cause); 33 fast tests, ruff/mypy clean | `9ba54a8` |
+| 2026-11-01 | Branch recovery + Phase 4 | `master` fast-forwarded over the 11 stranded commits (`899d3fe..9ba54a8`), restoring `backend/ml/` and clearing the pytest collection error that had made the suite uncollectable; Phase 4 scripts + V9/sensitivity test committed as tracked work; removed the unused `pool` parameter from `_run_scheme` and typed the Sobol payload via a `SobolIndices` TypedDict to clear 9 mypy errors (S1/ST/S2 and every verdict verified byte-identical after refactoring); pinned SALib's bootstrap seed, making `sensitivity_sobol.json` reproducible (byte-identical across two consecutive runs; previously only `*_conf` drifted); `*_fit_warnings.txt` logs gitignored; V9 recorded as targets NOT met (1 of 3); 33 fast + 2 slow tests pass, ruff/mypy clean | this commit |

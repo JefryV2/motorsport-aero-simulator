@@ -20,6 +20,7 @@ data/server.log
 data/server.err.log
 data/datasets/*.log
 data/datasets/*_last_run.txt
+data/datasets/*_warnings.txt
 
 # Large mesh uploads and CFD cases
 data/models/*.obj
