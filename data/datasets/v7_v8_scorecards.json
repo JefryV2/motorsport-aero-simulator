@@ -1,0 +1,39 @@
+{
+  "dataset_path": "data\\datasets\\aero_surrogate_v1.parquet",
+  "provenance": {
+    "all_synthetic": false,
+    "has_provenance": true,
+    "n_converged": 13,
+    "n_failed": 0,
+    "n_rows": 28,
+    "n_used": 28,
+    "solver_counts": {
+      "openfoam_wsl": 28
+    },
+    "warning": null
+  },
+  "v7": {
+    "all_synthetic": false,
+    "hf_source": "cfd",
+    "mf_cd_mape": 0.23256477339237944,
+    "mf_cd_r2": 0.9907405782074199,
+    "mf_cl_mape": 1.1501277296593422,
+    "mf_cl_r2": 0.9951937358507841,
+    "n_converged": 13.0,
+    "n_used": 28.0,
+    "targets_met": 1.0
+  },
+  "v8": {
+    "all_synthetic": false,
+    "coverage_95": 1.0,
+    "final_r2": 0.9978692139571431,
+    "final_rmse": 0.05660343720515398,
+    "hf_source": "cfd",
+    "n_test": 5.0,
+    "n_train": 19.0,
+    "n_used": 28.0,
+    "rmse_reduction_full": 39.12060303795577,
+    "rmse_reduction_small": -410.82295099679584,
+    "targets_met": 0.0
+  }
+}

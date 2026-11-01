@@ -1,11 +1,21 @@
 {
   "dataset_path": "data\\datasets\\aero_surrogate_v1.parquet",
   "backup_path": "data\\datasets\\aero_surrogate_v1_synthetic_backup.parquet",
-  "created_at_epoch": 1793196933.0048137,
-  "elapsed_s": 1614.7,
+  "created_at_epoch": 1793537164.006178,
+  "elapsed_s": 478.5,
   "n_samples_requested": 28,
   "seed": 42,
   "mesh_level": "medium",
+  "sampling": {
+    "design_space": "DESIGN_SPACE (backend/ml/dataset.py)",
+    "cfd_validated": true,
+    "total_incidence_envelope_deg": 8.0,
+    "ride_height_mm": [
+      71.0,
+      150.0
+    ],
+    "note": "Element angles re-drawn so main+flap <= 8 deg and ride height 71-150 mm (h/c 0.15-0.32): the envelope V5/V6 measured on the O-grid family. Out-of-envelope designs are not measured."
+  },
   "backend": "wsl",
   "solver_version": "OpenFOAM 1912",
   "provenance": {
@@ -17,7 +27,7 @@
     "n_rows": 28,
     "n_used": 28,
     "n_failed": 0,
-    "n_converged": 4,
+    "n_converged": 13,
     "warning": null
   },
   "columns": [
