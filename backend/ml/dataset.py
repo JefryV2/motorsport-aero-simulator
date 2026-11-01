@@ -58,8 +58,28 @@ HF_TARGETS = ["cl_hf", "cd_hf", "df_total_hf", "drag_total_hf", "balance_hf"]
 DEFAULT_DATASET_PATH = Path("data/datasets/aero_surrogate_v1.parquet")
 
 
-def sample_design_space(n_samples: int = 100, seed: int = 42) -> np.ndarray:
+CFD_VALIDATE_TOTAL_INCIDENCE_DEG = 8.0
+"""Validated total front-wing incidence for the 2D OpenFOAM section (ADR 0006).
+
+V6 Part A/B only measured the section up to main+flap = 8 deg. Beyond roughly
+10 deg the inverted NACA 4412 section is post-stall, and a steady RANS solve
+either oscillates forever or blows up: the 15.7-25.6 deg points of the October
+31 dataset attempt all diverged while every converged point was at 8.4 deg or
+less. HF sampling therefore draws the two element angles inside this envelope.
+"""
+
+
+def sample_design_space(
+    n_samples: int = 100,
+    seed: int = 42,
+    cfd_validated: bool = False,
+) -> np.ndarray:
     """Generate Latin Hypercube samples over the bounded design space.
+
+    With ``cfd_validated=True`` the two front-wing element angles are re-drawn
+    so that ``main + flap <= CFD_VALIDATE_TOTAL_INCIDENCE_DEG`` for every point
+    (the CFD-validated envelope), while keeping both axes space-filling. Other
+    columns are untouched and stay inside their ``DESIGN_SPACE`` bounds.
 
     Returns:
         np.ndarray of shape (n_samples, len(DESIGN_SPACE)) in physical units.
@@ -71,6 +91,32 @@ def sample_design_space(n_samples: int = 100, seed: int = 42) -> np.ndarray:
     upper_bounds = np.array([p.max_val for p in DESIGN_SPACE])
 
     physical_samples = qmc.scale(unit_samples, lower_bounds, upper_bounds)
+
+    if cfd_validated:
+        fw_main_idx = FEATURE_COLUMNS.index("fw_main_angle")
+        fw_flap_idx = FEATURE_COLUMNS.index("fw_flap_angle")
+        main = physical_samples[:, fw_main_idx]
+        flap = physical_samples[:, fw_flap_idx]
+
+        # Reduce only the reducible span (main above 0, flap above its 4 deg
+        # floor) by the excess over the validated total, in proportion to each
+        # angle's share of it. This lands every pair on main + flap = 8 with
+        # main in [0, 8), flap in [4, 8), i.e. still inside DESIGN_SPACE.
+        total = main + flap
+        over = total > CFD_VALIDATE_TOTAL_INCIDENCE_DEG
+        if over.any():
+            reducible = main[over] + (flap[over] - 4.0)
+            factor = (reducible - (total[over] - CFD_VALIDATE_TOTAL_INCIDENCE_DEG)) / reducible
+            physical_samples[over, fw_main_idx] = main[over] * factor
+            physical_samples[over, fw_flap_idx] = 4.0 + (flap[over] - 4.0) * factor
+
+        total = physical_samples[:, [fw_main_idx, fw_flap_idx]].sum(axis=1)
+        assert float(total.max()) <= CFD_VALIDATE_TOTAL_INCIDENCE_DEG + 1e-9
+        assert (
+            physical_samples[:, fw_main_idx].min() >= 0.0
+            and physical_samples[:, fw_flap_idx].min() >= DESIGN_SPACE[fw_flap_idx].min_val - 1e-9
+        )
+
     return np.asarray(physical_samples, dtype=float)
 
 
@@ -217,7 +263,11 @@ def generate_surrogate_dataset(
     100-point parallel run would overload the machine and take hours. Pass
     ``max_workers > 1`` only when the solver host can support it.
     """
-    samples = sample_design_space(n_samples=n_samples, seed=seed)
+    # HF rows are real OpenFOAM solves of the 2D section, so the design points
+    # are drawn inside the incidence envelope the section solver was validated
+    # on (V6 Part A/B, ADR 0006). Out-of-envelope points are not "missing
+    # data"; they are designs the steady RANS section cannot measure.
+    samples = sample_design_space(n_samples=n_samples, seed=seed, cfd_validated=True)
 
     def _eval(i: int) -> dict[str, Any]:
         val_dict = dict(zip(FEATURE_COLUMNS, samples[i].tolist(), strict=True))

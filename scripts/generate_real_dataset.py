@@ -97,6 +97,17 @@ def main() -> int:
         "n_samples_requested": args.samples,
         "seed": args.seed,
         "mesh_level": args.mesh_level,
+        "sampling": {
+            "design_space": "DESIGN_SPACE (backend/ml/dataset.py)",
+            "cfd_validated": True,
+            "total_incidence_envelope_deg": 8.0,
+            "ride_height_mm": [71.0, 150.0],
+            "note": (
+                "Element angles re-drawn so main+flap <= 8 deg and ride height "
+                "71-150 mm (h/c 0.15-0.32): the envelope V5/V6 measured on the "
+                "O-grid family. Out-of-envelope designs are not measured."
+            ),
+        },
         "backend": backend,
         "solver_version": solver_version,
         "provenance": provenance,
