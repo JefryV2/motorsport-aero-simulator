@@ -113,7 +113,7 @@ def generate_panels(surface: VLMSurface, full_span: bool = False) -> list[Panel]
             if normal[2] < 0:
                 normal = -normal
 
-            area = 0.5 * norm_len
+            area = float(0.5 * norm_len)
 
             panels.append(
                 Panel(
