@@ -1187,10 +1187,12 @@
         <select id="flow_source">
           <option value="front_grid">Front grid (wind tunnel)</option>
           <option value="front_wide">Front wide plane</option>
-          <option value="smoke_rake" selected>Smoke rake (wind tunnel)</option>
+          <option value="smoke_rake" selected>Smoke rake (24 tubes)</option>
+          <option value="chamber">Surround (volumetric fill)</option>
           <option value="smoke_wand">Smoke wand (interactive)</option>
           <option value="top">From above</option>
           <option value="side_left">Side (left)</option>
+          <option value="side_right">Side (right)</option>
           <option value="ring">Ring inlet</option>
         </select>
 
@@ -1211,7 +1213,7 @@
         </div>
         <div class="slider-row">
           <label for="particle_count">Particle density <span id="particle_count_val">300</span></label>
-          <input type="range" id="particle_count" min="50" max="600" value="300" step="25" />
+          <input type="range" id="particle_count" min="50" max="1000" value="300" step="25" />
         </div>
         <div class="slider-row">
           <label for="streamline_count">Streamlines <span id="streamline_count_val">28</span></label>

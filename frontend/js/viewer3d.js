@@ -340,7 +340,13 @@ export class AeroViewer {
   _spawnParticles() {
     const count = this.flow.particleCount || 300;
     const useSurface = this.meshSampler && this.flow.showInteraction !== false;
-    const surfaceCount = useSurface ? Math.floor(count * 0.65) : 0;
+    // Inlet-seeded sources need more of the budget to read as a continuous
+    // curtain; surface tracers still get a useful share for near-body detail.
+    const inletHeavy = ['front_grid', 'front_wide', 'smoke_rake', 'chamber'].includes(
+      this.flow.flowSource,
+    );
+    const surfaceFraction = inletHeavy ? 0.45 : 0.65;
+    const surfaceCount = useSurface ? Math.floor(count * surfaceFraction) : 0;
     const particles = [];
     for (let i = 0; i < count; i++) {
       if (i < surfaceCount) {

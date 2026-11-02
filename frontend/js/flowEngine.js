@@ -459,34 +459,76 @@ export function speedAt(x, y, z, config, bounds, flow) {
 }
 
 /** Spawn particle at flow source. */
+
+// Monotonic serial used by the seeding sequences below. Respawning a tracer
+// must not put it back on exactly the same line (that leaves fixed streaks);
+// rotating the low-discrepancy offset keeps coverage even over time.
+let spawnSerial = 0;
+
+/**
+ * R2 low-discrepancy pair in [0, 1)^2 (Roberts' sequence). Compared with
+ * independent random draws it fills the inlet plane far more evenly, which is
+ * what makes the smoke curtain look continuous rather than blotchy.
+ */
+function stratified2(i) {
+  const t = i + spawnSerial * 0.6180339887;
+  return [(t * 0.7548776662) % 1, (t * 0.5698402910) % 1];
+}
+
 export function spawnOneParticle(bounds, flow, index = 0) {
   const min = bounds.min;
   const max = bounds.max;
   const span = max.map((v, i) => v - min[i]);
   const src = flow.flowSource || 'front_grid';
   let x, y, z;
+  spawnSerial += 1;
 
   switch (src) {
     case 'smoke_rake':
       {
-        const nStreams = 7;
-        const streamIdx = index % nStreams;
-        x = min[0] - span[0] * 0.05;
-        const yCenter = min[1] + span[1] * 0.4;
-        const zCenter = min[2] + span[2] * 0.5;
-        
-        let sy, sz;
-        if (streamIdx === 0) { sy = min[1] + span[1] * 0.12; sz = zCenter; }
-        else if (streamIdx === 1) { sy = min[1] + span[1] * 0.35; sz = zCenter; }
-        else if (streamIdx === 2) { sy = min[1] + span[1] * 0.65; sz = zCenter; }
-        else if (streamIdx === 3) { sy = min[1] + span[1] * 0.12; sz = min[2] + span[2] * 0.22; }
-        else if (streamIdx === 4) { sy = min[1] + span[1] * 0.12; sz = min[2] + span[2] * 0.78; }
-        else if (streamIdx === 5) { sy = min[1] + span[1] * 0.32; sz = min[2] + span[2] * 0.25; }
-        else { sy = min[1] + span[1] * 0.32; sz = min[2] + span[2] * 0.75; }
-        
-        x += (Math.random() - 0.5) * 0.02;
-        y = sy + (Math.random() - 0.5) * 0.025 * span[1];
-        z = sz + (Math.random() - 0.5) * 0.025 * span[2];
+        // 24-tube rake: 4 heights x 6 lateral positions. The lowest row sits
+        // close to the floor so the boundary-layer stream is visible. Tube
+        // assignment rotates per spawn so tracers spread across the whole rake.
+        const rows = 4;
+        const cols = 6;
+        // Advance tube by tube on every spawn. Using index + serial here made
+        // both counters step together, so only alternate tubes were ever fed.
+        const s = spawnSerial % (rows * cols);
+        const row = Math.floor(s / cols);
+        const col = s % cols;
+        const fy = [0.03, 0.18, 0.44, 0.76][row];
+        x = min[0] - span[0] * (0.04 + Math.random() * 0.02);
+        y = min[1] + span[1] * fy + (Math.random() - 0.5) * 0.012 * span[1];
+        z = min[2] + span[2] * ((col + 0.5) / cols) + (Math.random() - 0.5) * 0.012 * span[2];
+      }
+      break;
+    case 'chamber':
+      {
+        // Surround source: front curtain plus a top sheet and both side
+        // sheets, so the working section fills volumetrically instead of
+        // showing one sparse stream.
+        const slot = spawnSerial % 10;
+        if (slot < 5) {
+          const [u, v] = stratified2(index);
+          x = min[0] - span[0] * (0.02 + Math.random() * 0.06);
+          y = min[1] + span[1] * (0.04 + 0.92 * u);
+          z = min[2] + span[2] * (0.04 + 0.92 * v);
+        } else if (slot < 7) {
+          const [u, v] = stratified2(index + 137);
+          x = min[0] + span[0] * u;
+          y = max[1] + span[1] * (0.1 + Math.random() * 0.18);
+          z = min[2] + span[2] * (0.04 + 0.92 * v);
+        } else if (slot < 9) {
+          const [u, v] = stratified2(index + 271);
+          x = min[0] + span[0] * u;
+          y = min[1] + span[1] * (0.05 + 0.9 * v);
+          z = min[2] - span[2] * (0.12 + Math.random() * 0.2);
+        } else {
+          const [u, v] = stratified2(index + 409);
+          x = min[0] + span[0] * u;
+          y = min[1] + span[1] * (0.05 + 0.9 * v);
+          z = max[2] + span[2] * (0.12 + Math.random() * 0.2);
+        }
       }
       break;
     case 'smoke_wand':
@@ -500,19 +542,28 @@ export function spawnOneParticle(bounds, flow, index = 0) {
       }
       break;
     case 'top':
-      x = min[0] + span[0] * Math.random();
-      y = max[1] + span[1] * 0.35;
-      z = min[2] + span[2] * Math.random();
+      {
+        const [u, v] = stratified2(index);
+        x = min[0] + span[0] * u;
+        y = max[1] + span[1] * 0.35;
+        z = min[2] + span[2] * (0.04 + 0.92 * v);
+      }
       break;
     case 'side_left':
-      x = min[0] + span[0] * Math.random();
-      y = min[1] + span[1] * Math.random();
-      z = min[2] - span[2] * 0.4;
+      {
+        const [u, v] = stratified2(index);
+        x = min[0] + span[0] * u;
+        y = min[1] + span[1] * (0.04 + 0.92 * v);
+        z = min[2] - span[2] * 0.4;
+      }
       break;
     case 'side_right':
-      x = min[0] + span[0] * Math.random();
-      y = min[1] + span[1] * Math.random();
-      z = max[2] + span[2] * 0.4;
+      {
+        const [u, v] = stratified2(index + 61);
+        x = min[0] + span[0] * u;
+        y = min[1] + span[1] * (0.04 + 0.92 * v);
+        z = max[2] + span[2] * 0.4;
+      }
       break;
     case 'ring':
       {
@@ -524,15 +575,23 @@ export function spawnOneParticle(bounds, flow, index = 0) {
       }
       break;
     case 'front_wide':
-      x = min[0] - span[0] * (0.02 + Math.random() * 0.06);
-      y = min[1] + span[1] * (0.05 + (Math.floor(index / 10) % 8) * 0.12);
-      z = min[2] + span[2] * (0.05 + (index % 10) * 0.095);
+      {
+        const [u, v] = stratified2(index + 53);
+        x = min[0] - span[0] * (0.02 + Math.random() * 0.06);
+        y = min[1] + span[1] * (0.04 + 0.92 * u);
+        z = min[2] + span[2] * (0.04 + 0.92 * v);
+      }
       break;
     case 'front_grid':
     default:
-      x = min[0] - span[0] * (0.01 + Math.random() * 0.08);
-      y = min[1] + span[1] * (0.08 + Math.random() * 0.82);
-      z = min[2] + span[2] * (0.05 + Math.random() * 0.88);
+      {
+        // Stratified curtain: the R2 sequence tiles the inlet plane evenly, so
+        // the smoke enters as a continuous sheet instead of random clumps.
+        const [u, v] = stratified2(index);
+        x = min[0] - span[0] * (0.01 + Math.random() * 0.08);
+        y = min[1] + span[1] * (0.06 + 0.88 * u);
+        z = min[2] + span[2] * (0.05 + 0.9 * v);
+      }
   }
 
   return { x, y, z, life: Math.random() * 2, hit: 0 };

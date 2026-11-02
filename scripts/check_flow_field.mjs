@@ -35,7 +35,7 @@ try {
   rmSync(tmpDir, { recursive: true, force: true });
 }
 
-const { velocityAt, curlNoise, generateStreamlines } = mod;
+const { velocityAt, curlNoise, generateStreamlines, spawnOneParticle } = mod;
 
 const bounds = { min: [-1.75, 0, -0.5], max: [1.75, 0.6, 0.5] };
 const baseFlow = {
@@ -174,6 +174,53 @@ check(
   'wake momentum deficit',
   `u(wake) = ${wakeMid.toFixed(1)} m/s (${(wakeMid / U).toFixed(2)} U) vs u(above) = ${wakeAbove.toFixed(1)} m/s`,
 );
+
+// ---------------------------------------------------------------------------
+// 6. Source seeding: tracers must tile the inflow, not clump
+// ---------------------------------------------------------------------------
+const spanY = bounds.max[1] - bounds.min[1];
+const spanZ = bounds.max[2] - bounds.min[2];
+const bins = 6;
+
+function inletCoverage(source, samples = 400) {
+  const flow = { ...baseFlow, flowSource: source };
+  const seen = new Set();
+  for (let i = 0; i < samples; i++) {
+    const p = spawnOneParticle(bounds, flow, i);
+    const by = Math.max(0, Math.min(bins - 1, Math.floor(((p.y - bounds.min[1]) / spanY) * bins)));
+    const bz = Math.max(0, Math.min(bins - 1, Math.floor(((p.z - bounds.min[2]) / spanZ) * bins)));
+    seen.add(`${by}:${bz}`);
+  }
+  return seen.size / (bins * bins);
+}
+
+for (const source of ['front_grid', 'front_wide', 'chamber']) {
+  const cov = inletCoverage(source);
+  check(cov >= 0.85, `inlet coverage: ${source}`, `${(cov * 100).toFixed(0)}% of ${bins}x${bins} bins`);
+}
+
+// The rake rotates through 4 heights x 6 lateral tubes; check the tubes exist.
+const rakeRows = [0.03, 0.18, 0.44, 0.76];
+const rakeTubes = new Set();
+for (let i = 0; i < 480; i++) {
+  const p = spawnOneParticle(bounds, { ...baseFlow, flowSource: 'smoke_rake' }, i);
+  const fy = (p.y - bounds.min[1]) / spanY;
+  const row = rakeRows.reduce((best, r, idx) => (Math.abs(r - fy) < Math.abs(rakeRows[best] - fy) ? idx : best), 0);
+  const col = Math.max(0, Math.min(5, Math.floor(((p.z - bounds.min[2]) / spanZ) * 6)));
+  rakeTubes.add(`${row}:${col}`);
+}
+check(rakeTubes.size >= 20, 'rake tube coverage', `${rakeTubes.size}/24 tubes seeded`);
+
+// Surround source must actually feed all four faces.
+const faces = new Set();
+for (let i = 0; i < 480; i++) {
+  const p = spawnOneParticle(bounds, { ...baseFlow, flowSource: 'chamber' }, i);
+  if (p.x < bounds.min[0]) faces.add('front');
+  if (p.y > bounds.max[1]) faces.add('top');
+  if (p.z < bounds.min[2]) faces.add('left');
+  if (p.z > bounds.max[2]) faces.add('right');
+}
+check(faces.size === 4, 'surround source feeds all faces', [...faces].join(', ') || 'none');
 
 console.log('');
 if (failures.length) {
