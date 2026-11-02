@@ -383,8 +383,11 @@ function syncSliderLabels() {
     if (el) el.textContent = fmt(document.getElementById(id).value);
   });
   const geo = document.getElementById('rake_geo_val');
-  if (geo) {
-    geo.textContent = `${deriveSurfaces(getConfig()).floor.angleDeg.toFixed(2)}°`;
+  const throat = document.getElementById('diff_throat_val');
+  if (geo || throat) {
+    const surfaces = deriveSurfaces(getConfig());
+    if (geo) geo.textContent = `${surfaces.floor.angleDeg.toFixed(2)}°`;
+    if (throat) throat.textContent = (surfaces.diffuser.throatHeight * 1000).toFixed(1);
   }
 }
 

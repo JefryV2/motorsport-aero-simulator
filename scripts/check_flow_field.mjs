@@ -456,6 +456,17 @@ check(
   `term ${CAR_CONFIG.rake_deg} deg, body ${bodyRake.toFixed(3)} deg over ${wheelbaseMm.toFixed(0)} mm wheelbase`,
 );
 
+// The drawn diffuser cannot seal below the floor line ahead of it, even though
+// the force model reads diffuser_ride_height_mm as an unclamped suction height.
+const diff = carSurfaces.diffuser;
+check(
+  CAR_CONFIG.diffuser_ride_height_mm / 1000 < diff.throatHeight
+    && Math.abs(diff.throatHeight - carSurfaces.floor.heightAt(diff.xStart)) < 1e-12
+    && diff.exitHeight > diff.throatHeight,
+  'diffuser throat clamped to the floor line',
+  `requested ${CAR_CONFIG.diffuser_ride_height_mm} mm, drawn ${(diff.throatHeight * 1000).toFixed(1)} mm`,
+);
+
 // Display scale must not change the physics: every length in the field is
 // published in world metres and every coefficient in true metres, so a 2x
 // model is the same flow at twice the size.
