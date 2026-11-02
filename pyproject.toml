@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Computational aerodynamics and scientific machine learning simulator for motorsport"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
