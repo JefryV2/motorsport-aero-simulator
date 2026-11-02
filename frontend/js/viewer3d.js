@@ -120,12 +120,15 @@ function drawStreakCell(data, ox, oy, rnd) {
     const v = (y - c) / c;
     const across = Math.max(0, 1 - v * v);
     const softAcross = across * across * (3 - 2 * across);
+    // A real streak is uniform along its length, so the noise varies only across
+    // it. Length-wise noise made each segment repeat the same mottle and the
+    // filament read as a bead chain rather than one continuous thread.
+    const n = 0.5 * octs[0][y * size] + 0.32 * octs[1][y * size] + 0.18 * octs[2][y * size];
     for (let x = 0; x < size; x++) {
-      const i = y * size + x;
       const u = x / (size - 1);
-      // Soft ends: a tube should fade out, not be cut off at the quad edge.
-      const endFade = Math.min(1, u / 0.12) * Math.min(1, (1 - u) / 0.12);
-      const n = 0.5 * octs[0][i] + 0.32 * octs[1][i] + 0.18 * octs[2][i];
+      // Only a shallow end taper: segments overlap, so the taper must stay under
+      // a neighbour's flat middle or every joint becomes a dark gap.
+      const endFade = 0.7 + 0.3 * Math.min(1, u / 0.06) * Math.min(1, (1 - u) / 0.06);
       const alpha = softAcross * endFade * (0.55 + 0.7 * n);
       const p = ((oy + y) * atlasW + (ox + x)) * 4;
       data[p] = 255;
@@ -154,11 +157,11 @@ function streakAtlasTexture() {
   }
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
-  // Thin threads minify the 128 px cell to a few pixels; mipmaps keep them from
-  // shimmering. Cell edges are transparent, so gentle cross-cell averaging is
-  // invisible.
-  tex.generateMipmaps = true;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  // No mip chain: the 9 cells hold streaks in different orientations, so each
+  // mip level averages them into a cross-hatch that shows up as a grid pattern
+  // on minified strands. Linear filtering keeps every sample inside one cell.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.anisotropy = 4;
   tex.wrapS = THREE.ClampToEdgeWrapping;
@@ -1280,9 +1283,10 @@ export class AeroViewer {
           const dead = segLen < arcStep * 0.3;
           iPos.setXYZ(ii, mx, my, mz);
           iDir.setXYZ(ii, dx, dy, dz);
-          // Cross-section quads: overlap neighbours so the streak texture forms
-          // a tube instead of a row of separate stamps.
-          iScale.setXY(ii, segLen * 1.08 + thick * 0.22, thick);
+          // Cross-section quads must overlap more than the atlas cell's end
+          // taper (6% per side), otherwise every joint loses density and the
+          // filament reads as a ladder of dashes instead of one tube.
+          iScale.setXY(ii, segLen * 1.2 + thick * 0.22, thick);
           iRot.setX(ii, 0);
           iUv.setXY(ii, p.uvOff[0], p.uvOff[1]);
           const gain = isFilament ? 0.5 : 0.17;
