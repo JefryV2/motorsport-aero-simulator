@@ -9,6 +9,9 @@ The point of this project is not the downforce numbers. It is that every result
 carries a provenance label saying what produced it, and every validation target
 is recorded whether it passed or not.
 
+[![CI](https://github.com/JefryV2/motorsport-aero-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/JefryV2/motorsport-aero-simulator/actions/workflows/ci.yml)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 ![Volumetric smoke over the default placeholder body](docs/screenshots/flow-volumetric-smoke.png)
 
 *Volumetric smoke over the built-in analytical placeholder body (drag in your own
