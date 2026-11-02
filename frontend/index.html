@@ -1170,6 +1170,7 @@
         <button type="button" id="btnResetView" class="secondary">Reset camera</button>
 
         <h2>Wind Tunnel</h2>
+        <p class="status field-hint">Flow visualization only &mdash; smoke and streamlines use an analytic field model, not measured CFD.</p>
         <div class="slider-row">
           <label for="wind_speed">Air speed <span id="wind_speed_val">200 km/h</span></label>
           <input type="range" id="wind_speed" min="30" max="350" value="200" step="5" />
@@ -1239,6 +1240,7 @@
           <option value="dots">Classic Particles (Dots)</option>
         </select>
         <div class="toggle-row">
+          <label><input type="checkbox" id="smoke_tint" /> Tint smoke by speed</label>
           <label><input type="checkbox" id="show_interaction" checked /> Air/car interaction</label>
           <label><input type="checkbox" id="show_wake" /> Wake hint</label>
           <label><input type="checkbox" id="show_tunnel" /> Tunnel walls</label>

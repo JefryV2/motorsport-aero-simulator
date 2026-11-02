@@ -357,6 +357,7 @@ function getFlowSettings() {
     wandZ: +document.getElementById('wand_z').value,
     streamlineStyle: document.getElementById('streamline_style').value,
     particleStyle: document.getElementById('particle_style').value,
+    smokeTint: document.getElementById('smoke_tint')?.checked ? 'speed' : 'neutral',
   };
 }
 
@@ -1269,7 +1270,7 @@ function setupControls() {
     'streamline_count', 'flow_source', 'time_scale', 'particle_size',
     'show_wake', 'show_tunnel', 'show_source', 'show_ground', 'show_interaction',
     'show_slice', 'slice_axis', 'slice_pos', 'slice_mode', 'wand_y', 'wand_z',
-    'streamline_style', 'particle_style',
+    'streamline_style', 'particle_style', 'smoke_tint',
   ];
   flowInputs.forEach((id) => {
     const el = document.getElementById(id);

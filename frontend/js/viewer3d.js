@@ -53,6 +53,116 @@ function particleTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+const SMOKE_CELL_PX = 128;
+const SMOKE_GRID = 3;
+/** History points per filament, and the segments drawn between them. */
+const SMOKE_TRAIL = 8;
+const SMOKE_SEG = SMOKE_TRAIL - 1;
+/** Record the next history point every this fraction of model length. */
+const SMOKE_ARC_STEP = 0.07;
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Tiled value noise on a cells x cells lattice, smoothstep-interpolated. */
+function noiseOctave(size, cells, rnd) {
+  const lattice = new Float32Array(cells * cells);
+  for (let i = 0; i < lattice.length; i++) lattice[i] = rnd();
+  const out = new Float32Array(size * size);
+  const k = cells / size;
+  for (let y = 0; y < size; y++) {
+    const fy = y * k;
+    const y0 = Math.floor(fy);
+    const ty = fy - y0;
+    const sy = ty * ty * (3 - 2 * ty);
+    const r0 = y0 % cells;
+    const r1 = (r0 + 1) % cells;
+    for (let x = 0; x < size; x++) {
+      const fx = x * k;
+      const x0 = Math.floor(fx);
+      const tx = fx - x0;
+      const sx = tx * tx * (3 - 2 * tx);
+      const c0 = x0 % cells;
+      const c1 = (c0 + 1) % cells;
+      const top = lattice[r0 * cells + c0] + (lattice[r0 * cells + c1] - lattice[r0 * cells + c0]) * sx;
+      const bot = lattice[r1 * cells + c0] + (lattice[r1 * cells + c1] - lattice[r1 * cells + c0]) * sx;
+      out[y * size + x] = top + (bot - top) * sy;
+    }
+  }
+  return out;
+}
+
+/**
+ * Rasterise one irregular puff into the atlas at (ox, oy), density in alpha.
+ * The lowest octave warps the radial mask so the outline is lopsided, the
+ * higher octaves add internal structure, and the smoothstep keeps the rim
+ * soft - a hard rim reads as a painted blob once the quad is stretched.
+ */
+function drawSmokeCell(data, ox, oy, rnd) {
+  const size = SMOKE_CELL_PX;
+  const atlasW = size * SMOKE_GRID;
+  const octs = [
+    noiseOctave(size, 3, rnd),
+    noiseOctave(size, 7, rnd),
+    noiseOctave(size, 15, rnd),
+    noiseOctave(size, 31, rnd),
+  ];
+  const amp = [0.42, 0.29, 0.18, 0.11];
+  const c = size / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      let n = 0;
+      for (let o = 0; o < 4; o++) n += octs[o][i] * amp[o];
+      const dx = (x - c) / c;
+      const dy = (y - c) / c;
+      const warped = Math.sqrt(dx * dx + dy * dy) + (octs[0][i] - 0.5) * 0.42;
+      const core = Math.max(0, Math.min(1, 1 - warped * warped));
+      const soft = core * core * (3 - 2 * core);
+      const alpha = soft * (0.35 + 0.75 * n);
+      const p = ((oy + y) * atlasW + (ox + x)) * 4;
+      data[p] = 255;
+      data[p + 1] = 255;
+      data[p + 2] = 255;
+      data[p + 3] = Math.max(0, Math.min(255, Math.round(alpha * 255)));
+    }
+  }
+}
+
+function smokeAtlasTexture() {
+  const size = SMOKE_CELL_PX;
+  const atlasW = size * SMOKE_GRID;
+  const c = document.createElement('canvas');
+  c.width = atlasW;
+  c.height = atlasW;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(atlasW, atlasW);
+  for (let q = 0; q < SMOKE_GRID * SMOKE_GRID; q++) {
+    drawSmokeCell(
+      img.data,
+      (q % SMOKE_GRID) * size,
+      Math.floor(q / SMOKE_GRID) * size,
+      mulberry32(1337 + q * 7919),
+    );
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  // Mips would average neighbouring atlas cells into each other.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
 export class AeroViewer {
   constructor(container) {
     this.container = container;
@@ -173,6 +283,8 @@ export class AeroViewer {
   _animate() {
     requestAnimationFrame(this._animate);
     const dt = Math.min(this.clock.getDelta(), 0.05) * (this.flow.timeScale || 1);
+    // The eddy field evolves slowly in time; tracers advect through it.
+    this.flow.time = (this.flow.time || 0) + dt;
     this.controls.update();
     if (this.showParticles) this._tickParticles(dt);
     this._pulseStreamlines();
@@ -207,6 +319,24 @@ export class AeroViewer {
     this.meshSampler = new MeshFlowSampler(worldVerts, worldNorms, this.bounds);
   }
 
+  _seedPuff(p) {
+    // Filaments follow the flow direction, so only a small fixed skew is
+    // allowed - a full random rotation would break the streak alignment.
+    p.skew = (Math.random() - 0.5) * 0.44;
+    p.sizeJitter = 0.75 + Math.random() * 0.6;
+    const q = Math.floor(Math.random() * SMOKE_GRID * SMOKE_GRID);
+    p.uvOff = [(q % SMOKE_GRID) / SMOKE_GRID, Math.floor(q / SMOKE_GRID) / SMOKE_GRID];
+    if (!p.hist) p.hist = new Float32Array(SMOKE_TRAIL * 3);
+    // Collapse the filament onto the spawn point, otherwise a respawn drags a
+    // stale tail across the tunnel for one frame.
+    for (let k = 0; k < SMOKE_TRAIL; k++) {
+      p.hist[k * 3] = p.x;
+      p.hist[k * 3 + 1] = p.y;
+      p.hist[k * 3 + 2] = p.z;
+    }
+    return p;
+  }
+
   _spawnParticles() {
     const count = this.flow.particleCount || 300;
     const useSurface = this.meshSampler && this.flow.showInteraction !== false;
@@ -214,9 +344,9 @@ export class AeroViewer {
     const particles = [];
     for (let i = 0; i < count; i++) {
       if (i < surfaceCount) {
-        particles.push(spawnSurfaceParticle(this.meshSampler, this.bounds, this.flow, i));
+        particles.push(this._seedPuff(spawnSurfaceParticle(this.meshSampler, this.bounds, this.flow, i)));
       } else {
-        particles.push(spawnOneParticle(this.bounds, this.flow, i));
+        particles.push(this._seedPuff(spawnOneParticle(this.bounds, this.flow, i)));
       }
     }
     return particles;
@@ -232,9 +362,10 @@ export class AeroViewer {
   _respawnParticle(p, index) {
     if (p.surface && this.meshSampler) {
       Object.assign(p, spawnSurfaceParticle(this.meshSampler, this.bounds, this.flow, index));
-      return;
+    } else {
+      Object.assign(p, spawnOneParticle(this.bounds, this.flow, index));
     }
-    Object.assign(p, spawnOneParticle(this.bounds, this.flow, index));
+    return this._seedPuff(p);
   }
 
   _startFlow() {
@@ -904,101 +1035,134 @@ export class AeroViewer {
     }
   }
 
-  _createSmokeTexture() {
-    const c = document.createElement('canvas');
-    c.width = 64;
-    c.height = 64;
-    const ctx = c.getContext('2d');
-    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-    g.addColorStop(0.2, 'rgba(240, 245, 255, 0.85)');
-    g.addColorStop(0.5, 'rgba(180, 205, 240, 0.35)');
-    g.addColorStop(0.8, 'rgba(130, 160, 200, 0.06)');
-    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(c);
-  }
-
   _buildParticleMesh() {
-    this.particleGroup.clear();
+    this._disposeParticleMesh();
     const n = this.particles.length;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-
     const isSmoke = this.flow.particleStyle === 'smoke';
-    const pSize = this.flow.particleSize || 0.18;
 
     if (isSmoke) {
-      geo.setAttribute('size', new THREE.BufferAttribute(new Float32Array(n), 1));
-      geo.setAttribute('opacity', new THREE.BufferAttribute(new Float32Array(n), 1));
+      this._smokeAtlas = this._smokeAtlas || smokeAtlasTexture();
+      const cell = new THREE.PlaneGeometry(1, 1);
+      const geo = new THREE.InstancedBufferGeometry();
+      geo.index = cell.index;
+      geo.setAttribute('position', cell.getAttribute('position'));
+      geo.setAttribute('uv', cell.getAttribute('uv'));
+      const inst = n * SMOKE_SEG;
+      geo.instanceCount = inst;
+      geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(new Float32Array(inst * 3), 3));
+      geo.setAttribute('iDir', new THREE.InstancedBufferAttribute(new Float32Array(inst * 3), 3));
+      geo.setAttribute('iScale', new THREE.InstancedBufferAttribute(new Float32Array(inst * 2), 2));
+      geo.setAttribute('iRot', new THREE.InstancedBufferAttribute(new Float32Array(inst), 1));
+      geo.setAttribute('iColor', new THREE.InstancedBufferAttribute(new Float32Array(inst * 3), 3));
+      geo.setAttribute('iOpacity', new THREE.InstancedBufferAttribute(new Float32Array(inst), 1));
+      geo.setAttribute('iUvOffset', new THREE.InstancedBufferAttribute(new Float32Array(inst * 2), 2));
 
-      this._smokeTex = this._smokeTex || this._createSmokeTexture();
-
-      this.particleShaderMaterial = new THREE.ShaderMaterial({
+      this.particleQuads = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+        uniforms: { atlas: { value: this._smokeAtlas } },
         vertexShader: `
-          attribute float size;
-          attribute float opacity;
+          attribute vec3 iPos;
+          attribute vec3 iDir;
+          attribute vec2 iScale;
+          attribute float iRot;
+          attribute vec3 iColor;
+          attribute float iOpacity;
+          attribute vec2 iUvOffset;
+          varying vec2 vUv;
           varying vec3 vColor;
           varying float vOpacity;
           void main() {
-            vColor = color;
-            vOpacity = opacity;
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = size * (250.0 / -mvPosition.z);
-            gl_Position = projectionMatrix * mvPosition;
+            // Stretch the quad along the travelled segment as it appears on
+            // screen, so a puff reads as a smoke filament rather than a blob.
+            vec4 mv = modelViewMatrix * vec4(iPos, 1.0);
+            vec2 dir = (modelViewMatrix * vec4(iDir, 0.0)).xy;
+            float ang = (dot(dir, dir) > 1e-8 ? atan(dir.y, dir.x) : 0.0) + iRot;
+            float c = cos(ang);
+            float s = sin(ang);
+            vec2 q = vec2(position.x * iScale.x, position.y * iScale.y);
+            mv.xy += vec2(q.x * c - q.y * s, q.x * s + q.y * c);
+            gl_Position = projectionMatrix * mv;
+            vUv = uv / ${SMOKE_GRID}.0 + iUvOffset;
+            vColor = iColor;
+            vOpacity = iOpacity;
           }
         `,
         fragmentShader: `
-          uniform sampler2D pointTexture;
+          uniform sampler2D atlas;
+          varying vec2 vUv;
           varying vec3 vColor;
           varying float vOpacity;
           void main() {
-            vec4 texColor = texture2D(pointTexture, gl_PointCoord);
-            gl_FragColor = vec4(vColor, vOpacity) * texColor;
+            float density = texture2D(atlas, vUv).a;
+            if (density < 0.01) discard;
+            // Fake volume: sample the atlas again toward the key light so the
+            // lit rim of each puff is brighter than its shaded side. Without
+            // this every billboard reads as a flat decal.
+            float lit = texture2D(atlas, vUv + vec2(0.05, 0.045)).a;
+            float shade = clamp(1.0 + (density - lit) * 1.8, 0.6, 1.22);
+            gl_FragColor = vec4(vColor * shade, density * vOpacity);
           }
         `,
-        uniforms: {
-          pointTexture: { value: this._smokeTex }
-        },
         transparent: true,
-        depthWrite: false,
-        blending: THREE.NormalBlending,
-        vertexColors: true
-      });
-      this.particlePoints = new THREE.Points(geo, this.particleShaderMaterial);
-    } else {
-      this.particlePoints = new THREE.Points(geo, new THREE.PointsMaterial({
-        map: this._particleTex,
-        size: pSize,
-        vertexColors: true,
-        transparent: true,
-        opacity: 1,
-        sizeAttenuation: true,
         depthWrite: false,
         blending: THREE.NormalBlending,
       }));
+      // Instance attributes change every frame, so computed bounds are stale.
+      this.particleQuads.frustumCulled = false;
+      this.particleGroup.add(this.particleQuads);
+      return;
     }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    this.particlePoints = new THREE.Points(geo, new THREE.PointsMaterial({
+      map: this._particleTex,
+      size: this.flow.particleSize || 0.18,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    }));
     this.particleGroup.add(this.particlePoints);
   }
 
+  _disposeParticleMesh() {
+    for (const obj of [this.particlePoints, this.particleQuads]) {
+      if (!obj) continue;
+      obj.geometry.dispose();
+      obj.material.dispose();
+    }
+    this.particlePoints = null;
+    this.particleQuads = null;
+    this.particleGroup.clear();
+  }
+
   _tickParticles(dt) {
-    if (!this.particlePoints) return;
+    const isSmoke = this.flow.particleStyle === 'smoke';
+    const obj = isSmoke ? this.particleQuads : this.particlePoints;
+    if (!obj) return;
     const cfg = this._activeConfig();
     const min = this.bounds.min;
     const max = this.bounds.max;
     const span = max.map((v, i) => v - min[i]);
-    const pos = this.particlePoints.geometry.attributes.position;
-    const col = this.particlePoints.geometry.attributes.color;
-    const sizes = this.particlePoints.geometry.attributes.size;
-    const opacities = this.particlePoints.geometry.attributes.opacity;
+    const attrs = obj.geometry.attributes;
+    const pos = attrs.position;
+    const col = attrs.color;
+    const iPos = attrs.iPos;
+    const iDir = attrs.iDir;
+    const iScale = attrs.iScale;
+    const iRot = attrs.iRot;
+    const iCol = attrs.iColor;
+    const iOpa = attrs.iOpacity;
+    const iUv = attrs.iUvOffset;
 
     const ts = Math.max(0.5, (this.flow.timeScale || 1)) * 0.65;
+    const arcStep = span[0] * SMOKE_ARC_STEP;
     const skinEps = surfaceOffset(this.bounds);
     const useMesh = this.meshSampler && this.flow.showInteraction !== false;
     const n = this.particles.length;
-    const isSmoke = this.flow.particleStyle === 'smoke';
 
     // Pass 1 — move particles, track speeds for dynamic color scale
     let minSpd = Infinity;
@@ -1042,42 +1206,101 @@ export class AeroViewer {
       if (displaySpd < minSpd) minSpd = displaySpd;
       if (displaySpd > maxSpd) maxSpd = displaySpd;
 
-      pos.setXYZ(i, p.x, p.y, p.z);
-
-      if (isSmoke && sizes && opacities) {
-        const ageRatio = p.life / maxLife;
-        const sizeRatio = 1.0 + ageRatio * 3.2; // expand up to 4.2x base size
-
-        let pOpacity = 1.0;
-        if (ageRatio < 0.1) {
-          pOpacity = ageRatio / 0.1; // fade-in
-        } else {
-          pOpacity = Math.max(0.0, 1.0 - (ageRatio - 0.1) / 0.9); // fade-out
+      if (isSmoke) {
+        const h = p.hist;
+        const sx = p.x - h[0];
+        const sy = p.y - h[1];
+        const sz = p.z - h[2];
+        // A tracer can cross several arc steps in one frame; subdivide the swept
+        // segment so filament length stays fixed instead of tracking dt.
+        const steps = Math.min(
+          SMOKE_TRAIL - 1,
+          Math.floor(Math.sqrt(sx * sx + sy * sy + sz * sz) / arcStep),
+        );
+        const bxp = h[0];
+        const byp = h[1];
+        const bzp = h[2];
+        for (let s = 0; s < steps; s++) {
+          const f = (s + 1) / steps;
+          for (let k = SMOKE_TRAIL - 1; k > 0; k--) {
+            const c3 = k * 3;
+            const b3 = c3 - 3;
+            h[c3] = h[b3];
+            h[c3 + 1] = h[b3 + 1];
+            h[c3 + 2] = h[b3 + 2];
+          }
+          h[0] = bxp + sx * f;
+          h[1] = byp + sy * f;
+          h[2] = bzp + sz * f;
         }
 
-        if (p.surface) {
-          pOpacity *= 0.6;
+        const base = (this.flow.particleSize || 0.18) * 0.9 * p.sizeJitter;
+        const fadeIn = Math.min(1, p.life / 0.12);
+        const bodyFade = p.surface ? 0.7 : 1;
+        // Real smoke puffs grow and dilute as they age; the wake fade alone
+        // made young and old filaments look identical.
+        const puffAge = Math.min(1, p.life / (p.surface ? 12 : 6));
+        for (let k = 0; k < SMOKE_SEG; k++) {
+          const a3 = k * 3;
+          const b3 = a3 + 3;
+          const dx = h[a3] - h[b3];
+          const dy = h[a3 + 1] - h[b3 + 1];
+          const dz = h[a3 + 2] - h[b3 + 2];
+          const segLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const mx = h[a3] - dx * 0.5;
+          const my = h[a3 + 1] - dy * 0.5;
+          const mz = h[a3 + 2] - dz * 0.5;
+          const ii = i * SMOKE_SEG + k;
+          const nx = (mx - min[0]) / span[0];
+          // Wake diffusion: filaments broaden, dilute and dissolve downstream.
+          const diffuse = 1 + Math.max(0, nx - 0.55) * 1.8 + k * 0.08 + puffAge * 0.9;
+          const thick = base * Math.min(3.4, diffuse);
+          const wakeFade = nx < 0.72 ? 1 : Math.max(0, 1 - (nx - 0.72) / 0.8);
+          const tailFade = 1 - 0.5 * (k / SMOKE_SEG);
+          const ageFade = 1 - 0.3 * puffAge;
+          iPos.setXYZ(ii, mx, my, mz);
+          iDir.setXYZ(ii, dx, dy, dz);
+          iScale.setXY(ii, Math.max(segLen + thick * 0.5, thick), thick);
+          iRot.setX(ii, p.skew);
+          iUv.setXY(ii, p.uvOff[0], p.uvOff[1]);
+          iOpa.setX(ii, (fadeIn * wakeFade * tailFade * bodyFade * ageFade * 0.14) / diffuse);
         }
-
-        const baseSizeVal = (this.flow.particleSize || 0.18) * 0.55;
-        sizes.setX(i, baseSizeVal * sizeRatio);
-        opacities.setX(i, pOpacity * 0.38); // soft peak opacity
+      } else {
+        pos.setXYZ(i, p.x, p.y, p.z);
       }
     }
 
-    // Pass 2 — color by speed (slow entrance = warm, fast exit = cool/white)
+    // Pass 2 — colour. Neutral smoke by default; hue only when tinting is on.
     const floor = Math.min(minSpd, this.refSpeed * 0.25);
     const ceil = Math.max(maxSpd, this.refSpeed * 0.85);
+    const tintBySpeed = this.flow.smokeTint === 'speed';
+    const spdSpan = Math.max(1e-6, ceil - floor);
     for (let i = 0; i < n; i++) {
-      const c = speedToColor(frameSpeeds[i], this.refSpeed, floor, ceil);
-      col.setXYZ(i, c.r, c.g, c.b);
+      if (isSmoke && !tintBySpeed) {
+        const ratio = Math.max(0, Math.min(1, (frameSpeeds[i] - floor) / spdSpan));
+        const b = 0.70 + 0.30 * ratio;
+        for (let k = 0; k < SMOKE_SEG; k++) iCol.setXYZ(i * SMOKE_SEG + k, b, b * 1.01, b * 1.05);
+      } else {
+        const c = speedToColor(frameSpeeds[i], this.refSpeed, floor, ceil);
+        if (isSmoke) {
+          for (let k = 0; k < SMOKE_SEG; k++) iCol.setXYZ(i * SMOKE_SEG + k, c.r, c.g, c.b);
+        } else {
+          col.setXYZ(i, c.r, c.g, c.b);
+        }
+      }
     }
 
-    pos.needsUpdate = true;
-    col.needsUpdate = true;
-    if (isSmoke && sizes && opacities) {
-      sizes.needsUpdate = true;
-      opacities.needsUpdate = true;
+    if (isSmoke) {
+      iPos.needsUpdate = true;
+      iDir.needsUpdate = true;
+      iScale.needsUpdate = true;
+      iRot.needsUpdate = true;
+      iCol.needsUpdate = true;
+      iOpa.needsUpdate = true;
+      iUv.needsUpdate = true;
+    } else {
+      pos.needsUpdate = true;
+      col.needsUpdate = true;
     }
 
     this.speedRange = { min: minSpd === Infinity ? 0 : minSpd, max: maxSpd };

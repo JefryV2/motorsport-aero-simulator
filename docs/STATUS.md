@@ -3,11 +3,14 @@
 Living document. The agent updates this at the end of every task. Only record
 facts verified by running code.
 
-**Last updated:** 2026-11-01 by Agent (Phase 4: V9 active learning + Sobol sensitivity)
+**Last updated:** 2026-11-02 by Agent (analytic smoke realism + flow-field gate)
 **Current phase:** Phase 2 real CFD implemented (O-grid family); Phase 3
 dataset/surrogate re-measured on the validated envelope - V7 all targets met,
 V8 2 of 3; Phase 4 measured - **V9 targets NOT met (1 of 3 checks)**, P4.3
-Sobol sensitivity passing and reproducible. Acceptance for Phases 2-4 pending.
+Sobol sensitivity passing and reproducible. The live wind-tunnel smoke was
+upgraded (coherent turbulence, floor boundary layer, wake, tip vortices) and is
+labelled in the UI as an analytic visualization. Acceptance for Phases 2-4
+pending.
 **Git baseline tag:** `v0.1.0-baseline`
 **Working branch:** `master` (Phase 2/3/4 work fast-forwarded from
 `fix/provenance-honesty`; that branch is now fully contained in master)
@@ -116,6 +119,15 @@ force a pass.
   is an inverted NACA 4412 with a moving ground plane; floor and rear-wing
   contributions are empirical. The total is labelled `rans_hybrid`, not
   `rans`.
+- **The wind-tunnel smoke is an analytic visualization, not CFD output.** The
+  live viewer advects tracers through a potential-flow model (blockage
+  doublets, trailing wingtip vortex pairs, a 1/7-power floor boundary layer,
+  wake momentum deficit with rear-wing downwash) plus divergence-free
+  curl-noise turbulence. Nothing in it is sampled from the OpenFOAM solves, and
+  the panel says so beside the controls. `scripts/check_flow_field.mjs` gates
+  the field (finiteness, bounded speed, divergence-free turbulence, spatial
+  coherence, streamline integration, floor profile, wake deficit); it passes
+  11/11 on Node 24 and costs ~1 ms/frame for 400 tracers.
 - **Mesh independence is demonstrated on the body-fitted O-grid family**
   (ADR 0006): GCI fine 0.615 %, asymptotic ratio 0.985, fine Cl within 1.33 %
   of the Richardson extrapolation. The fine solve reached the 2000-iteration
@@ -239,4 +251,5 @@ force a pass.
 | 2026-10-30 | Mesh hardening | snappyHexMesh replaced by body-fitted O-grid polyMesh family (r=1.5, y+ 30), moving-ground wall, y+ instrumentation; V5 re-measured: GCI fine 0.615 %, asymptotic 0.985, PASSED; V6 re-measured (all cases converge, Cd0 target met); ADR 0006; flat engineering UI redesign; 33 fast + 4 slow tests, ruff/mypy clean | `3fb7498` |
 | 2026-10-31 | UI audit pass | OpenDesigner review: 7 errors/5 warnings reduced to 0/0 (contrast tokens >= 4.5:1, 31 label associations, 4 px spacing grid, 12 px type floor, reduce-motion support, one-line labels, main landmark); tools + tokens documented in docs/DESIGN.md; O-grid dataset regeneration aborted 0/18 with h/c-envelope diagnosis (unchanged dataset); probe artifacts gitignored | `bc12812` |
 | 2026-11-01 | Dataset envelope + V7/V8 | LHS constrained to the V6-validated envelope (incidence <= 8 deg, ride height 71-150 mm); two aborted attempts kept as evidence (0/18, then 3/26); final run: 28 real rows, 13 converged, 0 diverged, 8 min warmed; guarded V7/V8 runner (`scripts/run_v7_v8.py`); V7 all 4 targets met (AR1 Cl R² 0.9952 / Cd 0.9907), V8 2 of 3 (final R² 0.9979 PASS, coverage PASS, N=6 reduction -410.8 % FAIL with cause); 33 fast tests, ruff/mypy clean | `9ba54a8` |
-| 2026-11-01 | Branch recovery + Phase 4 | `master` fast-forwarded over the 11 stranded commits (`899d3fe..9ba54a8`), restoring `backend/ml/` and clearing the pytest collection error that had made the suite uncollectable; Phase 4 scripts + V9/sensitivity test committed as tracked work; removed the unused `pool` parameter from `_run_scheme` and typed the Sobol payload via a `SobolIndices` TypedDict to clear 9 mypy errors (S1/ST/S2 and every verdict verified byte-identical after refactoring); pinned SALib's bootstrap seed, making `sensitivity_sobol.json` reproducible (byte-identical across two consecutive runs; previously only `*_conf` drifted); `*_fit_warnings.txt` logs gitignored; V9 recorded as targets NOT met (1 of 3); 33 fast + 2 slow tests pass, ruff/mypy clean | this commit |
+| 2026-11-01 | Branch recovery + Phase 4 | `master` fast-forwarded over the 11 stranded commits (`899d3fe..9ba54a8`), restoring `backend/ml/` and clearing the pytest collection error that had made the suite uncollectable; Phase 4 scripts + V9/sensitivity test committed as tracked work; removed the unused `pool` parameter from `_run_scheme` and typed the Sobol payload via a `SobolIndices` TypedDict to clear 9 mypy errors (S1/ST/S2 and every verdict verified byte-identical after refactoring); pinned SALib's bootstrap seed, making `sensitivity_sobol.json` reproducible (byte-identical across two consecutive runs; previously only `*_conf` drifted); `*_fit_warnings.txt` logs gitignored; V9 recorded as targets NOT met (1 of 3); 33 fast + 2 slow tests pass, ruff/mypy clean | `d79d58f` |
+| 2026-11-02 | Smoke realism + flow gate | Tracer field: per-frame white-noise jitter replaced by divergence-free curl noise (central-difference vector potential, eddy length ~0.22 car length, time-evolving); blockage doublet sign corrected (it was accelerating the inflow instead of decelerating it); 1/7-power floor boundary layer; wake momentum deficit + rear-wing downwash; trailing Lamb-Oseen wingtip vortex pairs; smoke billboards get fake directional lighting and age-based growth/dilution; the panel now states the visualization is analytic, not CFD; new `scripts/check_flow_field.mjs` gate (11/11 pass, ~1 ms/frame for 400 tracers); app verified in the browser with no console errors | this commit |

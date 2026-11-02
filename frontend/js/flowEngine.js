@@ -9,6 +9,8 @@ export const DEFAULT_FLOW = {
   streamlineCount: 28,
   flowSource: 'front_grid',
   timeScale: 1.0,
+  /** Evolved by the viewer; drives the slow phase change of the eddy field. */
+  time: 0,
   showWake: false,
   showTunnel: false,
   showSourcePlane: false,
@@ -28,6 +30,121 @@ function len(v) {
 export function normalize(v) {
   const l = len(v) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+// ---------------------------------------------------------------------------
+// Coherent turbulence: curl noise
+// ---------------------------------------------------------------------------
+// A real tunnel does not jitter frame to frame. Smoke follows eddies that are
+// coherent in space and only evolve slowly, which is why the previous
+// per-frame Math.random() jitter read as TV static instead of smoke. Sampling
+// the curl of a vector potential gives a divergence-free field, so tracers
+// swirl without being artificially compressed into sinks.
+
+function hash01(ix, iy, iz) {
+  let h = (ix * 374761393 + iy * 668265263 + iz * 1442695041) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+function fade(t) {
+  return t * t * (3 - 2 * t);
+}
+
+/** Trilinearly interpolated value noise on an integer lattice, in [0, 1]. */
+function valueNoise3(x, y, z) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const z0 = Math.floor(z);
+  const fx = fade(x - x0);
+  const fy = fade(y - y0);
+  const fz = fade(z - z0);
+
+  const c000 = hash01(x0, y0, z0);
+  const c100 = hash01(x0 + 1, y0, z0);
+  const c010 = hash01(x0, y0 + 1, z0);
+  const c110 = hash01(x0 + 1, y0 + 1, z0);
+  const c001 = hash01(x0, y0, z0 + 1);
+  const c101 = hash01(x0 + 1, y0, z0 + 1);
+  const c011 = hash01(x0, y0 + 1, z0 + 1);
+  const c111 = hash01(x0 + 1, y0 + 1, z0 + 1);
+
+  const x00 = c000 + (c100 - c000) * fx;
+  const x10 = c010 + (c110 - c010) * fx;
+  const x01 = c001 + (c101 - c001) * fx;
+  const x11 = c011 + (c111 - c011) * fx;
+  const y0v = x00 + (x10 - x00) * fy;
+  const y1v = x01 + (x11 - x01) * fy;
+  return y0v + (y1v - y0v) * fz;
+}
+
+/** Two-octave fractal value noise in [0, 1]. */
+function fbm2(x, y, z) {
+  return (
+    valueNoise3(x, y, z) * 0.62 +
+    valueNoise3(x * 2.17 + 13.7, y * 2.17 - 7.3, z * 2.17 + 3.1) * 0.38
+  );
+}
+
+/** Vector potential built from three decorrelated noise fields. */
+function potential3(x, y, z) {
+  return [
+    fbm2(x, y, z),
+    fbm2(x + 71.3, y + 19.1, z + 43.7),
+    fbm2(x - 53.9, y - 27.3, z + 11.9),
+  ];
+}
+
+// Empirically measured RMS magnitude (see scripts/check_flow_field.mjs) so the
+// returned field is normalised: one unit of gain is one unit of RMS velocity.
+const CURL_NOISE_RMS = 0.76;
+const CURL_EPS = 0.15;
+
+/**
+ * Divergence-free turbulence sampled at (x, y, z), slowly evolving in time.
+ * Coordinates are in eddy lengths; the caller scales by the eddy size.
+ */
+export function curlNoise(x, y, z, time = 0) {
+  const bx = x - time * 1.7; // eddies convect and slowly boil
+  const bz = z + time * 0.6;
+  const eps = CURL_EPS;
+  // Central differences: the forward-difference version had O(eps) divergence
+  // error large enough to compress tracers into visible clumps.
+  const px1 = potential3(bx + eps, y, bz);
+  const px0 = potential3(bx - eps, y, bz);
+  const py1 = potential3(bx, y + eps, bz);
+  const py0 = potential3(bx, y - eps, bz);
+  const pz1 = potential3(bx, y, bz + eps);
+  const pz0 = potential3(bx, y, bz - eps);
+  const inv = 1 / (2 * eps * CURL_NOISE_RMS);
+  return [
+    ((py1[2] - py0[2]) - (pz1[1] - pz0[1])) * inv,
+    ((pz1[0] - pz0[0]) - (px1[2] - px0[2])) * inv,
+    ((px1[1] - px0[1]) - (py1[0] - py0[0])) * inv,
+  ];
+}
+
+/** Scratch storage so the vortex loop allocates nothing per particle per frame. */
+const _vortexOut = [0, 0, 0];
+
+/**
+ * Velocity induced by a trailing line vortex along +x with a Lamb-Oseen core.
+ * The core keeps the induced velocity finite on the axis; the exponential
+ * decay along x fades the vortex out downstream.
+ */
+function addLambOseen(x, y, z, x0, y0, z0, gamma, core, decayLen) {
+  const dx = x - x0;
+  if (dx <= 0) return false;
+  const ry = y - y0;
+  const rz = z - z0;
+  const r2 = ry * ry + rz * rz + core * core;
+  const decay = Math.exp(-dx / decayLen);
+  const t = (gamma / (2 * Math.PI * r2)) * (1 - Math.exp(-r2 / (core * core))) * decay;
+  _vortexOut[0] = 0;
+  _vortexOut[1] = -rz * t;
+  _vortexOut[2] = ry * t;
+  return true;
 }
 
 export function windVector(flow) {
@@ -88,8 +205,12 @@ export function velocityAt(x, y, z, config, bounds, flow) {
       
       const uDotD = ux*dx + uy*dy + uz*dz;
       const R3 = R*R*R;
-      const t1 = -R3 / (2 * d3);
-      const t2 = (3 * R3 * uDotD) / (2 * d5);
+      // Standard doublet for flow past a body: the perturbation decays and,
+      // ahead of the body, decelerates the flow (stagnation). Sign matters:
+      // the inverted form accelerates flow into the nose, which made the inlet
+      // run faster than freestream.
+      const t1 = R3 / (2 * d3);
+      const t2 = -(3 * R3 * uDotD) / (2 * d5);
       
       return [
         t1 * ux + t2 * dx,
@@ -209,23 +330,126 @@ export function velocityAt(x, y, z, config, bounds, flow) {
     vx += srcVx;
     vy += srcVy;
     vz += srcVz;
+
+    // Singularities grow as 1/d^2 / 1/d^3, so inside a core the perturbation
+    // reaches hundreds of m/s and tracers skip clean through the car. Cap it at
+    // a plausible attached-flow overshoot to keep |v| near 1.5 U.
+    const uRef = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
+    const px = vx - wx;
+    const py = vy - wy;
+    const pz = vz - wz;
+    const pMag = Math.sqrt(px * px + py * py + pz * pz);
+    // Cap at a plausible attached-flow overshoot. 1.15 U let singularities hand
+    // tracers 2.3 U near the body cores; 0.85 keeps local peaks realistic.
+    const pCap = 0.85 * uRef;
+    if (pMag > pCap) {
+      const k = pCap / pMag;
+      vx = wx + px * k;
+      vy = wy + py * k;
+      vz = wz + pz * k;
+    }
+  }
+
+  const uRef = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
+  const nx = (x - min[0]) / span[0];
+
+  if (flow.showInteraction !== false) {
+    // ---- Mean-flow structure behind the car -----------------------------
+    // A car leaves a momentum deficit: smoke there drifts slower than
+    // freestream, and the rear wing pushes it down. Without this the wake
+    // reads as freestream plus noise, which is the main "not real" tell.
+    const wakeX0 = max[0] - span[0] * 0.05; // just before the tail
+    if (x > wakeX0) {
+      const dxn = (x - wakeX0) / span[0];
+      const decay = Math.exp(-dxn / 1.1);
+      const yWake = min[1] + span[1] * 0.42;
+      const sigma = span[1] * (0.24 + 0.42 * dxn);
+      const g = Math.exp(-((y - yWake) ** 2) / (2 * sigma * sigma));
+      vx *= 1 - 0.4 * decay * g;
+      vy -= 0.1 * uRef * decay * g;
+    }
+
+    // ---- Trailing wingtip vortices --------------------------------------
+    // Counter-rotating pairs roll the wake into the two filaments a real
+    // tunnel shows. Sign convention: negative on the +z side, positive on
+    // -z, which makes the flow between the tips go down (downwash).
+    const rwMain = config?.rear_wing_main?.angle_deg ?? 5;
+    const rwFlap = config?.rear_wing_flap?.angle_deg ?? 15;
+    const fwMain = config?.front_wing_main?.angle_deg ?? 2;
+    const fwFlap = config?.front_wing_flap?.angle_deg ?? 8;
+    const rearLoad = Math.min(1.6, 0.4 + (rwMain + rwFlap) / 30);
+    const frontLoad = Math.min(1.4, 0.35 + (fwMain + fwFlap) / 12);
+    const tipZ = cz;
+
+    const vortexSites = [
+      // x0, y0, z offset, span half, core, decay, gamma magnitude
+      [min[0] + span[0] * 0.06, min[1] + span[1] * 0.14, span[2] * 0.47,
+        span[1] * 0.045, span[0] * 1.7, 0.018 * uRef * span[2] * frontLoad],
+      [min[0] + span[0] * 0.9, min[1] + span[1] * 0.74, span[2] * 0.27,
+        span[1] * 0.06, span[0] * 1.2, 0.034 * uRef * span[2] * rearLoad],
+    ];
+    for (const [x0, y0, dz, core, decayLen, gammaMag] of vortexSites) {
+      for (const side of [1, -1]) {
+        const gamma = side > 0 ? -gammaMag : gammaMag;
+        if (addLambOseen(x, y, z, x0, y0, tipZ + side * dz, gamma, core, decayLen)) {
+          vx += _vortexOut[0];
+          vy += _vortexOut[1];
+          vz += _vortexOut[2];
+        }
+      }
+    }
+  }
+
+  // ---- Coherent turbulence ------------------------------------------------
+  // Divergence-free curl noise, amplified where the tunnel is actually
+  // turbulent (the wake) and scaled by the turbulence slider. This replaces
+  // per-frame white jitter: eddies persist in space and evolve slowly.
+  const turbLevel = flow.turbulence ?? 0.12;
+  if (turbLevel > 1e-3) {
+    const yWake = min[1] + span[1] * 0.42;
+    const sigma = span[1] * (0.3 + 0.5 * Math.max(0, nx - 0.6));
+    const behind = Math.max(0, Math.min(1, (nx - 0.45) / 0.4));
+    const inWake = behind * Math.exp(-((y - yWake) ** 2) / (2 * sigma * sigma));
+    const eddy = Math.max(span[0] * 0.22, 0.05);
+    const c = curlNoise(
+      (x - min[0]) / eddy,
+      (y - min[1]) / eddy,
+      (z - min[2]) / eddy + 17,
+      (flow.time || 0) * 1.6,
+    );
+    const gain = turbLevel * uRef * (0.55 + 2.4 * inWake);
+    let tx = c[0] * gain;
+    let ty = c[1] * gain;
+    let tz = c[2] * gain;
+    const tm = Math.sqrt(tx * tx + ty * ty + tz * tz);
+    const cap = gain * 1.6;
+    if (tm > cap) {
+      const s = cap / tm;
+      tx *= s;
+      ty *= s;
+      tz *= s;
+    }
+    vx += tx;
+    vy += ty;
+    vz += tz;
+  }
+
+  // ---- Floor boundary layer ----------------------------------------------
+  // The tunnel floor is a no-slip wall: entrained smoke crawls within the
+  // boundary layer and grades back to freestream above it. This is the cue
+  // that makes smoke rakes near the ground look right.
+  const yRel = y - min[1];
+  const blH = span[1] * 0.18;
+  if (yRel < blH && yRel > -0.05) {
+    const eta = Math.max(0, Math.min(1, yRel / blH));
+    const profile = Math.max(0.18, Math.pow(eta, 1 / 7));
+    vx *= profile;
+    vy *= profile;
+    vz *= profile;
   }
 
   // Ground plane boundary condition — no penetration
   if (y <= min[1] + 0.01 && vy < 0) vy = Math.abs(vy) * 0.15;
-
-  // Add random turbulence scale based on wake position (downstream behind car)
-  let turbScale = flow.turbulence || 0.12;
-  const dist = distToBBox(x, y, z, bounds);
-  const nx = (x - min[0]) / span[0];
-  if (nx > 0.6 && dist < span[0] * 0.5) {
-    turbScale *= 4.0 * nx;
-  }
-
-  const t = turbScale * 1.5;
-  vx += (Math.random() - 0.5) * t;
-  vy += (Math.random() - 0.5) * t;
-  vz += (Math.random() - 0.5) * t;
 
   return [vx, vy, vz];
 }
