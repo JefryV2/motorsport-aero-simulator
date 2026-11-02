@@ -7,6 +7,7 @@ import os
 import httpx
 
 from backend.models.aero_config import AdvisorRequest
+from backend.simulation.analytical import geometric_rake_deg
 
 SYSTEM_PROMPT = """You are an expert motorsport aerodynamicist specializing in formula open-wheel cars.
 You analyze simulation data and provide actionable setup recommendations.
@@ -32,7 +33,8 @@ def _build_context(request: AdvisorRequest) -> str:
 - Front wing: main {c.front_wing_main.angle_deg}°, flap {c.front_wing_flap.angle_deg}° (gurney {c.front_wing_main.gurney_mm}mm)
 - Rear wing: main {c.rear_wing_main.angle_deg}°, flap {c.rear_wing_flap.angle_deg}° (gurney {c.rear_wing_main.gurney_mm}mm)
 - Ride height: front {c.ride_height_front_mm}mm, rear {c.ride_height_rear_mm}mm
-- Rake: {c.rake_deg}°, Diffuser: {c.diffuser_angle_deg}° at {c.diffuser_ride_height_mm}mm
+- Rake model term: {c.rake_deg}° (suction multiplier, not a body angle); body rake implied by those ride heights: {geometric_rake_deg(c):.2f}°
+- Diffuser: {c.diffuser_angle_deg}° at {c.diffuser_ride_height_mm}mm
 
 Baseline Simulation Results ({sim.method}):
 - Total downforce: {f.downforce_total_N} N (front {f.downforce_front_N} N / rear {f.downforce_rear_N} N)
@@ -52,7 +54,7 @@ Optimization Results ({opt.trials_run} trials):
 - Optimized front wing: main {bc.front_wing_main.angle_deg}°, flap {bc.front_wing_flap.angle_deg}°
 - Optimized rear wing: main {bc.rear_wing_main.angle_deg}°, flap {bc.rear_wing_flap.angle_deg}°
 - Optimized ride height: front {bc.ride_height_front_mm}mm, rear {bc.ride_height_rear_mm}mm
-- Optimized rake: {bc.rake_deg}°
+- Optimized rake model term: {bc.rake_deg}°; body rake implied by those ride heights: {geometric_rake_deg(bc):.2f}°
 - Optimized result: {bf.downforce_total_N} N DF, {bf.drag_N} N drag, {bf.efficiency} L/D, {bf.balance_front_pct}% balance
 - Change vs baseline: {bf.downforce_total_N - f.downforce_total_N:+.1f} N downforce, {bf.drag_N - f.drag_N:+.1f} N drag
 - Objective score improvement: {opt.improvement_pct}% (normalized score, not a physical or lap-time percentage)
@@ -108,8 +110,10 @@ def _fallback_advice(request: AdvisorRequest) -> str:
             )
         elif "ride height" in q or "rake" in q or "ground" in q:
             lines.append(
-                f"Your ride heights are {c.ride_height_front_mm}mm front and {c.ride_height_rear_mm}mm rear, giving a rake of {c.rake_deg}°. "
-                "Lowering the front ride height maximizes front wing and floor suction. A positive rake angle expands the diffuser, "
+                f"Your ride heights are {c.ride_height_front_mm}mm front and {c.ride_height_rear_mm}mm rear, "
+                f"so the car sits at {geometric_rake_deg(c):.2f}° of rake. The Rake slider value ({c.rake_deg}°) is a "
+                "separate model term: it multiplies underbody suction and does not tilt the car. "
+                "Lowering the front ride height maximizes front wing and floor suction. Raising the rear expands the diffuser, "
                 "increasing rear underbody downforce, but going too high can cause diffuser flow stall."
             )
         elif "monaco" in q or "slow" in q or "downforce" in q:

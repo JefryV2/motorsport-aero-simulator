@@ -21,6 +21,16 @@ REF_AREA = 1.5  # reference frontal area m²
 WHEELBASE_M = 3.35  # typical formula car wheelbase
 
 
+def geometric_rake_deg(config: FormulaAeroConfig) -> float:
+    """Body attitude implied by the two ride heights.
+
+    Not `config.rake_deg`: that is a suction multiplier applied to the underbody
+    terms and the car can be drawn at a different angle than it reports.
+    """
+    rise_mm = config.ride_height_rear_mm - config.ride_height_front_mm
+    return math.degrees(math.atan(rise_mm / (WHEELBASE_M * 1000.0)))
+
+
 def _wing_cl(element: WingElement, in_ground_effect: bool = False) -> tuple[float, float]:
     """Estimate Cl and induced drag factor for a wing element."""
     alpha_rad = math.radians(element.angle_deg)

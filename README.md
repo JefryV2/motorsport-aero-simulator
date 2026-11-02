@@ -16,7 +16,9 @@ is recorded whether it passed or not.
 
 *Volumetric smoke over the built-in car. It is metric and parametric: the four wing
 elements, floor, diffuser and ride heights are placed from the same config the VLM
-solves, so a setup change moves the body and the numbers together. The field is
+solves, so a setup change moves the body and the numbers together. The one exception
+is the Rake term, which scales underbody suction and does not tilt the car — the body
+angle comes from the two ride heights and is shown next to them. The field is
 analytic potential flow, not a CFD result. Upload your own CAD mesh to replace the
 body — an imported mesh has no solved geometry, so it keeps the bounding-box
 approximation.*

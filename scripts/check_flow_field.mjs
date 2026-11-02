@@ -49,7 +49,7 @@ try {
 }
 
 const { velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl, underbodyTerms, atStation } = mod;
-const { deriveSurfaces, toFlowGeo } = spec;
+const { deriveSurfaces, toFlowGeo, summarize, REFERENCE } = spec;
 
 const bounds = { min: [-1.75, 0, -0.5], max: [1.75, 0.6, 0.5] };
 const baseFlow = {
@@ -438,6 +438,23 @@ check(
   `lowest tube ${(lowest * 1000).toFixed(0)} mm (spec ${(tubeH[0] * 1000).toFixed(0)} mm)`,
 );
 check(rows.size === tubeH.length, 'all rake rows reach the field', `${rows.size}/${tubeH.length} heights`);
+
+// "Rake" is two unrelated quantities here: the suction term the lift laws read,
+// and the angle the two ride heights actually put the body at. The UI and the
+// advisor report both, so pin that they stay distinct.
+const carSurfaces = deriveSurfaces(CAR_CONFIG);
+const wheelbaseMm = (REFERENCE.rearAxleM - REFERENCE.frontAxleM) * 1000;
+const bodyRake = Math.atan(
+  (CAR_CONFIG.ride_height_rear_mm - CAR_CONFIG.ride_height_front_mm) / wheelbaseMm,
+) / (Math.PI / 180);
+check(
+  Math.abs(carSurfaces.floor.angleDeg - bodyRake) < 1e-9
+    && carSurfaces.aero.rakeDeg === CAR_CONFIG.rake_deg
+    && Math.abs(carSurfaces.floor.angleDeg - CAR_CONFIG.rake_deg) > 1e-3
+    && Math.abs(summarize(carSurfaces).rakeDeg - bodyRake) < 1e-9,
+  'rake term and body rake are separate quantities',
+  `term ${CAR_CONFIG.rake_deg} deg, body ${bodyRake.toFixed(3)} deg over ${wheelbaseMm.toFixed(0)} mm wheelbase`,
+);
 
 // Display scale must not change the physics: every length in the field is
 // published in world metres and every coefficient in true metres, so a 2x

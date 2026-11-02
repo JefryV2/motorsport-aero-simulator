@@ -8,15 +8,17 @@ advertised as a full-car CFD solution.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.ai.advisor import _fallback_advice
 from backend.main import app
 from backend.ml.dataset import DEFAULT_DATASET_PATH, load_dataset_parquet
-from backend.models.aero_config import FormulaAeroConfig
-from backend.simulation.analytical import simulate
+from backend.models.aero_config import AdvisorRequest, FormulaAeroConfig
+from backend.simulation.analytical import geometric_rake_deg, simulate
 from backend.simulation.cfd.models import (
     AirfoilGeometry,
     CFDResult,
@@ -198,3 +200,17 @@ def test_dataset_rows_carry_provenance() -> None:
     if len(synthetic_rows):
         assert not synthetic_rows["convergence_flag"].astype(bool).any()
         assert set(synthetic_rows["convergence_status"].astype(str)) == {"mock_evaluated"}
+
+
+def test_rake_term_is_not_reported_as_body_attitude() -> None:
+    """`rake_deg` scales underbody suction; the body angle comes from the ride heights."""
+    cfg = FormulaAeroConfig()
+    assert cfg.rake_deg == pytest.approx(1.5)
+    assert geometric_rake_deg(cfg) == pytest.approx(0.342, abs=1e-3)
+
+    raised = cfg.model_copy(update={"ride_height_rear_mm": 125.0})
+    assert geometric_rake_deg(raised) == pytest.approx(math.degrees(math.atan(100.0 / 3350.0)))
+
+    advice = _fallback_advice(AdvisorRequest(config=cfg, simulation=simulate(cfg), question="what about rake"))
+    assert "0.34" in advice
+    assert "giving a rake of 1.5" not in advice

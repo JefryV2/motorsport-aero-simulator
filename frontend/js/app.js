@@ -1,6 +1,7 @@
 /** Main app — vehicle setup + wind tunnel flow controls. */
 
 import { AeroViewer } from './viewer3d.js';
+import { deriveSurfaces } from './carSpec.js';
 import {
   engineeringContext,
   compareToBaseline,
@@ -381,6 +382,10 @@ function syncSliderLabels() {
     const el = document.getElementById(labelId);
     if (el) el.textContent = fmt(document.getElementById(id).value);
   });
+  const geo = document.getElementById('rake_geo_val');
+  if (geo) {
+    geo.textContent = `${deriveSurfaces(getConfig()).floor.angleDeg.toFixed(2)}°`;
+  }
 }
 
 function updateEngineerPanel(speedRange = null) {
