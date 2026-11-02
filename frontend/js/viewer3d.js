@@ -56,10 +56,10 @@ function particleTexture() {
 const SMOKE_CELL_PX = 128;
 const SMOKE_GRID = 3;
 /** History points per filament, and the segments drawn between them. */
-const SMOKE_TRAIL = 8;
+const SMOKE_TRAIL = 20;
 const SMOKE_SEG = SMOKE_TRAIL - 1;
 /** Record the next history point every this fraction of model length. */
-const SMOKE_ARC_STEP = 0.07;
+const SMOKE_ARC_STEP = 0.025;
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -100,33 +100,31 @@ function noiseOctave(size, cells, rnd) {
 }
 
 /**
- * Rasterise one irregular puff into the atlas at (ox, oy), density in alpha.
- * The lowest octave warps the radial mask so the outline is lopsided, the
- * higher octaves add internal structure, and the smoothstep keeps the rim
- * soft - a hard rim reads as a painted blob once the quad is stretched.
+ * Streak cell: alpha falls off across the flow axis but is nearly constant
+ * along it, with soft ends and turbulent modulation. Trail quads sampling this
+ * butt together into a tube; the round puff cell left gaps the size of the
+ * quad spacing, which is why the smoke read as a string of particles.
  */
-function drawSmokeCell(data, ox, oy, rnd) {
+function drawStreakCell(data, ox, oy, rnd) {
   const size = SMOKE_CELL_PX;
   const atlasW = size * SMOKE_GRID;
   const octs = [
-    noiseOctave(size, 3, rnd),
-    noiseOctave(size, 7, rnd),
-    noiseOctave(size, 15, rnd),
-    noiseOctave(size, 31, rnd),
+    noiseOctave(size, 4, rnd),
+    noiseOctave(size, 11, rnd),
+    noiseOctave(size, 23, rnd),
   ];
-  const amp = [0.42, 0.29, 0.18, 0.11];
   const c = size / 2;
   for (let y = 0; y < size; y++) {
+    const v = (y - c) / c;
+    const across = Math.max(0, 1 - v * v);
+    const softAcross = across * across * (3 - 2 * across);
     for (let x = 0; x < size; x++) {
       const i = y * size + x;
-      let n = 0;
-      for (let o = 0; o < 4; o++) n += octs[o][i] * amp[o];
-      const dx = (x - c) / c;
-      const dy = (y - c) / c;
-      const warped = Math.sqrt(dx * dx + dy * dy) + (octs[0][i] - 0.5) * 0.42;
-      const core = Math.max(0, Math.min(1, 1 - warped * warped));
-      const soft = core * core * (3 - 2 * core);
-      const alpha = soft * (0.35 + 0.75 * n);
+      const u = x / (size - 1);
+      // Soft ends: a tube should fade out, not be cut off at the quad edge.
+      const endFade = Math.min(1, u / 0.12) * Math.min(1, (1 - u) / 0.12);
+      const n = 0.5 * octs[0][i] + 0.32 * octs[1][i] + 0.18 * octs[2][i];
+      const alpha = softAcross * endFade * (0.55 + 0.7 * n);
       const p = ((oy + y) * atlasW + (ox + x)) * 4;
       data[p] = 255;
       data[p + 1] = 255;
@@ -136,7 +134,7 @@ function drawSmokeCell(data, ox, oy, rnd) {
   }
 }
 
-function smokeAtlasTexture() {
+function streakAtlasTexture() {
   const size = SMOKE_CELL_PX;
   const atlasW = size * SMOKE_GRID;
   const c = document.createElement('canvas');
@@ -145,16 +143,15 @@ function smokeAtlasTexture() {
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(atlasW, atlasW);
   for (let q = 0; q < SMOKE_GRID * SMOKE_GRID; q++) {
-    drawSmokeCell(
+    drawStreakCell(
       img.data,
       (q % SMOKE_GRID) * size,
       Math.floor(q / SMOKE_GRID) * size,
-      mulberry32(1337 + q * 7919),
+      mulberry32(4241 + q * 6151),
     );
   }
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
-  // Mips would average neighbouring atlas cells into each other.
   tex.generateMipmaps = false;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
@@ -320,9 +317,6 @@ export class AeroViewer {
   }
 
   _seedPuff(p) {
-    // Filaments follow the flow direction, so only a small fixed skew is
-    // allowed - a full random rotation would break the streak alignment.
-    p.skew = (Math.random() - 0.5) * 0.44;
     p.sizeJitter = 0.75 + Math.random() * 0.6;
     const q = Math.floor(Math.random() * SMOKE_GRID * SMOKE_GRID);
     p.uvOff = [(q % SMOKE_GRID) / SMOKE_GRID, Math.floor(q / SMOKE_GRID) / SMOKE_GRID];
@@ -1047,7 +1041,7 @@ export class AeroViewer {
     const isSmoke = this.flow.particleStyle === 'smoke';
 
     if (isSmoke) {
-      this._smokeAtlas = this._smokeAtlas || smokeAtlasTexture();
+      this._streakAtlas = this._streakAtlas || streakAtlasTexture();
       const cell = new THREE.PlaneGeometry(1, 1);
       const geo = new THREE.InstancedBufferGeometry();
       geo.index = cell.index;
@@ -1064,7 +1058,7 @@ export class AeroViewer {
       geo.setAttribute('iUvOffset', new THREE.InstancedBufferAttribute(new Float32Array(inst * 2), 2));
 
       this.particleQuads = new THREE.Mesh(geo, new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: this._smokeAtlas } },
+        uniforms: { atlas: { value: this._streakAtlas } },
         vertexShader: `
           attribute vec3 iPos;
           attribute vec3 iDir;
@@ -1100,11 +1094,11 @@ export class AeroViewer {
           void main() {
             float density = texture2D(atlas, vUv).a;
             if (density < 0.01) discard;
-            // Fake volume: sample the atlas again toward the key light so the
-            // lit rim of each puff is brighter than its shaded side. Without
-            // this every billboard reads as a flat decal.
-            float lit = texture2D(atlas, vUv + vec2(0.05, 0.045)).a;
-            float shade = clamp(1.0 + (density - lit) * 1.8, 0.6, 1.22);
+            // Fake volume: sample across the tube toward the key light so the
+            // lit side is brighter than the shaded side. Without this every
+            // quad reads as a flat decal.
+            float lit = texture2D(atlas, vUv + vec2(0.0, 0.05)).a;
+            float shade = clamp(1.0 + (density - lit) * 2.4, 0.55, 1.25);
             gl_FragColor = vec4(vColor * shade, density * vOpacity);
           }
         `,
@@ -1240,7 +1234,7 @@ export class AeroViewer {
           h[2] = bzp + sz * f;
         }
 
-        const base = (this.flow.particleSize || 0.18) * 0.9 * p.sizeJitter;
+        const base = (this.flow.particleSize || 0.18) * 1.05 * p.sizeJitter;
         const fadeIn = Math.min(1, p.life / 0.12);
         const bodyFade = p.surface ? 0.7 : 1;
         // Real smoke puffs grow and dilute as they age; the wake fade alone
@@ -1259,17 +1253,27 @@ export class AeroViewer {
           const ii = i * SMOKE_SEG + k;
           const nx = (mx - min[0]) / span[0];
           // Wake diffusion: filaments broaden, dilute and dissolve downstream.
-          const diffuse = 1 + Math.max(0, nx - 0.55) * 1.8 + k * 0.08 + puffAge * 0.9;
-          const thick = base * Math.min(3.4, diffuse);
+          const diffuse = 1 + Math.max(0, nx - 0.55) * 1.8 + k * 0.14 + puffAge * 0.9;
+          const thick = base * Math.min(3.2, diffuse);
           const wakeFade = nx < 0.72 ? 1 : Math.max(0, 1 - (nx - 0.72) / 0.8);
-          const tailFade = 1 - 0.5 * (k / SMOKE_SEG);
+          const tailFade = 1 - 0.65 * (k / SMOKE_SEG);
           const ageFade = 1 - 0.3 * puffAge;
+          // Freshly respawned tracers keep their old history collapsed on the
+          // spawn point; drawing those segments stamped a bright blob at the
+          // inlet. Hide them until the trail has real length.
+          const dead = segLen < arcStep * 0.3;
           iPos.setXYZ(ii, mx, my, mz);
           iDir.setXYZ(ii, dx, dy, dz);
-          iScale.setXY(ii, Math.max(segLen + thick * 0.5, thick), thick);
-          iRot.setX(ii, p.skew);
+          // Cross-section quads: overlap neighbours so the streak texture forms
+          // a tube instead of a row of separate stamps.
+          iScale.setXY(ii, segLen * 1.08 + thick * 0.22, thick);
+          iRot.setX(ii, 0);
           iUv.setXY(ii, p.uvOff[0], p.uvOff[1]);
-          iOpa.setX(ii, (fadeIn * wakeFade * tailFade * bodyFade * ageFade * 0.14) / diffuse);
+          const alpha = dead
+            ? 0
+            : (fadeIn * wakeFade * tailFade * bodyFade * ageFade * 0.17) /
+              Math.pow(diffuse, 0.85);
+          iOpa.setX(ii, alpha);
         }
       } else {
         pos.setXYZ(i, p.x, p.y, p.z);
