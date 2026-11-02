@@ -169,6 +169,60 @@ function streakAtlasTexture() {
   return tex;
 }
 
+/**
+ * Isotropic soft puff for the volumetric style. A streak cell cannot be used
+ * there: those quads end up wider than they are long, so marching them along
+ * the trail draws a ribbed fan rather than a plume.
+ */
+function drawPuffCell(data, ox, oy, rnd) {
+  const size = SMOKE_CELL_PX;
+  const atlasW = size * SMOKE_GRID;
+  const octs = [
+    noiseOctave(size, 4, rnd),
+    noiseOctave(size, 9, rnd),
+    noiseOctave(size, 19, rnd),
+  ];
+  const c = size / 2;
+  for (let y = 0; y < size; y++) {
+    const dy = (y - c) / c;
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      const n = 0.55 * octs[0][i] + 0.3 * octs[1][i] + 0.15 * octs[2][i];
+      const dx = (x - c) / c;
+      // Warp the radius by the noise so the puff is lumpy, never a disc.
+      const r = Math.sqrt(dx * dx + dy * dy) * (1 + (n - 0.5) * 0.6);
+      const core = Math.max(0, 1 - r * r);
+      const soft = core * core * (3 - 2 * core);
+      const p = ((oy + y) * atlasW + (ox + x)) * 4;
+      data[p] = 255;
+      data[p + 1] = 255;
+      data[p + 2] = 255;
+      data[p + 3] = Math.max(0, Math.min(255, Math.round(soft * (0.45 + 0.75 * n) * 255)));
+    }
+  }
+}
+
+function puffAtlasTexture() {
+  const size = SMOKE_CELL_PX;
+  const atlasW = size * SMOKE_GRID;
+  const c = document.createElement('canvas');
+  c.width = atlasW;
+  c.height = atlasW;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(atlasW, atlasW);
+  for (let q = 0; q < SMOKE_GRID * SMOKE_GRID; q++) {
+    drawPuffCell(img.data, (q % SMOKE_GRID) * size, Math.floor(q / SMOKE_GRID) * size, mulberry32(90210 + q * 7919));
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
 export class AeroViewer {
   constructor(container) {
     this.container = container;
@@ -327,7 +381,9 @@ export class AeroViewer {
 
   _seedPuff(p) {
     p.sizeJitter = 0.75 + Math.random() * 0.6;
+    p.spin = Math.random() * Math.PI * 2;
     const q = Math.floor(Math.random() * SMOKE_GRID * SMOKE_GRID);
+    p.cell = q;
     p.uvOff = [(q % SMOKE_GRID) / SMOKE_GRID, Math.floor(q / SMOKE_GRID) / SMOKE_GRID];
     if (!p.hist) p.hist = new Float32Array(SMOKE_TRAIL * 3);
     // Collapse the filament onto the spawn point, otherwise a respawn drags a
@@ -1052,7 +1108,10 @@ export class AeroViewer {
     const isSmoke = SMOKE_STYLES.has(this.flow.particleStyle);
 
     if (isSmoke) {
-      this._streakAtlas = this._streakAtlas || streakAtlasTexture();
+      const puff = this.flow.particleStyle !== 'filament';
+      const atlas = puff
+        ? (this._puffAtlas = this._puffAtlas || puffAtlasTexture())
+        : (this._streakAtlas = this._streakAtlas || streakAtlasTexture());
       const cell = new THREE.PlaneGeometry(1, 1);
       const geo = new THREE.InstancedBufferGeometry();
       geo.index = cell.index;
@@ -1069,7 +1128,7 @@ export class AeroViewer {
       geo.setAttribute('iUvOffset', new THREE.InstancedBufferAttribute(new Float32Array(inst * 2), 2));
 
       this.particleQuads = new THREE.Mesh(geo, new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: this._streakAtlas } },
+        uniforms: { atlas: { value: atlas } },
         vertexShader: `
           attribute vec3 iPos;
           attribute vec3 iDir;
@@ -1203,10 +1262,10 @@ export class AeroViewer {
         }
       }
 
-      // Filaments keep flowing well past the tail so the wake stays populated;
-      // volumetric smoke resets sooner to avoid over-filling the view.
-      const maxLife = p.surface ? 14 : isFilament ? 12 : 8;
-      const passedRear = p.x > max[0] + span[0] * (isFilament ? 1.1 : 0.15);
+      // Both smoke styles keep flowing past the tail so the wake stays
+      // populated; volumetric puffs reset a little sooner than filaments.
+      const maxLife = p.surface ? 14 : isFilament ? 12 : 11;
+      const passedRear = p.x > max[0] + span[0] * (isFilament ? 1.1 : 0.55);
       const tooOld = p.life > maxLife;
       const insideBody = !p.surface && isInsideBBox(p.x, p.y, p.z, this.bounds, 0.015);
       if (passedRear || tooOld || insideBody) {
@@ -1269,8 +1328,8 @@ export class AeroViewer {
           const ii = i * SMOKE_SEG + k;
           const nx = (mx - min[0]) / span[0];
           // Wake diffusion: filaments broaden, dilute and dissolve downstream.
-          const spread = isFilament ? 1.1 : 1.8;
-          const growthK = isFilament ? 0.05 : 0.14;
+          const spread = isFilament ? 1.1 : 1.2;
+          const growthK = 0.05;
           const ageGrowth = isFilament ? 0.35 : 0.9;
           const diffuse = 1 + Math.max(0, nx - 0.55) * spread + k * growthK + puffAge * ageGrowth;
           const thick = base * Math.min(isFilament ? 1.8 : 3.2, diffuse);
@@ -1283,13 +1342,22 @@ export class AeroViewer {
           const dead = segLen < arcStep * 0.3;
           iPos.setXYZ(ii, mx, my, mz);
           iDir.setXYZ(ii, dx, dy, dz);
-          // Cross-section quads must overlap more than the atlas cell's end
-          // taper (6% per side), otherwise every joint loses density and the
-          // filament reads as a ladder of dashes instead of one tube.
-          iScale.setXY(ii, segLen * 1.2 + thick * 0.22, thick);
-          iRot.setX(ii, 0);
-          iUv.setXY(ii, p.uvOff[0], p.uvOff[1]);
-          const gain = isFilament ? 0.5 : 0.17;
+          if (isFilament) {
+            // Cross-section quads must overlap more than the atlas cell's end
+            // taper (6% per side), otherwise every joint loses density and the
+            // filament reads as a ladder of dashes instead of one tube.
+            iScale.setXY(ii, segLen * 1.2 + thick * 0.22, thick);
+            iRot.setX(ii, 0);
+            iUv.setXY(ii, p.uvOff[0], p.uvOff[1]);
+          } else {
+            // Isotropic puffs, each one a different atlas cell and angle, so the
+            // plume billows instead of repeating one stamp along the trail.
+            iScale.setXY(ii, thick, thick);
+            iRot.setX(ii, p.spin + k * 0.7);
+            const q = (p.cell + k) % (SMOKE_GRID * SMOKE_GRID);
+            iUv.setXY(ii, (q % SMOKE_GRID) / SMOKE_GRID, Math.floor(q / SMOKE_GRID) / SMOKE_GRID);
+          }
+          const gain = isFilament ? 0.5 : 0.075;
           const dilution = isFilament ? 0.45 : 0.85;
           const alpha = dead
             ? 0
@@ -1311,7 +1379,7 @@ export class AeroViewer {
         const ratio = Math.max(0, Math.min(1, (frameSpeeds[i] - floor) / spdSpan));
         // Filaments are lit like a tunnel photograph: near-white, slightly
         // brighter where the flow is fast.
-        const b = isFilament ? 0.9 + 0.1 * ratio : 0.70 + 0.30 * ratio;
+        const b = isFilament ? 0.9 + 0.1 * ratio : 0.5 + 0.22 * ratio;
         for (let k = 0; k < SMOKE_SEG; k++) iCol.setXYZ(i * SMOKE_SEG + k, b, b * 1.01, b * 1.05);
       } else {
         const c = speedToColor(frameSpeeds[i], this.refSpeed, floor, ceil);
