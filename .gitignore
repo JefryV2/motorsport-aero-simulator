@@ -45,3 +45,7 @@ Thumbs.db
 
 # OpenDesigner review artifacts (probes, plans, findings)
 opendesigner/
+
+# Offscreen render harness scratch output; curated images live in docs/screenshots/
+/render-*.png
+/render-probe.json

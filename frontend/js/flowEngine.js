@@ -17,6 +17,12 @@ export const DEFAULT_FLOW = {
   showGround: false,
   showInteraction: true,
   particleSize: 0.18,
+  /**
+   * Solved car stations in world metres, published by the viewer for the
+   * built-in parametric body. Null for uploaded CAD, which has no geometry the
+   * solver knows about, so the field falls back to bounding-box fractions.
+   */
+  geo: null,
 };
 
 function clamp(v, lo, hi) {
@@ -128,23 +134,378 @@ export function curlNoise(x, y, z, time = 0) {
 /** Scratch storage so the vortex loop allocates nothing per particle per frame. */
 const _vortexOut = [0, 0, 0];
 
+// ---------------------------------------------------------------------------
+// Low-order aero terms mirrored from the backend
+// ---------------------------------------------------------------------------
+// backend/simulation/analytical.py is the model behind the reported numbers, and
+// the browser cannot call it per tracer. These transcriptions let the tunnel
+// respond to the same setup fields the numbers do — incidence, chord, span,
+// gurney, both ride heights, rake and diffuser angle — rather than to a
+// bounding box. All of it is in TRUE metres: the ground-effect decay constants
+// are calibrated lengths, so the user's display scale must not stretch them.
+
+const DEG = Math.PI / 180;
+const OSWALD_E = 0.85; // analytical.py:33
+
+/** Downforce-positive lift coefficient (analytical.py:24-43). */
+export function wingCl(w, inGroundEffect = false) {
+  let cl2d = 2 * Math.PI * (w.angleDeg * DEG);
+  cl2d = Math.max(-0.5, Math.min(cl2d, 1.8)); // stall softening
+  const ar = Math.max(0.5, w.spanM / w.chordM);
+  let cl = cl2d / (1 + cl2d / (Math.PI * ar * OSWALD_E)); // Prandtl tip loss
+  cl += w.gurneyM * 8; // analytical.py:37 — 0.08 Cl per 10 mm
+  if (inGroundEffect) cl *= 1.12;
+  return cl;
+}
+
+/** Underbody and diffuser terms (analytical.py:58-88). */
+export function underbodyTerms(aero) {
+  const geFront = Math.exp(-aero.frontRideHeightM / 0.015);
+  const geRear = Math.exp(-aero.rearRideHeightM / 0.020);
+  const rakeBoost = 1 + aero.rakeDeg * 0.08;
+  const clFloor = 0.35 * geRear * rakeBoost;
+  const clDiff = 0.25 * Math.sin(aero.diffuserAngleDeg * DEG)
+    * Math.exp(-aero.diffuserRideHeightM / 0.025) * rakeBoost;
+  return {
+    geFront,
+    geRear,
+    clUnder: clFloor + clDiff,
+    cdUnder: 0.015 + 0.02 * (1 - geRear) + 0.008,
+  };
+}
+
+/** Σ Cd·A in m²: body and wheels, every wing element, the underbody. */
+function dragAreaM2(aero) {
+  let cdArea = aero.refAreaM2 * aero.bodyCd;
+  for (const w of aero.wings) {
+    const cl = wingCl(w, w.id.startsWith('front_wing'));
+    const ar = Math.max(0.5, w.spanM / w.chordM);
+    cdArea += w.chordM * w.spanM * (aero.profileCd + (cl * cl) / (Math.PI * ar * OSWALD_E));
+  }
+  return cdArea + aero.floorAreaM2 * underbodyTerms(aero).cdUnder;
+}
+
+/** Σ Cl·A in m²: the downforce the wake has to deflect upward. */
+function downforceAreaM2(aero) {
+  let clArea = 0;
+  for (const w of aero.wings) {
+    clArea += wingCl(w, w.id.startsWith('front_wing')) * w.chordM * w.spanM;
+  }
+  return clArea + aero.floorAreaM2 * underbodyTerms(aero).clUnder;
+}
+
+// ---------------------------------------------------------------------------
+// Field frame: car stations to world points
+// ---------------------------------------------------------------------------
+
 /**
- * Velocity induced by a trailing line vortex along +x with a Lamb-Oseen core.
- * The core keeps the induced velocity finite on the axis; the exponential
- * decay along x fades the vortex out downstream.
+ * Where the model sits and how big it is, in world metres. With flow.geo these
+ * are the built-in car's true stations; without it (uploaded CAD) they fall back
+ * to the model AABB, the best available guess. Heights are measured above the
+ * tunnel floor, stations along the car axis from its nose.
  */
-function addLambOseen(x, y, z, x0, y0, z0, gamma, core, decayLen) {
-  const dx = x - x0;
-  if (dx <= 0) return false;
-  const ry = y - y0;
-  const rz = z - z0;
-  const r2 = ry * ry + rz * rz + core * core;
-  const decay = Math.exp(-dx / decayLen);
-  const t = (gamma / (2 * Math.PI * r2)) * (1 - Math.exp(-r2 / (core * core))) * decay;
-  _vortexOut[0] = 0;
-  _vortexOut[1] = -rz * t;
-  _vortexOut[2] = ry * t;
+export function flowFrame(flow, bounds) {
+  const geo = flow.geo;
+  if (geo) {
+    return {
+      o: geo.origin,
+      ax: geo.axis,
+      la: geo.lateral,
+      groundY: geo.groundY,
+      nose: geo.stations.nose,
+      tail: geo.stations.tail,
+      top: geo.stations.top,
+      length: geo.length,
+      height: geo.height,
+      halfZ: geo.halfWidth,
+      spanZ: geo.halfWidth * 2,
+      tubes: geo.rakeHeightsM,
+      absoluteTubes: true,
+      scale: geo.scale,
+      aero: geo.aero,
+      geo,
+      // Softening radii stretch with the model, or 2x scale is a different car.
+      soft2: 0.0025 * geo.scale * geo.scale,
+    };
+  }
+  const min = bounds.min;
+  const max = bounds.max;
+  const spanX = Math.max(max[0] - min[0], 0.01);
+  const spanY = Math.max(max[1] - min[1], 0.01);
+  const spanZ = Math.max(max[2] - min[2], 0.01);
+  return {
+    o: [min[0], min[1], (min[2] + max[2]) / 2],
+    ax: [1, 0, 0],
+    la: [0, 0, 1],
+    groundY: min[1],
+    nose: 0,
+    tail: spanX,
+    top: spanY,
+    length: spanX,
+    height: spanY,
+    halfZ: spanZ / 2,
+    spanZ,
+    tubes: [0.05, 0.16, 0.3, 0.48, 0.72],
+    absoluteTubes: false,
+    scale: 1,
+    aero: null,
+    geo: null,
+    soft2: 0.0025,
+  };
+}
+
+/** World point at car station s, height h above the floor, lateral offset z. */
+export function atStation(fr, s, h, z) {
+  const lz = z || 0;
+  return [
+    fr.o[0] + fr.ax[0] * s + fr.la[0] * lz,
+    fr.o[1] + h + fr.la[1] * lz,
+    fr.o[2] + fr.ax[2] * s + fr.la[2] * lz,
+  ];
+}
+
+/** Position along the car axis as a fraction of its length: 0 nose, 1 tail. */
+function stationFrac(fr, x, y, z) {
+  const s = (x - fr.o[0]) * fr.ax[0] + (y - fr.o[1]) * fr.ax[1] + (z - fr.o[2]) * fr.ax[2];
+  return (s - fr.nose) / fr.length;
+}
+
+/** Signed offset from the car axis: 0 on the centreline, positive to the right. */
+function lateralOf(fr, x, y, z) {
+  return (x - fr.o[0]) * fr.la[0] + (y - fr.o[1]) * fr.la[1] + (z - fr.o[2]) * fr.la[2];
+}
+
+/**
+ * Induced velocity of a straight vortex filament with a Lamb-Oseen core, so the
+ * field stays finite on the axis. Covers both cases a car needs: a spanwise
+ * bound lifting line of finite half-span, and a trailing tip vortex that starts
+ * at the surface and fades downstream. Induced v = Γ/2πr² · (d × r).
+ */
+function filament(x, y, z, p, dir, gamma, core, decayLen, halfSpan) {
+  const dx = x - p[0];
+  const dy = y - p[1];
+  const dz = z - p[2];
+  const t = dx * dir[0] + dy * dir[1] + dz * dir[2];
+  if (decayLen && t <= 0) return false; // semi-infinite: nothing upstream of p
+  const rx = dx - t * dir[0];
+  const ry = dy - t * dir[1];
+  const rz = dz - t * dir[2];
+  const r2 = rx * rx + ry * ry + rz * rz;
+  const c2 = core * core;
+  let f = (gamma / (2 * Math.PI * (r2 + c2))) * (1 - Math.exp(-r2 / c2));
+  if (decayLen) f *= Math.exp(-t / decayLen);
+  if (halfSpan) {
+    // A bound vortex ends at its tip, so its influence falls off along itself.
+    const e = Math.abs(t) / (halfSpan * 1.6);
+    f *= 1 / (1 + e * e * e * e);
+  }
+  _vortexOut[0] = (dir[1] * rz - dir[2] * ry) * f;
+  _vortexOut[1] = (dir[2] * rx - dir[0] * rz) * f;
+  _vortexOut[2] = (dir[0] * ry - dir[1] * rx) * f;
   return true;
+}
+
+/** Regularized potential-flow doublet: perturbation for a body of radius r. */
+function doubletPert(x, y, z, p, r, ux, uy, uz, s2) {
+  const dx = x - p[0];
+  const dy = y - p[1];
+  const dz = z - p[2];
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz + s2);
+  const d3 = d * d * d;
+  const d5 = d3 * d * d;
+  const r3 = r * r * r;
+  const t1 = r3 / (2 * d3);
+  // Sign matters: this standard form decelerates the flow ahead of the body
+  // (stagnation). The inverted one accelerated air into the nose instead.
+  const t2 = -(3 * r3 * (ux * dx + uy * dy + uz * dz)) / (2 * d5);
+  _vortexOut[0] = t1 * ux + t2 * dx;
+  _vortexOut[1] = t1 * uy + t2 * dy;
+  _vortexOut[2] = t1 * uz + t2 * dz;
+}
+
+/** Source/sink of strength Q: mass flux spread over a sphere. */
+function sourcePert(x, y, z, p, Q, s2) {
+  const dx = x - p[0];
+  const dy = y - p[1];
+  const dz = z - p[2];
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz + s2);
+  const f = Q / (4 * Math.PI * d * d * d);
+  _vortexOut[0] = f * dx;
+  _vortexOut[1] = f * dy;
+  _vortexOut[2] = f * dz;
+}
+
+/**
+ * The model's singularity distribution: blockage doublets, lifting lines with
+ * their tip vortices, the underbody through-flow, and the wake parameters.
+ * Built once per geometry or wind change because velocityAt runs per tracer.
+ */
+function buildSources(fr, config, wind) {
+  const [wx, wy, wz] = wind;
+  const u = Math.hypot(wx, wy, wz) || 1;
+  const src = {
+    doublets: [],
+    filaments: [],
+    jets: [],
+    wake: {
+      sStart: fr.tail - fr.length * 0.05,
+      hCenter: fr.height * 0.42,
+      sigma0: fr.height * 0.24,
+      growth: fr.height * 0.42,
+      decayLen: fr.length * 1.1,
+      deficit: 0.4,
+      upwash: 0.1,
+    },
+  };
+
+  if (fr.geo) {
+    const g = fr.geo;
+    for (const c of g.chassis) {
+      src.doublets.push({ p: atStation(fr, c.station, c.height, 0), r: c.radius });
+    }
+    for (const w of g.wheels) {
+      src.doublets.push({ p: atStation(fr, w.station, w.height, w.lateral), r: w.radius });
+    }
+
+    const byId = {};
+    for (const w of g.aero.wings) byId[w.id] = w;
+    const tipSites = [];
+    for (const l of g.lines) {
+      const w = byId[l.id];
+      const cl = w ? wingCl(w, l.id.startsWith('front_wing')) : 0.2;
+      // Γ = ½·U·c·Cl. With v ∝ d × r and d along +lateral, positive Γ lifts the
+      // air behind the surface — the reaction a downforce wing requires.
+      const gamma = 0.5 * u * l.chord * cl;
+      src.filaments.push({
+        p: atStation(fr, l.station, l.height, 0),
+        dir: fr.la,
+        gamma,
+        core: Math.max(0.01 * fr.scale, 0.1 * l.chord),
+        decayLen: 0,
+        halfSpan: l.halfSpan,
+      });
+      if (l.id.endsWith('_main')) {
+        tipSites.push({
+          station: l.station + 0.75 * l.chord,
+          height: l.height,
+          halfSpan: l.halfSpan,
+          chord: l.chord,
+          gamma,
+        });
+      }
+    }
+    // Each tip rolls up a share of its surface's bound circulation; 0.6 is the
+    // elliptic-loading value, tuned for looks rather than solved.
+    for (const t of tipSites) {
+      const core = Math.max(0.015 * fr.scale, 0.16 * t.chord);
+      for (const side of [1, -1]) {
+        src.filaments.push({
+          p: atStation(fr, t.station, t.height, side * t.halfSpan),
+          dir: fr.ax,
+          gamma: side * 0.6 * t.gamma,
+          core,
+          decayLen: 1.3 * fr.length,
+          halfSpan: 0,
+        });
+      }
+    }
+
+    // Underbody through-flow: source at the floor inlet, sink at the diffuser
+    // exit, so the pair drags air along the gap instead of against it.
+    const ub = underbodyTerms(g.aero);
+    const pIn = atStation(fr, g.floor.start, g.floor.heightStart, 0);
+    const pOut = atStation(fr, g.diffuser.end, (g.diffuser.throat + g.diffuser.exit) / 2, 0);
+    const sep = Math.hypot(pOut[0] - pIn[0], pOut[1] - pIn[1], pOut[2] - pIn[2]);
+    // Δp = ρU·Δu together with Δp = Cl·q gives Δu = Cl·U/2, and a source/sink
+    // pair D apart induces ≈ 4Q/(πD²) between them, so Q = Δu·πD²/4.
+    const Q = (0.5 * u * ub.clUnder) * Math.PI * sep * sep / 4;
+    src.jets.push({ p: pIn, Q }, { p: pOut, Q: -Q });
+
+    // Near-wake area ≈ the car's blockage rectangle. Momentum balance then turns
+    // drag into the velocity deficit and downforce into the wake upwash.
+    const aWake = Math.max(0.4, g.aero.trackM * g.aero.rwHeightM);
+    src.wake.deficit = Math.min(0.6, Math.max(0.15, 0.5 * dragAreaM2(g.aero) / aWake));
+    src.wake.upwash = Math.min(0.35, 0.5 * downforceAreaM2(g.aero) / aWake);
+    return src;
+  }
+
+  // --- Uploaded CAD has no solved geometry, so the distribution is placed ---
+  // --- from the model AABB, as the field was before stations existed.      ---
+  const body = [[0.15, 0.22, 0.26], [0.4, 0.35, 0.38], [0.65, 0.36, 0.44], [0.85, 0.32, 0.28]];
+  for (const [fs, fh, fz] of body) {
+    src.doublets.push({ p: atStation(fr, fr.length * fs, fr.height * fh, 0), r: fr.spanZ * fz });
+  }
+  const wheels = [
+    [0.22, 0.25, 0.12, 0.33], [0.22, 0.25, 0.88, 0.33],
+    [0.8, 0.28, 0.08, 0.36], [0.8, 0.28, 0.92, 0.36],
+  ];
+  for (const [fs, fh, fz, fr2] of wheels) {
+    src.doublets.push({ p: atStation(fr, fr.length * fs, fr.height * fh, fr.spanZ * (fz - 0.5)), r: fr.height * fr2 });
+  }
+
+  const fwAngle = ((config?.front_wing_main?.angle_deg ?? 2) + (config?.front_wing_flap?.angle_deg ?? 8)) / 2;
+  const rwAngle = ((config?.rear_wing_main?.angle_deg ?? 5) + (config?.rear_wing_flap?.angle_deg ?? 15)) / 2;
+  const frontLoad = Math.min(1.4, 0.35 + ((config?.front_wing_main?.angle_deg ?? 2) + (config?.front_wing_flap?.angle_deg ?? 8)) / 12);
+  const rearLoad = Math.min(1.6, 0.4 + ((config?.rear_wing_main?.angle_deg ?? 5) + (config?.rear_wing_flap?.angle_deg ?? 15)) / 30);
+  const bound = [
+    [0.04, 0.14, fwAngle * 0.15 * u, 0.475],
+    [0.88, 0.74, rwAngle * 0.18 * u, 0.275],
+  ];
+  for (const [fs, fh, gamma, halfTipFrac] of bound) {
+    src.filaments.push({
+      p: atStation(fr, fr.length * fs, fr.height * fh, 0),
+      dir: fr.la,
+      gamma,
+      core: 0.05 * fr.length,
+      decayLen: 0,
+      halfSpan: fr.spanZ * halfTipFrac,
+    });
+  }
+  const tips = [
+    [0.06, 0.14, 0.475, 0.045, 1.7, 0.018 * u * frontLoad],
+    [0.9, 0.74, 0.275, 0.06, 1.2, 0.034 * u * rearLoad],
+  ];
+  for (const [fs, fh, dz, coreFrac, decayFrac, gammaMag] of tips) {
+    for (const side of [1, -1]) {
+      src.filaments.push({
+        p: atStation(fr, fr.length * fs, fr.height * fh, side * fr.spanZ * dz),
+        dir: fr.ax,
+        gamma: side * gammaMag * fr.spanZ,
+        core: fr.height * coreFrac,
+        decayLen: fr.length * decayFrac,
+        halfSpan: 0,
+      });
+    }
+  }
+
+  const frh = config?.ride_height_front_mm ?? 25;
+  const geStrength = Math.exp(-frh / 1000 / 0.015) * 0.45 * u;
+  const Q = geStrength * fr.length * fr.spanZ * 0.85;
+  src.jets.push(
+    { p: atStation(fr, fr.length * 0.45, 0, 0), Q: -Q },
+    { p: atStation(fr, fr.length * 0.82, fr.height * 0.15, 0), Q },
+  );
+  return src;
+}
+
+let _srcCache = { geo: null, bounds: null, sig: '', fr: null, src: null };
+
+function sourcesFor(flow, config, bounds, wind) {
+  const sig = [
+    flow.windSpeedKmh, flow.yawDeg, flow.pitchDeg, flow.showInteraction,
+    config?.front_wing_main?.angle_deg, config?.front_wing_main?.chord_m,
+    config?.front_wing_main?.span_m, config?.front_wing_flap?.angle_deg,
+    config?.rear_wing_main?.angle_deg, config?.rear_wing_main?.chord_m,
+    config?.rear_wing_main?.span_m, config?.rear_wing_flap?.angle_deg,
+    config?.ride_height_front_mm,
+  ].join(',');
+  const geo = flow.geo || null;
+  if (_srcCache.geo === geo && _srcCache.bounds === bounds && _srcCache.sig === sig) {
+    return _srcCache;
+  }
+  const fr = flowFrame(flow, bounds);
+  _srcCache = { geo, bounds, sig, fr, src: buildSources(fr, config, wind) };
+  return _srcCache;
 }
 
 export function windVector(flow) {
@@ -180,223 +541,79 @@ export function isInsideBBox(x, y, z, bounds, pad = 0) {
   );
 }
 
-/** Velocity field with potential flow doublet + line vortex + source/sink singularity models. */
+/** Velocity field: the model's singularity distribution over the freestream. */
 export function velocityAt(x, y, z, config, bounds, flow) {
   const [wx, wy, wz] = windVector(flow);
-  const min = bounds.min;
-  const max = bounds.max;
-  const span = max.map((v, i) => Math.max(v - min[i], 0.01));
-  const cx = (min[0] + max[0]) / 2;
-  const cy = (min[1] + max[1]) / 2;
-  const cz = (min[2] + max[2]) / 2;
+  const uRef = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
+  const cache = sourcesFor(flow, config, bounds, [wx, wy, wz]);
+  const fr = cache.fr;
+  const src = cache.src;
+  const wake = src.wake;
+  const wakeH = fr.groundY + wake.hCenter;
 
   let vx = wx;
   let vy = wy;
   let vz = wz;
 
+  // Station along the car axis, so the field follows a yawed or scaled model.
+  const s = (x - fr.o[0]) * fr.ax[0] + (y - fr.o[1]) * fr.ax[1] + (z - fr.o[2]) * fr.ax[2];
+
   if (flow.showInteraction !== false) {
-    // 1. Regularized potential flow doublet perturbation function (for volumetric blockage)
-    const getDoubletPert = (dx, dy, dz, R, ux, uy, uz) => {
-      const d2 = dx*dx + dy*dy + dz*dz;
-      const eps2 = 0.0025; // core regularization
-      const d = Math.sqrt(d2 + eps2);
-      const d3 = d*d*d;
-      const d5 = d3*d*d;
-      
-      const uDotD = ux*dx + uy*dy + uz*dz;
-      const R3 = R*R*R;
-      // Standard doublet for flow past a body: the perturbation decays and,
-      // ahead of the body, decelerates the flow (stagnation). Sign matters:
-      // the inverted form accelerates flow into the nose, which made the inlet
-      // run faster than freestream.
-      const t1 = R3 / (2 * d3);
-      const t2 = -(3 * R3 * uDotD) / (2 * d5);
-      
-      return [
-        t1 * ux + t2 * dx,
-        t1 * uy + t2 * dy,
-        t1 * uz + t2 * dz
-      ];
-    };
+    let px = 0;
+    let py = 0;
+    let pz = 0;
 
-    // 2. Line vortex perturbation function (using Biot-Savart for wings upwash/downwash)
-    const getVortexPert = (dx, dy, dz, spanHalf, gamma) => {
-      const r2_2d = dx*dx + dy*dy;
-      const eps2 = 0.0025;
-      const factor = gamma / (2 * Math.PI * (r2_2d + eps2));
-      
-      const zDist = Math.abs(dz);
-      const spanFalloff = Math.exp(-Math.max(0, zDist - spanHalf) * 4.0);
-      
-      return [
-        factor * dy * spanFalloff,
-        -factor * dx * spanFalloff,
-        0
-      ];
-    };
+    const s2 = fr.soft2;
+    for (const d of src.doublets) {
+      doubletPert(x, y, z, d.p, d.r, wx, wy, wz, s2);
+      px += _vortexOut[0];
+      py += _vortexOut[1];
+      pz += _vortexOut[2];
+    }
 
-    // 3. Source/Sink perturbation function (for underbody Venturi ground effect)
-    const getSourcePert = (dx, dy, dz, Q) => {
-      const d2 = dx*dx + dy*dy + dz*dz;
-      const eps2 = 0.0025;
-      const d = Math.sqrt(d2 + eps2);
-      const d3 = d*d*d;
-      const factor = Q / (4 * Math.PI * d3);
-      return [
-        factor * dx,
-        factor * dy,
-        factor * dz
-      ];
-    };
+    for (const j of src.jets) {
+      sourcePert(x, y, z, j.p, j.Q, s2);
+      px += _vortexOut[0];
+      py += _vortexOut[1];
+      pz += _vortexOut[2];
+    }
 
-    // --- Place Singularity Distributions ---
-    const doublets = [];
-    const zCenter = cz;
+    for (const f of src.filaments) {
+      if (filament(x, y, z, f.p, f.dir, f.gamma, f.core, f.decayLen, f.halfSpan)) {
+        px += _vortexOut[0];
+        py += _vortexOut[1];
+        pz += _vortexOut[2];
+      }
+    }
 
-    // A. Chassis doublets (representing nose, sidepods, and engine block blockage)
-    doublets.push({ cx: min[0] + span[0] * 0.15, cy: min[1] + span[1] * 0.22, cz: zCenter, R: span[2] * 0.26 });
-    doublets.push({ cx: min[0] + span[0] * 0.40, cy: min[1] + span[1] * 0.35, cz: zCenter, R: span[2] * 0.38 });
-    doublets.push({ cx: min[0] + span[0] * 0.65, cy: min[1] + span[1] * 0.36, cz: zCenter, R: span[2] * 0.44 });
-    doublets.push({ cx: min[0] + span[0] * 0.85, cy: min[1] + span[1] * 0.32, cz: zCenter, R: span[2] * 0.28 });
-
-    // B. Wheel doublets (representing the 4 tires)
-    const xFrontW = min[0] + span[0] * 0.22;
-    const yFrontW = min[1] + span[1] * 0.25;
-    const zFrontWL = min[2] + span[2] * 0.12;
-    const zFrontWR = max[2] - span[2] * 0.12;
-    const rFrontW = span[1] * 0.33;
-
-    const xRearW = min[0] + span[0] * 0.80;
-    const yRearW = min[1] + span[1] * 0.28;
-    const zRearWL = min[2] + span[2] * 0.08;
-    const zRearWR = max[2] - span[2] * 0.08;
-    const rRearW = span[1] * 0.36;
-
-    doublets.push({ cx: xFrontW, cy: yFrontW, cz: zFrontWL, R: rFrontW });
-    doublets.push({ cx: xFrontW, cy: yFrontW, cz: zFrontWR, R: rFrontW });
-    doublets.push({ cx: xRearW, cy: yRearW, cz: zRearWL, R: rRearW });
-    doublets.push({ cx: xRearW, cy: yRearW, cz: zRearWR, R: rRearW });
-
-    // Sum doublet perturbations
-    doublets.forEach((d) => {
-      const [px, py, pz] = getDoubletPert(x - d.cx, y - d.cy, z - d.cz, d.R, wx, wy, wz);
-      vx += px;
-      vy += py;
-      vz += pz;
-    });
-
-    // C. Wing Vortices (front and rear wing downforce)
-    const fwAngle = ((config?.front_wing_main?.angle_deg || 2) + (config?.front_wing_flap?.angle_deg || 8)) / 2;
-    const gammaFW = -fwAngle * 0.15 * Math.sqrt(wx*wx + wy*wy + wz*wz);
-    const xFW = min[0] + span[0] * 0.04;
-    const yFW = min[1] + span[1] * 0.14;
-    const spanFW = span[2] * 0.95;
-
-    const rwAngle = ((config?.rear_wing_main?.angle_deg || 5) + (config?.rear_wing_flap?.angle_deg || 15)) / 2;
-    const gammaRW = -rwAngle * 0.18 * Math.sqrt(wx*wx + wy*wy + wz*wz);
-    const xRW = min[0] + span[0] * 0.88;
-    const yRW = min[1] + span[1] * 0.74;
-    const spanRW = span[2] * 0.55;
-
-    // Apply Front Wing Vortex
-    const [fwVx, fwVy] = getVortexPert(x - xFW, y - yFW, z - zCenter, spanFW / 2, gammaFW);
-    vx += fwVx;
-    vy += fwVy;
-
-    // Apply Rear Wing Vortex
-    const [rwVx, rwVy] = getVortexPert(x - xRW, y - yRW, z - zCenter, spanRW / 2, gammaRW);
-    vx += rwVx;
-    vy += rwVy;
-
-    // D. Floor Sink & Diffuser Source (underbody suction / Venturi acceleration)
-    const frh = config?.ride_height_front_mm || 25;
-    const geStrength = Math.exp(-frh / 1000 / 0.015) * 0.45 * Math.sqrt(wx*wx + wy*wy + wz*wz);
-
-    const xSink = min[0] + span[0] * 0.45;
-    const qSink = -geStrength * span[0] * span[2] * 0.85;
-
-    const xSource = min[0] + span[0] * 0.82;
-    const ySource = min[1] + span[1] * 0.15;
-    const qSource = geStrength * span[0] * span[2] * 0.85;
-
-    // Apply floor sink
-    const [sinkVx, sinkVy, sinkVz] = getSourcePert(x - xSink, y - min[1], z - zCenter, qSink);
-    vx += sinkVx;
-    vy += sinkVy;
-    vz += sinkVz;
-
-    // Apply diffuser source
-    const [srcVx, srcVy, srcVz] = getSourcePert(x - xSource, y - ySource, z - zCenter, qSource);
-    vx += srcVx;
-    vy += srcVy;
-    vz += srcVz;
-
-    // Singularities grow as 1/d^2 / 1/d^3, so inside a core the perturbation
+    // Singularities grow as 1/d² and 1/d³, so inside a core the perturbation
     // reaches hundreds of m/s and tracers skip clean through the car. Cap it at
     // a plausible attached-flow overshoot to keep |v| near 1.5 U.
-    const uRef = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
-    const px = vx - wx;
-    const py = vy - wy;
-    const pz = vz - wz;
     const pMag = Math.sqrt(px * px + py * py + pz * pz);
-    // Cap at a plausible attached-flow overshoot. 1.15 U let singularities hand
-    // tracers 2.3 U near the body cores; 0.85 keeps local peaks realistic.
     const pCap = 0.85 * uRef;
     if (pMag > pCap) {
       const k = pCap / pMag;
-      vx = wx + px * k;
-      vy = wy + py * k;
-      vz = wz + pz * k;
+      px *= k;
+      py *= k;
+      pz *= k;
     }
-  }
+    vx += px;
+    vy += py;
+    vz += pz;
 
-  const uRef = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
-  const nx = (x - min[0]) / span[0];
-
-  if (flow.showInteraction !== false) {
-    // ---- Mean-flow structure behind the car -----------------------------
-    // A car leaves a momentum deficit: smoke there drifts slower than
-    // freestream, and the rear wing pushes it down. Without this the wake
-    // reads as freestream plus noise, which is the main "not real" tell.
-    const wakeX0 = max[0] - span[0] * 0.05; // just before the tail
-    if (x > wakeX0) {
-      const dxn = (x - wakeX0) / span[0];
-      const decay = Math.exp(-dxn / 1.1);
-      const yWake = min[1] + span[1] * 0.42;
-      const sigma = span[1] * (0.24 + 0.42 * dxn);
-      const g = Math.exp(-((y - yWake) ** 2) / (2 * sigma * sigma));
-      vx *= 1 - 0.4 * decay * g;
-      vy -= 0.1 * uRef * decay * g;
-    }
-
-    // ---- Trailing wingtip vortices --------------------------------------
-    // Counter-rotating pairs roll the wake into the two filaments a real
-    // tunnel shows. Sign convention: negative on the +z side, positive on
-    // -z, which makes the flow between the tips go down (downwash).
-    const rwMain = config?.rear_wing_main?.angle_deg ?? 5;
-    const rwFlap = config?.rear_wing_flap?.angle_deg ?? 15;
-    const fwMain = config?.front_wing_main?.angle_deg ?? 2;
-    const fwFlap = config?.front_wing_flap?.angle_deg ?? 8;
-    const rearLoad = Math.min(1.6, 0.4 + (rwMain + rwFlap) / 30);
-    const frontLoad = Math.min(1.4, 0.35 + (fwMain + fwFlap) / 12);
-    const tipZ = cz;
-
-    const vortexSites = [
-      // x0, y0, z offset, span half, core, decay, gamma magnitude
-      [min[0] + span[0] * 0.06, min[1] + span[1] * 0.14, span[2] * 0.47,
-        span[1] * 0.045, span[0] * 1.7, 0.018 * uRef * span[2] * frontLoad],
-      [min[0] + span[0] * 0.9, min[1] + span[1] * 0.74, span[2] * 0.27,
-        span[1] * 0.06, span[0] * 1.2, 0.034 * uRef * span[2] * rearLoad],
-    ];
-    for (const [x0, y0, dz, core, decayLen, gammaMag] of vortexSites) {
-      for (const side of [1, -1]) {
-        const gamma = side > 0 ? -gammaMag : gammaMag;
-        if (addLambOseen(x, y, z, x0, y0, tipZ + side * dz, gamma, core, decayLen)) {
-          vx += _vortexOut[0];
-          vy += _vortexOut[1];
-          vz += _vortexOut[2];
-        }
-      }
+    // ---- Mean flow behind the car ----------------------------------------
+    // Momentum balance on the control volume: drag leaves a velocity deficit and
+    // downforce means the air has been deflected UP, so the wake rises. Both
+    // strengths come from the same low-order terms that produced the numbers.
+    if (s > wake.sStart) {
+      const ds = s - wake.sStart;
+      const decay = Math.exp(-ds / wake.decayLen);
+      const sigma = wake.sigma0 + wake.growth * (ds / fr.length);
+      const dy = y - wakeH;
+      const g = Math.exp(-(dy * dy) / (2 * sigma * sigma));
+      const m = decay * g;
+      vx -= wx * wake.deficit * m;
+      vy += uRef * wake.upwash * m;
     }
   }
 
@@ -406,15 +623,16 @@ export function velocityAt(x, y, z, config, bounds, flow) {
   // per-frame white jitter: eddies persist in space and evolve slowly.
   const turbLevel = flow.turbulence ?? 0.12;
   if (turbLevel > 1e-3) {
-    const yWake = min[1] + span[1] * 0.42;
-    const sigma = span[1] * (0.3 + 0.5 * Math.max(0, nx - 0.6));
-    const behind = Math.max(0, Math.min(1, (nx - 0.45) / 0.4));
-    const inWake = behind * Math.exp(-((y - yWake) ** 2) / (2 * sigma * sigma));
-    const eddy = Math.max(span[0] * 0.22, 0.05);
+    const n = (s - fr.nose) / fr.length;
+    const sigma = fr.height * (0.3 + 0.5 * Math.max(0, n - 0.6));
+    const behind = clamp((n - 0.45) / 0.4, 0, 1);
+    const dy = y - wakeH;
+    const inWake = behind * Math.exp(-(dy * dy) / (2 * sigma * sigma));
+    const eddy = Math.max(fr.length * 0.22, 0.05);
     const c = curlNoise(
-      (x - min[0]) / eddy,
-      (y - min[1]) / eddy,
-      (z - min[2]) / eddy + 17,
+      (x - fr.o[0]) / eddy,
+      (y - fr.groundY) / eddy,
+      (z - fr.o[2]) / eddy + 17,
       (flow.time || 0) * 1.6,
     );
     const gain = turbLevel * uRef * (0.55 + 2.4 * inWake);
@@ -424,10 +642,10 @@ export function velocityAt(x, y, z, config, bounds, flow) {
     const tm = Math.sqrt(tx * tx + ty * ty + tz * tz);
     const cap = gain * 1.6;
     if (tm > cap) {
-      const s = cap / tm;
-      tx *= s;
-      ty *= s;
-      tz *= s;
+      const k = cap / tm;
+      tx *= k;
+      ty *= k;
+      tz *= k;
     }
     vx += tx;
     vy += ty;
@@ -438,10 +656,10 @@ export function velocityAt(x, y, z, config, bounds, flow) {
   // The tunnel floor is a no-slip wall: entrained smoke crawls within the
   // boundary layer and grades back to freestream above it. This is the cue
   // that makes smoke rakes near the ground look right.
-  const yRel = y - min[1];
-  const blH = span[1] * 0.18;
-  if (yRel < blH && yRel > -0.05) {
-    const eta = Math.max(0, Math.min(1, yRel / blH));
+  const yRel = y - fr.groundY;
+  const blH = fr.height * 0.18;
+  if (yRel < blH && yRel > -0.05 * fr.scale) {
+    const eta = clamp(yRel / blH, 0, 1);
     const profile = Math.max(0.18, Math.pow(eta, 1 / 7));
     vx *= profile;
     vy *= profile;
@@ -449,7 +667,7 @@ export function velocityAt(x, y, z, config, bounds, flow) {
   }
 
   // Ground plane boundary condition — no penetration
-  if (y <= min[1] + 0.01 && vy < 0) vy = Math.abs(vy) * 0.15;
+  if (y <= fr.groundY + 0.01 * fr.scale && vy < 0) vy = Math.abs(vy) * 0.15;
 
   return [vx, vy, vz];
 }
@@ -476,30 +694,39 @@ function stratified2(i) {
 }
 
 export function spawnOneParticle(bounds, flow, index = 0) {
-  const min = bounds.min;
-  const max = bounds.max;
-  const span = max.map((v, i) => v - min[i]);
+  const fr = flowFrame(flow, bounds);
   const src = flow.flowSource || 'front_grid';
-  let x, y, z;
+  let s = 0;
+  let h = 0;
+  let z = 0;
   spawnSerial += 1;
+
+  // Seeding is expressed in car-frame terms — station along the axis, height
+  // above the tunnel floor, offset across the model — so the built-in car gets
+  // real metre positions and an uploaded mesh still gets its own box.
+  const along = (f) => fr.nose + fr.length * f;
+  const across = (f) => fr.spanZ * (f - 0.5);
 
   switch (src) {
     case 'smoke_rake':
       {
-        // Classic tunnel rake: five heights x nine lateral tubes, entering
-        // just upstream of the model. Thin filaments read best with many
-        // closely spaced tubes and very little jitter.
+        // Classic tunnel rake: five heights x nine lateral tubes, entering just
+        // upstream of the model. Thin filaments read best with many closely
+        // spaced tubes and very little jitter.
         const rows = 5;
         const cols = 9;
         // Advance tube by tube on every spawn. Using index + serial here made
         // both counters step together, so only alternate tubes were ever fed.
-        const s = spawnSerial % (rows * cols);
-        const row = Math.floor(s / cols);
-        const col = s % cols;
+        const t = spawnSerial % (rows * cols);
+        const row = Math.floor(t / cols);
+        const col = t % cols;
         const fy = [0.05, 0.16, 0.3, 0.48, 0.72][row];
-        x = min[0] - span[0] * (0.04 + Math.random() * 0.02);
-        y = min[1] + span[1] * fy + (Math.random() - 0.5) * 0.006 * span[1];
-        z = min[2] + span[2] * ((col + 0.5) / cols) + (Math.random() - 0.5) * 0.006 * span[2];
+        // With solved geometry these are the rake's true tube heights in metres,
+        // so the lowest filament runs 30 mm over the floor, not 5% of a box.
+        h = (fr.absoluteTubes ? fr.tubes[row] : fr.height * fy)
+          + (Math.random() - 0.5) * 0.006 * fr.height;
+        s = along(-0.04 - Math.random() * 0.02);
+        z = across((col + 0.5) / cols) + (Math.random() - 0.5) * 0.006 * fr.spanZ;
       }
       break;
     case 'chamber':
@@ -510,76 +737,75 @@ export function spawnOneParticle(bounds, flow, index = 0) {
         const slot = spawnSerial % 10;
         if (slot < 5) {
           const [u, v] = stratified2(index);
-          x = min[0] - span[0] * (0.02 + Math.random() * 0.06);
-          y = min[1] + span[1] * (0.04 + 0.92 * u);
-          z = min[2] + span[2] * (0.04 + 0.92 * v);
+          s = along(-0.02 - Math.random() * 0.06);
+          h = fr.height * (0.04 + 0.92 * u);
+          z = across(0.04 + 0.92 * v);
         } else if (slot < 7) {
           const [u, v] = stratified2(index + 137);
-          x = min[0] + span[0] * u;
-          y = max[1] + span[1] * (0.1 + Math.random() * 0.18);
-          z = min[2] + span[2] * (0.04 + 0.92 * v);
+          s = along(u);
+          h = fr.height * (1.1 + Math.random() * 0.18);
+          z = across(0.04 + 0.92 * v);
         } else if (slot < 9) {
           const [u, v] = stratified2(index + 271);
-          x = min[0] + span[0] * u;
-          y = min[1] + span[1] * (0.05 + 0.9 * v);
-          z = min[2] - span[2] * (0.12 + Math.random() * 0.2);
+          s = along(u);
+          h = fr.height * (0.05 + 0.9 * v);
+          z = across(-0.12 - Math.random() * 0.2);
         } else {
           const [u, v] = stratified2(index + 409);
-          x = min[0] + span[0] * u;
-          y = min[1] + span[1] * (0.05 + 0.9 * v);
-          z = max[2] + span[2] * (0.12 + Math.random() * 0.2);
+          s = along(u);
+          h = fr.height * (0.05 + 0.9 * v);
+          z = across(1.12 + Math.random() * 0.2);
         }
       }
       break;
     case 'smoke_wand':
       {
-        x = min[0] - span[0] * 0.05;
-        const wy = flow.wandY !== undefined ? flow.wandY : (min[1] + max[1]) / 2;
-        const wz = flow.wandZ !== undefined ? flow.wandZ : (min[2] + max[2]) / 2;
-        x += (Math.random() - 0.5) * 0.015;
-        y = wy + (Math.random() - 0.5) * 0.015;
+        s = along(-0.05) + (Math.random() - 0.5) * 0.015;
+        const wy = flow.wandY !== undefined ? flow.wandY - fr.groundY : fr.height / 2;
+        const wz = flow.wandZ !== undefined ? flow.wandZ - fr.o[2] : 0;
+        h = wy + (Math.random() - 0.5) * 0.015;
         z = wz + (Math.random() - 0.5) * 0.015;
       }
       break;
     case 'top':
       {
         const [u, v] = stratified2(index);
-        x = min[0] + span[0] * u;
-        y = max[1] + span[1] * 0.35;
-        z = min[2] + span[2] * (0.04 + 0.92 * v);
+        s = along(u);
+        h = fr.height * 1.35;
+        z = across(0.04 + 0.92 * v);
       }
       break;
     case 'side_left':
       {
         const [u, v] = stratified2(index);
-        x = min[0] + span[0] * u;
-        y = min[1] + span[1] * (0.04 + 0.92 * v);
-        z = min[2] - span[2] * 0.4;
+        s = along(u);
+        h = fr.height * (0.04 + 0.92 * v);
+        z = across(-0.4);
       }
       break;
     case 'side_right':
       {
         const [u, v] = stratified2(index + 61);
-        x = min[0] + span[0] * u;
-        y = min[1] + span[1] * (0.04 + 0.92 * v);
-        z = max[2] + span[2] * 0.4;
+        s = along(u);
+        h = fr.height * (0.04 + 0.92 * v);
+        z = across(1.4);
       }
       break;
     case 'ring':
       {
         const ang = (index / (flow.particleCount || 300)) * Math.PI * 2;
-        const r = Math.max(span[1], span[2]) * 0.9;
-        x = min[0] - span[0] * 0.5;
-        y = (min[1] + max[1]) / 2 + Math.cos(ang) * r * 0.5;
-        z = (min[2] + max[2]) / 2 + Math.sin(ang) * r * 0.5;
+        const r = Math.max(fr.height, fr.spanZ) * 0.9;
+        s = along(-0.5);
+        h = fr.height * 0.5 + Math.cos(ang) * r * 0.5;
+        z = Math.sin(ang) * r * 0.5;
       }
       break;
     case 'front_wide':
       {
         const [u, v] = stratified2(index + 53);
-        x = min[0] - span[0] * (0.02 + Math.random() * 0.06);
-        y = min[1] + span[1] * (0.04 + 0.92 * u);
-        z = min[2] + span[2] * (0.04 + 0.92 * v);
+        s = along(-0.02 - Math.random() * 0.06);
+        h = fr.height * (0.04 + 0.92 * u);
+        z = across(0.04 + 0.92 * v);
       }
       break;
     case 'front_grid':
@@ -588,13 +814,14 @@ export function spawnOneParticle(bounds, flow, index = 0) {
         // Stratified curtain: the R2 sequence tiles the inlet plane evenly, so
         // the smoke enters as a continuous sheet instead of random clumps.
         const [u, v] = stratified2(index);
-        x = min[0] - span[0] * (0.01 + Math.random() * 0.08);
-        y = min[1] + span[1] * (0.06 + 0.88 * u);
-        z = min[2] + span[2] * (0.05 + 0.9 * v);
+        s = along(-0.01 - Math.random() * 0.08);
+        h = fr.height * (0.06 + 0.88 * u);
+        z = across(0.05 + 0.9 * v);
       }
   }
 
-  return { x, y, z, life: Math.random() * 2, hit: 0 };
+  const p = atStation(fr, s, h, z);
+  return { x: p[0], y: p[1], z: p[2], life: Math.random() * 2, hit: 0 };
 }
 
 export function spawnParticles(bounds, flow) {
@@ -603,9 +830,7 @@ export function spawnParticles(bounds, flow) {
 }
 
 export function generateStreamlines(config, bounds, flow, velocityFn = velocityAt) {
-  const min = bounds.min;
-  const max = bounds.max;
-  const span = max.map((v, i) => v - min[i]);
+  const fr = flowFrame(flow, bounds);
   const nLines = flow.streamlineCount || 24;
   const lines = [];
   const layers = 4;
@@ -614,34 +839,38 @@ export function generateStreamlines(config, bounds, flow, velocityFn = velocityA
     for (let j = 0; j < layers; j++) {
       const t = (i + 0.5) / nLines;
       const zLayer = 0.06 + (j / (layers - 1)) * 0.88;
-      let x, y, z;
+      let s;
+      let h;
+      let z;
 
       if (flow.flowSource === 'top') {
-        x = min[0] + span[0] * t;
-        y = max[1] + span[1] * 0.2;
-        z = min[2] + span[2] * zLayer;
+        s = fr.nose + fr.length * t;
+        h = fr.height * 1.2;
+        z = fr.spanZ * (zLayer - 0.5);
       } else if (flow.flowSource === 'side_left') {
-        x = min[0] + span[0] * zLayer;
-        y = min[1] + span[1] * t;
-        z = min[2] - span[2] * 0.3;
+        s = fr.nose + fr.length * zLayer;
+        h = fr.height * t;
+        z = -fr.spanZ * 0.8;
       } else {
-        x = min[0] - span[0] * 0.08;
-        y = min[1] + span[1] * t;
-        z = min[2] + span[2] * zLayer;
+        s = fr.nose - fr.length * 0.08;
+        h = fr.height * t;
+        z = fr.spanZ * (zLayer - 0.5);
       }
 
-      const points = [[x, y, z]];
+      let [x, y, wob] = atStation(fr, s, h, z);
+      const points = [[x, y, wob]];
       for (let step = 0; step < 120; step++) {
-        const [vx, vy, vz] = velocityFn(x, y, z, config, bounds, flow);
+        const [vx, vy, vz] = velocityFn(x, y, wob, config, bounds, flow);
         const vmag = len([vx, vy, vz]) || 1;
-        const dt = (span[0] * 0.028) / vmag;
+        const dt = (fr.length * 0.028) / vmag;
         x += vx * dt;
         y += vy * dt;
-        z += vz * dt;
-        if (x > max[0] + span[0] * 1.2 && flow.flowSource !== 'side_left') break;
-        if (y > max[1] + span[1] && flow.flowSource === 'top') break;
-        if (z > max[2] + span[2] * 1.5 && flow.flowSource === 'side_left') break;
-        points.push([x, y, z]);
+        wob += vz * dt;
+        const along = stationFrac(fr, x, y, wob);
+        if (along > 2.2 && flow.flowSource !== 'side_left') break;
+        if (y - fr.groundY > 2 * fr.height && flow.flowSource === 'top') break;
+        if (lateralOf(fr, x, y, wob) > 2 * fr.spanZ && flow.flowSource === 'side_left') break;
+        points.push([x, y, wob]);
       }
       if (points.length > 4) lines.push(points);
     }

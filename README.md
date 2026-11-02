@@ -12,10 +12,14 @@ is recorded whether it passed or not.
 [![CI](https://github.com/JefryV2/motorsport-aero-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/JefryV2/motorsport-aero-simulator/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-![Volumetric smoke over the default placeholder body](docs/screenshots/flow-volumetric-smoke.png)
+![Volumetric smoke over the built-in parametric car](docs/screenshots/flow-volumetric-smoke.png)
 
-*Volumetric smoke over the built-in analytical placeholder body (drag in your own
-CAD mesh to replace it). The field is analytic potential flow, not a CFD result.*
+*Volumetric smoke over the built-in car. It is metric and parametric: the four wing
+elements, floor, diffuser and ride heights are placed from the same config the VLM
+solves, so a setup change moves the body and the numbers together. The field is
+analytic potential flow, not a CFD result. Upload your own CAD mesh to replace the
+body — an imported mesh has no solved geometry, so it keeps the bounding-box
+approximation.*
 
 ## Quick start
 
@@ -67,7 +71,9 @@ reports measured y+ and `checkMesh` quality per run. See
 ## Wind-tunnel visualization
 
 Drag in STL, OBJ, GLB, GLTF, FBX, DAE or PLY in the browser (the `/api/models/upload`
-endpoint persists only `.stl` and `.obj`), or use the built-in car. Nine seeding
+endpoint persists only `.stl` and `.obj`), or use the built-in car — a metric formula
+car assembled from the same setup fields the solver reads, so wing angle, chord, span,
+gurney, ride heights and diffuser angle all move the body. Nine seeding
 sources — front grid, front wide plane, a 45-tube smoke rake (5 heights × 9
 lateral), surround fill, interactive wand, from above, both sides, ring — feed
 50–1000 tracers through:
@@ -82,9 +88,12 @@ The field is **analytic potential flow, not CFD**: doublet blockage, line-vortex
 pairs with Biot–Savart induction, a floor sink and diffuser source, a 1/7-power
 boundary layer, ground no-penetration, and divergence-free curl-noise turbulence.
 Nothing is sampled from OpenFOAM, and the UI says so in the panel.
-`scripts/check_flow_field.mjs` gates it — 16 assertions covering finiteness, a
+`scripts/check_flow_field.mjs` gates it — 37 assertions covering finiteness, a
 bounded perturbation, divergence-free turbulence, spatial coherence, streamline
-progress, the boundary-layer and wake profiles, and inlet/rake coverage:
+progress, the boundary-layer and wake profiles, and inlet/rake coverage, plus the
+parametric car: solved stations driving the singularities, the browser-side lift
+terms still matching `backend/simulation/analytical.py`, every setup knob that
+moves the body also moving the smoke, and the field unchanged under display scale:
 
 ```bash
 node scripts/check_flow_field.mjs
@@ -145,10 +154,12 @@ That refuses to run when no solver is present. A full cold regeneration is rough
 .venv\Scripts\python.exe -m pytest -m slow     # 6 that run real solves
 .venv\Scripts\python.exe -m ruff check .      # line length 100
 .venv\Scripts\python.exe -m mypy backend      # warn_return_any
+node scripts/check_flow_field.mjs              # 37 browser-side assertions
 ```
 
 `slow` is deselected by default (`pyproject.toml`). GitHub Actions runs the fast
-suite plus ruff and mypy on 3.10 and 3.11.
+suite plus ruff and mypy on 3.10 and 3.11, and the flow-field script on the
+runner's Node — the viewer modules need no build step and no dependencies.
 
 ## API
 

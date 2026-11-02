@@ -23,6 +23,8 @@ import {
   speedsAlongPath,
 } from './flowEngine.js';
 import { VIEW_THEME } from './theme.js';
+import { buildCarGeometry } from './carGeometry.js';
+import { toFlowGeo } from './carSpec.js';
 import { MeshFlowSampler, velocityAtMesh, generateSurfaceStreamlines, spawnSurfaceParticle, snapToSurface, surfaceOffset } from './meshFlow.js';
 import { CP_MIN, CP_MAX } from './aeroField.js';
 
@@ -38,6 +40,28 @@ const FALLBACK_CONFIG = {
   diffuser_ride_height_mm: 30,
   speed_kmh: 200,
 };
+
+function num(v, fallback) {
+  return Number.isFinite(v) ? v : fallback;
+}
+
+/**
+ * Every setup field that moves the built-in car's drawn geometry. Speed does
+ * not belong here: it changes the field, not the body.
+ */
+function _geometryKey(config) {
+  const el = (name) => {
+    const w = config?.[name] || {};
+    return `${num(w.angle_deg, 0)}:${num(w.chord_m, 0)}:${num(w.span_m, 0)}:${num(w.gurney_mm, 0)}`;
+  };
+  return [
+    el('front_wing_main'), el('front_wing_flap'), el('rear_wing_main'), el('rear_wing_flap'),
+    num(config?.ride_height_front_mm, 25),
+    num(config?.ride_height_rear_mm, 45),
+    num(config?.diffuser_angle_deg, 12),
+    num(config?.diffuser_ride_height_mm, 30),
+  ].join('|');
+}
 
 function particleTexture() {
   const c = document.createElement('canvas');
@@ -566,6 +590,7 @@ export class AeroViewer {
     this.carGroup.scale.setScalar(this.userModelScale);
     this._syncBoundsFromModel();
     this._buildMeshSampler();
+    this._syncFlowGeo();
     this.particles = this._spawnParticles();
     this._buildParticleMesh();
     this._rebuildFlowScene();
@@ -577,6 +602,7 @@ export class AeroViewer {
     this.carGroup.rotation.y = (deg * Math.PI) / 180;
     this._syncBoundsFromModel();
     this._buildMeshSampler();
+    this._syncFlowGeo();
     this.particles = this._spawnParticles();
     this._buildParticleMesh();
     if (this.showStreamlines) this._updateStreamlines(this._activeConfig());
@@ -678,6 +704,10 @@ export class AeroViewer {
     this.carMesh = null;
     this.vertexData = null;
     this.meshSampler = null;
+    this.carSurfaces = null;
+    this.isBuiltinCar = false;
+    this.builtFrom = null;
+    this.flow.geo = null;
   }
 
   _autoOrient(geometry) {
@@ -693,20 +723,27 @@ export class AeroViewer {
     if (s2.y > s2.z && s2.y > s2.x * 0.5) geometry.rotateX(-Math.PI / 2);
   }
 
-  _fitAndStore(mesh, name) {
+  _fitAndStore(mesh, name, opts = {}) {
+    const metric = opts.metric === true;
     mesh.geometry = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
-    this._autoOrient(mesh.geometry);
+    if (!metric) this._autoOrient(mesh.geometry);
     mesh.geometry.computeBoundingBox();
     const box = mesh.geometry.boundingBox;
     const center = new THREE.Vector3();
     box.getCenter(center);
-    mesh.geometry.translate(-center.x, -box.min.y, -center.z);
+    // Metric models keep their absolute heights: the tunnel floor is y = 0 and
+    // the ride heights are real clearances, so lifting the body onto its bottom
+    // would bury the ground-effect jet.
+    const liftY = metric ? 0 : box.min.y;
+    mesh.geometry.translate(-center.x, -liftY, -center.z);
     mesh.geometry.computeBoundingBox();
     const size = new THREE.Vector3();
     mesh.geometry.boundingBox.getSize(size);
-    mesh.scale.setScalar(3.8 / Math.max(size.x, size.y, size.z));
+    const k = metric ? 1 : 3.8 / Math.max(size.x, size.y, size.z);
+    mesh.scale.setScalar(k);
     mesh.geometry.computeBoundingBox();
     mesh.geometry.computeVertexNormals();
+    this.modelFit = { offset: [-center.x, -liftY, -center.z], k };
 
     const pos = mesh.geometry.attributes.position;
     const norm = mesh.geometry.attributes.normal;
@@ -718,6 +755,8 @@ export class AeroViewer {
     }
     this.vertexData = { vertices, normals };
     this.modelName = name;
+    const statusEl = document.getElementById('modelStatus');
+    if (statusEl) statusEl.textContent = `${name} loaded`;
 
     mesh.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pos.count * 3), 3));
     mesh.material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
@@ -727,33 +766,80 @@ export class AeroViewer {
     this.carGroup.rotation.y = (this.userModelRotY * Math.PI) / 180;
     this._syncBoundsFromModel();
     this._buildMeshSampler();
+    this._syncFlowGeo();
 
-    this._defaultCameraPos.set(5, this.bounds.max[1] + 2, 5);
-    this.controls.target.copy(this._defaultTarget);
-    this.camera.position.copy(this._defaultCameraPos);
+    if (opts.resetCamera !== false) {
+      const b = this.bounds;
+      const L = Math.max(b.max[0] - b.min[0], 1);
+      const H = Math.max(b.max[1] - b.min[1], 0.2);
+      this._defaultCameraPos.set(L * 1.25, b.min[1] + H * 1.9 + 0.5, L * 1.25);
+      this.controls.target.copy(this._defaultTarget);
+      this.camera.position.copy(this._defaultCameraPos);
+    }
   }
 
-  setDefaultCar() {
+  setDefaultCar(config = this._activeConfig()) {
     this._clearCar();
-    const group = new THREE.Group();
-    const mk = (w, h, d, x, y, z) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: 0x555 }));
-      m.position.set(x, y, z);
-      group.add(m);
+    const geometry = buildCarGeometry(config);
+    this.isBuiltinCar = true;
+    this.carSurfaces = geometry.userData.surfaces;
+    this.builtFrom = _geometryKey(config);
+    this._fitAndStore(new THREE.Mesh(geometry), 'Parametric formula car', { metric: true });
+  }
+
+  /** Rebuild the display mesh only when a field that moves geometry changes. */
+  _syncBuiltinCar(config) {
+    if (!this.isBuiltinCar) return false;
+    const key = _geometryKey(config);
+    if (key === this.builtFrom) return false;
+    const geometry = buildCarGeometry(config);
+    this.carSurfaces = geometry.userData.surfaces;
+    this.builtFrom = key;
+    this._fitAndStore(new THREE.Mesh(geometry), 'Parametric formula car', {
+      metric: true,
+      resetCamera: false,
+    });
+    return true;
+  }
+
+  /**
+   * Publish the built-in car's stations to the flow field in world metres, so
+   * the singularities sit where the drawn surfaces do. Uploaded CAD has no
+   * solved geometry, so it keeps the bounding-box approximation (geo = null).
+   */
+  _syncFlowGeo() {
+    if (!this.isBuiltinCar || !this.carSurfaces || !this.carMesh) {
+      this.flow.geo = null;
+      return;
+    }
+    this.carGroup.updateMatrixWorld(true);
+    this.carMesh.updateMatrixWorld(true);
+    const e = this.carMesh.matrixWorld.elements;
+    const off = this.modelFit?.offset || [0, 0, 0];
+    const pt = (x, y, z) => {
+      const px = x + off[0];
+      const py = y + off[1];
+      const pz = z + off[2];
+      return [
+        e[0] * px + e[4] * py + e[8] * pz + e[12],
+        e[1] * px + e[5] * py + e[9] * pz + e[13],
+        e[2] * px + e[6] * py + e[10] * pz + e[14],
+      ];
     };
-    mk(0.35, 0.14, 0.5, -1.45, 0.22, 0);
-    mk(0.5, 0.2, 0.55, -0.9, 0.35, 0);
-    mk(0.9, 0.16, 0.35, -0.3, 0.2, 0.45);
-    mk(0.9, 0.16, 0.35, -0.3, 0.2, -0.45);
-    mk(0.7, 0.2, 0.5, 0.5, 0.38, 0);
-    mk(0.08, 0.025, 1.6, -1.65, 0.12, 0);
-    mk(0.04, 0.035, 1.55, -1.58, 0.1, 0);
-    mk(0.06, 0.02, 0.85, 1.35, 0.75, 0);
-    mk(0.04, 0.04, 0.8, 1.28, 0.72, 0);
-    group.updateMatrixWorld(true);
-    const geos = [];
-    group.traverse((c) => { if (c.isMesh) { const g = c.geometry.clone(); g.applyMatrix4(c.matrixWorld); geos.push(g); } });
-    this._fitAndStore(new THREE.Mesh(mergeGeometries(geos)), 'Default formula car');
+    const o = pt(0, 0, 0);
+    const ax = pt(1, 0, 0).map((v, i) => v - o[i]);
+    const la = pt(0, 0, 1).map((v, i) => v - o[i]);
+    const scale = Math.hypot(ax[0], ax[1], ax[2]) || 1;
+    const unit = (v) => [v[0] / scale, v[1] / scale, v[2] / scale];
+
+    const s = this.carSurfaces;
+    this.flow.geo = toFlowGeo(s, {
+      origin: o,
+      axis: unit(ax),
+      lateral: unit(la),
+      groundY: o[1],
+      scale,
+    });
   }
 
   async loadFile(file) {
@@ -808,6 +894,8 @@ export class AeroViewer {
     if (!this.carMesh || !this.vertexData) return;
     this.config = config;
     this.simForces = simForces;
+    this._syncBuiltinCar(config);
+    this._syncFlowGeo();
 
     const forces = simForces?.forces || simForces;
     const world = this._worldSamplePoints();

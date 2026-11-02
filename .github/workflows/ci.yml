@@ -17,6 +17,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The viewer modules have no build step and no dependencies, so the
+      # analytic tunnel field and the parametric car are gated directly.
+      - name: Check the wind-tunnel field and parametric car
+        run: node scripts/check_flow_field.mjs
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
