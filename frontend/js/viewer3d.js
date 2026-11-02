@@ -280,6 +280,9 @@ export class AeroViewer {
     this.pointer = new THREE.Vector2();
     this.particles = [];
     this.clock = new THREE.Clock();
+    this._batchDepth = 0;
+    this._batchDirty = false;
+    this._batchTracers = false;
     this.refSpeed = 55;
     this.meshSampler = null;
     this.userModelScale = 1;
@@ -569,6 +572,38 @@ export class AeroViewer {
 
   toggleProbe(show) { this.setProbeMode(show); }
 
+  /**
+   * Collapse the expensive flow rebuilds a setup change triggers. One slider
+   * move goes through setFlowSettings, setModelScale, setModelRotation and
+   * updateAero, and each of those re-traced and re-tessellated every streamline
+   * on its own - four rebuilds, ~5.5 s of blocked main thread.
+   */
+  beginFlowBatch() { this._batchDepth += 1; }
+
+  endFlowBatch() {
+    this._batchDepth = Math.max(0, this._batchDepth - 1);
+    if (this._batchDepth > 0) return;
+    const dirty = this._batchDirty;
+    const tracers = this._batchTracers;
+    this._batchDirty = false;
+    this._batchTracers = false;
+    if (dirty) this._rebuildFlowVisuals({ resetTracers: tracers });
+  }
+
+  _rebuildFlowVisuals({ resetTracers = true } = {}) {
+    if (this._batchDepth > 0) {
+      this._batchDirty = true;
+      this._batchTracers = this._batchTracers || resetTracers;
+      return;
+    }
+    if (resetTracers) {
+      this.particles = this._spawnParticles();
+      this._buildParticleMesh();
+    }
+    this._rebuildFlowScene();
+    if (this.showStreamlines) this._updateStreamlines(this._activeConfig());
+  }
+
   setFlowSettings(flow) {
     this.flow = { ...this.flow, ...flow };
     this.refSpeed = (this.flow.windSpeedKmh || 200) / 3.6;
@@ -576,11 +611,8 @@ export class AeroViewer {
     if (flow.sliceAxis !== undefined) this.sliceAxis = flow.sliceAxis;
     if (flow.slicePos !== undefined) this.slicePos = flow.slicePos;
     if (flow.sliceMode !== undefined) this.sliceMode = flow.sliceMode;
-    this.particles = this._spawnParticles();
-    this._buildParticleMesh();
-    this._rebuildFlowScene();
     this._updateFlowHud();
-    if (this.showStreamlines) this._updateStreamlines(this._activeConfig());
+    this._rebuildFlowVisuals();
     this._updateSlicePlane();
     this._updateWandMarker();
   }
@@ -591,10 +623,7 @@ export class AeroViewer {
     this._syncBoundsFromModel();
     this._buildMeshSampler();
     this._syncFlowGeo();
-    this.particles = this._spawnParticles();
-    this._buildParticleMesh();
-    this._rebuildFlowScene();
-    if (this.showStreamlines) this._updateStreamlines(this._activeConfig());
+    this._rebuildFlowVisuals();
   }
 
   setModelRotation(deg) {
@@ -603,9 +632,7 @@ export class AeroViewer {
     this._syncBoundsFromModel();
     this._buildMeshSampler();
     this._syncFlowGeo();
-    this.particles = this._spawnParticles();
-    this._buildParticleMesh();
-    if (this.showStreamlines) this._updateStreamlines(this._activeConfig());
+    this._rebuildFlowVisuals();
   }
 
   resetCamera() {
@@ -921,7 +948,7 @@ export class AeroViewer {
     attr.needsUpdate = true;
     this._applyViewMode();
 
-    if (this.showStreamlines) this._updateStreamlines(config);
+    this._rebuildFlowVisuals({ resetTracers: false });
     if (this.showForces && forces) this._updateForces(forces);
     this._updateSlicePlane();
     this._updateWandMarker();
@@ -989,16 +1016,20 @@ export class AeroViewer {
           const curve = new THREE.CatmullRomCurve3(vectors);
           const tubeRadius = tubeR * 0.42;
           const segments = Math.min(pts.length * 2, 70);
-          const tubeGeo = new THREE.TubeGeometry(curve, segments, tubeRadius, 6, false);
+          const radial = 6;
+          const tubeGeo = new THREE.TubeGeometry(curve, segments, tubeRadius, radial, false);
 
           const posAttr = tubeGeo.attributes.position;
           const colors = new Float32Array(posAttr.count * 3);
+          // One ring of (radial + 1) vertices per path station, and the station's
+          // speed is already known from the traced line. Sampling the field at all
+          // ~500 vertices of every tube cost more than integrating all of them.
+          const rings = segments + 1;
+          const lastPt = pts.length - 1;
+          const stride = radial + 1;
           for (let k = 0; k < posAttr.count; k++) {
-            const px = posAttr.getX(k);
-            const py = posAttr.getY(k);
-            const pz = posAttr.getZ(k);
-            const [vx, vy, vz] = velFnFull(px, py, pz, config);
-            const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
+            const ring = Math.min(rings - 1, Math.floor(k / stride));
+            const speed = speeds[Math.min(lastPt, Math.round((ring / segments) * lastPt))];
             const c = speedToColor(speed, this.refSpeed, minS, maxS);
             colors[k * 3] = c.r;
             colors[k * 3 + 1] = c.g;

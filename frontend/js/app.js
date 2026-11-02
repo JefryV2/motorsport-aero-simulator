@@ -404,10 +404,12 @@ function updateEngineerPanel(speedRange = null) {
 
 function refreshVisualization(simForces = lastSim) {
   if (!viewer) return;
+  viewer.beginFlowBatch();
   viewer.setFlowSettings(getFlowSettings());
   viewer.setModelScale(+document.getElementById('model_scale').value);
   viewer.setModelRotation(+document.getElementById('model_rot').value);
   viewer.updateAero(getConfig(), simForces);
+  viewer.endFlowBatch();
   updateEngineerPanel();
   document.getElementById('aeroBadge')?.classList.add('active');
 }
@@ -561,7 +563,9 @@ function applyOptimizedConfig(cfg) {
 function updateLivePreview() {
   syncSliderLabels();
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => refreshVisualization(), 16);
+  // A batched rebuild re-traces every streamline (~0.5 s), so dragging a slider
+  // must not queue one per frame; 90 ms is imperceptible on release.
+  debounceTimer = setTimeout(() => refreshVisualization(), 90);
 }
 
 function saveBaseline() {
