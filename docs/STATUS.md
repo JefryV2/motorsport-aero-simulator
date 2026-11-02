@@ -129,10 +129,12 @@ force a pass.
   coherence, streamline integration, floor profile, wake deficit, inflow
   seeding coverage); it passes 16/16 on Node 24 and costs ~1 ms/frame for 400
   tracers. Inlet tracers are seeded from an R2 low-discrepancy sequence so the
-  curtain tiles the inflow plane instead of clumping; the rake feeds 24 tubes
-  and the Surround source feeds all four faces. Trails are drawn as 20-point
-  streak tubes (cross-section atlas, alpha constant along the flow axis) so
-  filaments read as continuous smoke rather than a line of particle dots.
+  curtain tiles the inflow plane instead of clumping; the rake feeds 45 tubes
+  (5 heights x 9 lateral) and the Surround source feeds all four faces. The
+  default look is a smoke-rake photograph: 56-point streak tubes (~3.9 m of
+  trail, cross-section atlas with alpha constant along the flow axis), thin
+  near-white threads that stay visible well into the wake. A volumetric style
+  and the classic dot style remain selectable.
 - **Mesh independence is demonstrated on the body-fitted O-grid family**
   (ADR 0006): GCI fine 0.615 %, asymptotic ratio 0.985, fine Cl within 1.33 %
   of the Richardson extrapolation. The fine solve reached the 2000-iteration
@@ -259,4 +261,5 @@ force a pass.
 | 2026-11-01 | Branch recovery + Phase 4 | `master` fast-forwarded over the 11 stranded commits (`899d3fe..9ba54a8`), restoring `backend/ml/` and clearing the pytest collection error that had made the suite uncollectable; Phase 4 scripts + V9/sensitivity test committed as tracked work; removed the unused `pool` parameter from `_run_scheme` and typed the Sobol payload via a `SobolIndices` TypedDict to clear 9 mypy errors (S1/ST/S2 and every verdict verified byte-identical after refactoring); pinned SALib's bootstrap seed, making `sensitivity_sobol.json` reproducible (byte-identical across two consecutive runs; previously only `*_conf` drifted); `*_fit_warnings.txt` logs gitignored; V9 recorded as targets NOT met (1 of 3); 33 fast + 2 slow tests pass, ruff/mypy clean | `d79d58f` |
 | 2026-11-02 | Smoke realism + flow gate | Tracer field: per-frame white-noise jitter replaced by divergence-free curl noise (central-difference vector potential, eddy length ~0.22 car length, time-evolving); blockage doublet sign corrected (it was accelerating the inflow instead of decelerating it); 1/7-power floor boundary layer; wake momentum deficit + rear-wing downwash; trailing Lamb-Oseen wingtip vortex pairs; smoke billboards get fake directional lighting and age-based growth/dilution; the panel now states the visualization is analytic, not CFD; new `scripts/check_flow_field.mjs` gate (11/11 pass, ~1 ms/frame for 400 tracers); app verified in the browser with no console errors | this commit |
 | 2026-11-02 | Uniform inflow seeding | R2 low-discrepancy inlet curtain for front grid/wide and top/side sources; rake upgraded from 7 streams to 24 tubes (a counter-parity bug meant only alternate tubes were reachable); new Surround source seeds front, top and both sides; inlet-heavy sources give 45% of tracers to the inflow instead of 35%; particle cap raised to 1000; flow gate extended with seeding checks (16/16 pass) | `c0f79d2` |
-| 2026-11-02 | Smoke tubes | Smoke no longer reads as particles: trail is 20 history points at 0.025 model lengths (~1.7 m) instead of 8 at 0.07; new cross-section streak atlas keeps density constant along the flow axis so overlapping quads form a tube; segments overlap 1.5x; cross-axis shading; degenerate respawn segments are hidden (they stamped a bright blob at the inlet); tube width 1.05x and softer dilution so the wake stays visible. Verified in a browser frame: continuous plume, no console errors | this commit |
+| 2026-11-02 | Smoke tubes | Smoke no longer reads as particles: trail is 20 history points at 0.025 model lengths (~1.7 m) instead of 8 at 0.07; new cross-section streak atlas keeps density constant along the flow axis so overlapping quads form a tube; segments overlap 1.5x; cross-axis shading; degenerate respawn segments are hidden (they stamped a bright blob at the inlet); tube width 1.05x and softer dilution so the wake stays visible. Verified in a browser frame: continuous plume, no console errors | `a13bfba` |
+| 2026-11-02 | Smoke-rake filaments | New default particle style matching a tunnel rake photograph: thin (4-6 cm) near-white threads instead of a cloud; 56-point trails (~3.9 m), rake widened to 45 tubes (5 heights x 9 lateral) with 72% of the tracer budget in the inflow, respawn moved to 1.1 model lengths behind the tail so filaments persist into the wake, reduced wake growth/dilution for thread-like behaviour. Volumetric and dot styles remain; flow gate still 16/16, 33 fast tests pass | this commit |

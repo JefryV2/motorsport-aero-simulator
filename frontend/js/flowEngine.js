@@ -486,20 +486,20 @@ export function spawnOneParticle(bounds, flow, index = 0) {
   switch (src) {
     case 'smoke_rake':
       {
-        // 24-tube rake: 4 heights x 6 lateral positions. The lowest row sits
-        // close to the floor so the boundary-layer stream is visible. Tube
-        // assignment rotates per spawn so tracers spread across the whole rake.
-        const rows = 4;
-        const cols = 6;
+        // Classic tunnel rake: five heights x nine lateral tubes, entering
+        // just upstream of the model. Thin filaments read best with many
+        // closely spaced tubes and very little jitter.
+        const rows = 5;
+        const cols = 9;
         // Advance tube by tube on every spawn. Using index + serial here made
         // both counters step together, so only alternate tubes were ever fed.
         const s = spawnSerial % (rows * cols);
         const row = Math.floor(s / cols);
         const col = s % cols;
-        const fy = [0.03, 0.18, 0.44, 0.76][row];
+        const fy = [0.05, 0.16, 0.3, 0.48, 0.72][row];
         x = min[0] - span[0] * (0.04 + Math.random() * 0.02);
-        y = min[1] + span[1] * fy + (Math.random() - 0.5) * 0.012 * span[1];
-        z = min[2] + span[2] * ((col + 0.5) / cols) + (Math.random() - 0.5) * 0.012 * span[2];
+        y = min[1] + span[1] * fy + (Math.random() - 0.5) * 0.006 * span[1];
+        z = min[2] + span[2] * ((col + 0.5) / cols) + (Math.random() - 0.5) * 0.006 * span[2];
       }
       break;
     case 'chamber':

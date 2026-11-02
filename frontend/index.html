@@ -1212,8 +1212,8 @@
           <input type="range" id="turbulence" min="0" max="50" value="12" step="1" />
         </div>
         <div class="slider-row">
-          <label for="particle_count">Particle density <span id="particle_count_val">300</span></label>
-          <input type="range" id="particle_count" min="50" max="1000" value="300" step="25" />
+          <label for="particle_count">Particle density <span id="particle_count_val">500</span></label>
+          <input type="range" id="particle_count" min="50" max="1000" value="500" step="25" />
         </div>
         <div class="slider-row">
           <label for="streamline_count">Streamlines <span id="streamline_count_val">28</span></label>
@@ -1238,8 +1238,9 @@
 
         <label for="particle_style">Particle Style</label>
         <select id="particle_style">
-          <option value="smoke" selected>Volumetric Smoke</option>
-          <option value="dots">Classic Particles (Dots)</option>
+          <option value="filament" selected>Smoke filaments (wind tunnel)</option>
+          <option value="smoke">Volumetric smoke</option>
+          <option value="dots">Classic particles (dots)</option>
         </select>
         <div class="toggle-row">
           <label><input type="checkbox" id="smoke_tint" /> Tint smoke by speed</label>

@@ -199,17 +199,17 @@ for (const source of ['front_grid', 'front_wide', 'chamber']) {
   check(cov >= 0.85, `inlet coverage: ${source}`, `${(cov * 100).toFixed(0)}% of ${bins}x${bins} bins`);
 }
 
-// The rake rotates through 4 heights x 6 lateral tubes; check the tubes exist.
-const rakeRows = [0.03, 0.18, 0.44, 0.76];
+// The rake rotates through 5 heights x 9 lateral tubes; check the tubes exist.
+const rakeRows = [0.05, 0.16, 0.3, 0.48, 0.72];
 const rakeTubes = new Set();
 for (let i = 0; i < 480; i++) {
   const p = spawnOneParticle(bounds, { ...baseFlow, flowSource: 'smoke_rake' }, i);
   const fy = (p.y - bounds.min[1]) / spanY;
   const row = rakeRows.reduce((best, r, idx) => (Math.abs(r - fy) < Math.abs(rakeRows[best] - fy) ? idx : best), 0);
-  const col = Math.max(0, Math.min(5, Math.floor(((p.z - bounds.min[2]) / spanZ) * 6)));
+  const col = Math.max(0, Math.min(8, Math.floor(((p.z - bounds.min[2]) / spanZ) * 9)));
   rakeTubes.add(`${row}:${col}`);
 }
-check(rakeTubes.size >= 20, 'rake tube coverage', `${rakeTubes.size}/24 tubes seeded`);
+check(rakeTubes.size >= 40, 'rake tube coverage', `${rakeTubes.size}/45 tubes seeded`);
 
 // Surround source must actually feed all four faces.
 const faces = new Set();

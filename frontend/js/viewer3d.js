@@ -55,11 +55,13 @@ function particleTexture() {
 
 const SMOKE_CELL_PX = 128;
 const SMOKE_GRID = 3;
+/** Particle styles rendered as streak tubes rather than screen-space dots. */
+const SMOKE_STYLES = new Set(['smoke', 'filament']);
 /** History points per filament, and the segments drawn between them. */
-const SMOKE_TRAIL = 20;
+const SMOKE_TRAIL = 56;
 const SMOKE_SEG = SMOKE_TRAIL - 1;
 /** Record the next history point every this fraction of model length. */
-const SMOKE_ARC_STEP = 0.025;
+const SMOKE_ARC_STEP = 0.02;
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -152,9 +154,13 @@ function streakAtlasTexture() {
   }
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
-  tex.generateMipmaps = false;
-  tex.minFilter = THREE.LinearFilter;
+  // Thin threads minify the 128 px cell to a few pixels; mipmaps keep them from
+  // shimmering. Cell edges are transparent, so gentle cross-cell averaging is
+  // invisible.
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 4;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
@@ -339,7 +345,9 @@ export class AeroViewer {
     const inletHeavy = ['front_grid', 'front_wide', 'smoke_rake', 'chamber'].includes(
       this.flow.flowSource,
     );
-    const surfaceFraction = inletHeavy ? 0.45 : 0.65;
+    // A rake wants most of the budget in the inflow so the threads stay
+    // continuous; other sources still need near-body detail.
+    const surfaceFraction = this.flow.flowSource === 'smoke_rake' ? 0.28 : inletHeavy ? 0.45 : 0.65;
     const surfaceCount = useSurface ? Math.floor(count * surfaceFraction) : 0;
     const particles = [];
     for (let i = 0; i < count; i++) {
@@ -1038,7 +1046,7 @@ export class AeroViewer {
   _buildParticleMesh() {
     this._disposeParticleMesh();
     const n = this.particles.length;
-    const isSmoke = this.flow.particleStyle === 'smoke';
+    const isSmoke = SMOKE_STYLES.has(this.flow.particleStyle);
 
     if (isSmoke) {
       this._streakAtlas = this._streakAtlas || streakAtlasTexture();
@@ -1140,7 +1148,8 @@ export class AeroViewer {
   }
 
   _tickParticles(dt) {
-    const isSmoke = this.flow.particleStyle === 'smoke';
+    const isSmoke = SMOKE_STYLES.has(this.flow.particleStyle);
+    const isFilament = this.flow.particleStyle === 'filament';
     const obj = isSmoke ? this.particleQuads : this.particlePoints;
     if (!obj) return;
     const cfg = this._activeConfig();
@@ -1191,8 +1200,10 @@ export class AeroViewer {
         }
       }
 
-      const maxLife = p.surface ? 14 : 8;
-      const passedRear = p.x > max[0] + span[0] * 0.15;
+      // Filaments keep flowing well past the tail so the wake stays populated;
+      // volumetric smoke resets sooner to avoid over-filling the view.
+      const maxLife = p.surface ? 14 : isFilament ? 12 : 8;
+      const passedRear = p.x > max[0] + span[0] * (isFilament ? 1.1 : 0.15);
       const tooOld = p.life > maxLife;
       const insideBody = !p.surface && isInsideBBox(p.x, p.y, p.z, this.bounds, 0.015);
       if (passedRear || tooOld || insideBody) {
@@ -1234,7 +1245,9 @@ export class AeroViewer {
           h[2] = bzp + sz * f;
         }
 
-        const base = (this.flow.particleSize || 0.18) * 1.05 * p.sizeJitter;
+        // Filament style: thin, bright threads like a tunnel rake photograph.
+        // Volumetric style: wide, soft puffs for a smoke-curtain look.
+        const base = (this.flow.particleSize || 0.18) * (isFilament ? 0.26 : 1.05) * p.sizeJitter;
         const fadeIn = Math.min(1, p.life / 0.12);
         const bodyFade = p.surface ? 0.7 : 1;
         // Real smoke puffs grow and dilute as they age; the wake fade alone
@@ -1253,9 +1266,12 @@ export class AeroViewer {
           const ii = i * SMOKE_SEG + k;
           const nx = (mx - min[0]) / span[0];
           // Wake diffusion: filaments broaden, dilute and dissolve downstream.
-          const diffuse = 1 + Math.max(0, nx - 0.55) * 1.8 + k * 0.14 + puffAge * 0.9;
-          const thick = base * Math.min(3.2, diffuse);
-          const wakeFade = nx < 0.72 ? 1 : Math.max(0, 1 - (nx - 0.72) / 0.8);
+          const spread = isFilament ? 1.1 : 1.8;
+          const growthK = isFilament ? 0.05 : 0.14;
+          const ageGrowth = isFilament ? 0.35 : 0.9;
+          const diffuse = 1 + Math.max(0, nx - 0.55) * spread + k * growthK + puffAge * ageGrowth;
+          const thick = base * Math.min(isFilament ? 1.8 : 3.2, diffuse);
+          const wakeFade = nx < 0.92 ? 1 : Math.max(0, 1 - (nx - 0.92) / 1.0);
           const tailFade = 1 - 0.65 * (k / SMOKE_SEG);
           const ageFade = 1 - 0.3 * puffAge;
           // Freshly respawned tracers keep their old history collapsed on the
@@ -1269,10 +1285,11 @@ export class AeroViewer {
           iScale.setXY(ii, segLen * 1.08 + thick * 0.22, thick);
           iRot.setX(ii, 0);
           iUv.setXY(ii, p.uvOff[0], p.uvOff[1]);
+          const gain = isFilament ? 0.5 : 0.17;
+          const dilution = isFilament ? 0.45 : 0.85;
           const alpha = dead
             ? 0
-            : (fadeIn * wakeFade * tailFade * bodyFade * ageFade * 0.17) /
-              Math.pow(diffuse, 0.85);
+            : (fadeIn * wakeFade * tailFade * bodyFade * ageFade * gain) / Math.pow(diffuse, dilution);
           iOpa.setX(ii, alpha);
         }
       } else {
@@ -1288,7 +1305,9 @@ export class AeroViewer {
     for (let i = 0; i < n; i++) {
       if (isSmoke && !tintBySpeed) {
         const ratio = Math.max(0, Math.min(1, (frameSpeeds[i] - floor) / spdSpan));
-        const b = 0.70 + 0.30 * ratio;
+        // Filaments are lit like a tunnel photograph: near-white, slightly
+        // brighter where the flow is fast.
+        const b = isFilament ? 0.9 + 0.1 * ratio : 0.70 + 0.30 * ratio;
         for (let k = 0; k < SMOKE_SEG; k++) iCol.setXYZ(i * SMOKE_SEG + k, b, b * 1.01, b * 1.05);
       } else {
         const c = speedToColor(frameSpeeds[i], this.refSpeed, floor, ceil);
