@@ -210,7 +210,12 @@ force a pass.
 - **The aero map is fixed at 5x5** and always uses the fast VLM path, even when
   CFD is selected.
 - **The surrogate is not wired into the API or UI.** No uncertainty view yet.
-- **`aeroField.js` Cp field is a heuristic normal-based function**, not CFD.
+- **The browser skin Cp map is low-order, not a solved distribution**: Bernoulli
+  on the inviscid field for the level plus the panel jump condition from the same
+  semi-empirical Cl as the force readout. An uploaded CAD model has no solved
+  elements, so it gets the field level only, and the legend says so.
+- **`backend/visualization/aero_field.py` is still the normal-based heuristic**,
+  and it is API-only: nothing in the UI reads its Cp.
 - **Advisor has no conversation memory and no tool calling.** Quoted numbers come
   from the request payload.
 - **Heavy jobs:** a medium real CFD run took 45.8 s; the 28-point envelope

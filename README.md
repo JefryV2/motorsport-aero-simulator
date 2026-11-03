@@ -92,19 +92,22 @@ lateral), surround fill, interactive wand, from above, both sides, ring — feed
 - **Volumetric smoke** (default): isotropic, noise-warped puffs that grow and
   dilute downstream, tinted by speed only when you ask for it.
 - **Smoke filaments**: thin near-white threads, like a rake photograph.
-- **Classic dots**, plus streamlines, a slice plane, force vectors and a
-  heuristic Cp map.
+- **Classic dots**, plus streamlines, a slice plane, force vectors and a skin
+  pressure map.
 
 The field is **analytic potential flow, not CFD**: doublet blockage, line-vortex
 pairs with Biot–Savart induction, a floor sink and diffuser source, a 1/7-power
 boundary layer, ground no-penetration, and divergence-free curl-noise turbulence.
 Nothing is sampled from OpenFOAM, and the UI says so in the panel.
-`scripts/check_flow_field.mjs` gates it — 37 assertions covering finiteness, a
+`scripts/check_flow_field.mjs` gates it — 50 assertions covering finiteness, a
 bounded perturbation, divergence-free turbulence, spatial coherence, streamline
 progress, the boundary-layer and wake profiles, and inlet/rake coverage, plus the
 parametric car: solved stations driving the singularities, the browser-side lift
 terms still matching `backend/simulation/analytical.py`, every setup knob that
-moves the body also moving the smoke, and the field unchanged under display scale:
+moves the body also moving the smoke, the field unchanged under display scale,
+and the skin pressure map: Bernoulli on the inviscid field for the level, each
+element's own Cl carried across it as a pressure jump, suction facing the ground,
+and the load landing on the same skin when the car is yawed and scaled:
 
 ```bash
 node scripts/check_flow_field.mjs
@@ -195,7 +198,9 @@ Interactive docs at <http://localhost:8000/docs>.
 - Not a validated ground-effect magnitude. V4b is 1.93× off the published
   reference and is still open.
 - Not a proven active-learning win. V9 fails 2 of its 3 checks and says so.
-- The Cp field is a heuristic visualization, not a solved pressure distribution.
+- The skin Cp map is a low-order reading, not a solved pressure distribution:
+  Bernoulli on the analytic field, with each element's pressure jump set by the
+  same semi-empirical Cl the force numbers use.
 - The surrogate is exercised by the validation scripts, not yet by the live
   optimizer.
 - The lap-time delta is a relative proxy within one fidelity family.

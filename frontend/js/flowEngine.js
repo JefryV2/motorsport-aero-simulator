@@ -543,6 +543,71 @@ export function isInsideBBox(x, y, z, bounds, pad = 0) {
   );
 }
 
+/**
+ * Freestream plus the model's singularity system, with the near-body cap.
+ *
+ * This is the inviscid half of the field, and the only half a static pressure
+ * may be read from: Bernoulli relates Cp to an inviscid streamline, while the
+ * wake deficit, curl noise and floor boundary layer added by velocityAt() below
+ * are viscous display layers for the tracers. Feeding those into
+ * 1 - (|v|/U)^2 would report a total-pressure loss as a pressure rise, which is
+ * how the rear wing ended up coloured in compression while the solver still
+ * priced it as the largest downforce element.
+ */
+function potentialFrom(fr, src, wx, wy, wz, uRef, x, y, z) {
+  let px = 0;
+  let py = 0;
+  let pz = 0;
+
+  const s2 = fr.soft2;
+  for (const d of src.doublets) {
+    doubletPert(x, y, z, d.p, d.r, wx, wy, wz, s2);
+    px += _vortexOut[0];
+    py += _vortexOut[1];
+    pz += _vortexOut[2];
+  }
+
+  for (const j of src.jets) {
+    sourcePert(x, y, z, j.p, j.Q, s2);
+    px += _vortexOut[0];
+    py += _vortexOut[1];
+    pz += _vortexOut[2];
+  }
+
+  for (const f of src.filaments) {
+    if (filament(x, y, z, f.p, f.dir, f.gamma, f.core, f.decayLen, f.halfSpan)) {
+      px += _vortexOut[0];
+      py += _vortexOut[1];
+      pz += _vortexOut[2];
+    }
+  }
+
+  // Singularities grow as 1/d² and 1/d³, so inside a core the perturbation
+  // reaches hundreds of m/s and tracers skip clean through the car. Cap it at
+  // a plausible attached-flow overshoot to keep |v| near 1.5 U.
+  const pMag = Math.sqrt(px * px + py * py + pz * pz);
+  const pCap = 0.85 * uRef;
+  if (pMag > pCap) {
+    const k = pCap / pMag;
+    px *= k;
+    py *= k;
+    pz *= k;
+  }
+  return [wx + px, wy + py, wz + pz];
+}
+
+/**
+ * Inviscid velocity, for pressure: the same singularities the smoke is advected
+ * by, without the wake deficit, turbulence or floor boundary layer.
+ */
+export function potentialVelocityAt(x, y, z, config, bounds, flow) {
+  const [wx, wy, wz] = windVector(flow);
+  if (flow.showInteraction === false) return [wx, wy, wz];
+  const cache = sourcesFor(flow, config, bounds, [wx, wy, wz]);
+  const uRef = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
+  return potentialFrom(cache.fr, cache.src, wx, wy, wz, uRef, x, y, z);
+}
+
 /** Velocity field: the model's singularity distribution over the freestream. */
 export function velocityAt(x, y, z, config, bounds, flow) {
   const [wx, wy, wz] = windVector(flow);
@@ -561,47 +626,10 @@ export function velocityAt(x, y, z, config, bounds, flow) {
   const s = (x - fr.o[0]) * fr.ax[0] + (y - fr.o[1]) * fr.ax[1] + (z - fr.o[2]) * fr.ax[2];
 
   if (flow.showInteraction !== false) {
-    let px = 0;
-    let py = 0;
-    let pz = 0;
-
-    const s2 = fr.soft2;
-    for (const d of src.doublets) {
-      doubletPert(x, y, z, d.p, d.r, wx, wy, wz, s2);
-      px += _vortexOut[0];
-      py += _vortexOut[1];
-      pz += _vortexOut[2];
-    }
-
-    for (const j of src.jets) {
-      sourcePert(x, y, z, j.p, j.Q, s2);
-      px += _vortexOut[0];
-      py += _vortexOut[1];
-      pz += _vortexOut[2];
-    }
-
-    for (const f of src.filaments) {
-      if (filament(x, y, z, f.p, f.dir, f.gamma, f.core, f.decayLen, f.halfSpan)) {
-        px += _vortexOut[0];
-        py += _vortexOut[1];
-        pz += _vortexOut[2];
-      }
-    }
-
-    // Singularities grow as 1/d² and 1/d³, so inside a core the perturbation
-    // reaches hundreds of m/s and tracers skip clean through the car. Cap it at
-    // a plausible attached-flow overshoot to keep |v| near 1.5 U.
-    const pMag = Math.sqrt(px * px + py * py + pz * pz);
-    const pCap = 0.85 * uRef;
-    if (pMag > pCap) {
-      const k = pCap / pMag;
-      px *= k;
-      py *= k;
-      pz *= k;
-    }
-    vx += px;
-    vy += py;
-    vz += pz;
+    const p = potentialFrom(fr, src, wx, wy, wz, uRef, x, y, z);
+    vx = p[0];
+    vy = p[1];
+    vz = p[2];
 
     // ---- Mean flow behind the car ----------------------------------------
     // Momentum balance on the control volume: drag leaves a velocity deficit and

@@ -14,13 +14,15 @@
  *   7. the parametric built-in car: solved stations drive the singularities,
  *      the low-order lift terms still match the backend, and every setup knob
  *      that moves the body must move the smoke.
+ *   8. skin pressure: each drawn element carries the pressure jump its own Cl
+ *      says, faces the right way, and follows the car when it is yawed.
  *
  * Run: node scripts/check_flow_field.mjs
  *
  * The field lives in browser ES modules but the repo has no package.json, so
- * Node would treat frontend/js/*.js as CommonJS. We copy the two modules the
+ * Node would treat frontend/js/*.js as CommonJS. We copy the modules the
  * gate needs to a temporary .mjs and import those copies instead of changing
- * the source layout. Neither file imports Three.js.
+ * the source layout. None of them imports Three.js.
  */
 
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -32,6 +34,7 @@ const tmpDir = mkdtempSync(join(tmpdir(), 'flowcheck-'));
 const copies = [
   ['../frontend/js/flowEngine.js', 'flowEngine.mjs'],
   ['../frontend/js/carSpec.js', 'carSpec.mjs'],
+  ['../frontend/js/aeroField.js', 'aeroField.mjs'],
 ];
 const urls = copies.map(([src, name]) => {
   const dest = join(tmpDir, name);
@@ -43,15 +46,18 @@ const urls = copies.map(([src, name]) => {
 
 let mod;
 let spec;
+let press;
 try {
   mod = await import(urls[0]);
   spec = await import(urls[1]);
+  press = await import(urls[2]);
 } finally {
   rmSync(tmpDir, { recursive: true, force: true });
 }
 
 const { velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl, underbodyTerms, atStation } = mod;
 const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, REFERENCE } = spec;
+const { computeCpField } = press;
 
 const bounds = { min: [-1.75, 0, -0.5], max: [1.75, 0.6, 0.5] };
 const baseFlow = {
@@ -506,6 +512,180 @@ check(
   uBehind < uAside - 0.05 * U,
   'wake follows the yawed car axis',
   `u on axis = ${uBehind.toFixed(1)} vs off axis = ${uAside.toFixed(1)} m/s`,
+);
+
+// ---------------------------------------------------------------------------
+// 8. Skin pressure: the map has to carry the model's own element loads
+// ---------------------------------------------------------------------------
+// Bernoulli on the field cannot split a lifting surface into its suction side
+// and its pressure side - the element's own sheet induces the same speed on both
+// faces - so the skin map adds the jump condition. Measured here: the split
+// across each drawn element has to equal the Cl verified against analytical.py
+// above, with the ground-facing face in suction.
+
+const D2R = Math.PI / 180;
+
+function skinCloud(fr, geo) {
+  const vertices = [];
+  const normals = [];
+  const tags = [];
+  const push = (p, n, tag) => {
+    vertices.push(p);
+    normals.push(n);
+    tags.push(tag);
+  };
+  for (const l of geo.lines) {
+    const a = (l.angleDeg || 0) * D2R;
+    for (const side of [1, -1]) {
+      // Panel normal (sin a, cos a) in station/height space, in world axes.
+      const n = [side * Math.sin(a) * fr.ax[0], side * Math.cos(a), side * Math.sin(a) * fr.ax[2]];
+      for (let ti = 0; ti <= 4; ti++) {
+        const t = (ti / 4 - 0.25) * l.chord; // the bound line sits at quarter chord
+        for (let zi = 0; zi <= 3; zi++) {
+          push(
+            atStation(fr, l.station + t * Math.cos(a), l.height - t * Math.sin(a), (zi / 3 - 0.5) * l.halfSpan * 1.8),
+            n,
+            `${l.id}.${side > 0 ? 'up' : 'dn'}`,
+          );
+        }
+      }
+    }
+    // Spanwise-facing skin on the same sheet: the drawn tip, the endplate inner
+    // face, the nose cap. Edge on to the load, so no jump belongs there.
+    for (let ti = 0; ti <= 4; ti++) {
+      const t = (ti / 4 - 0.25) * l.chord;
+      push(
+        atStation(fr, l.station + t * Math.cos(a), l.height - t * Math.sin(a), l.halfSpan * 0.98),
+        [0, 0, 1],
+        `${l.id}.tip`,
+      );
+    }
+  }
+  const f = geo.floor;
+  const d = geo.diffuser;
+  for (const [s0, s1, h0, h1, tag] of [
+    [f.start, d.start, f.heightStart, f.heightEnd, 'floor.dn'],
+    [d.start, d.end, d.throat, d.exit, 'diffuser.dn'],
+  ]) {
+    for (let ti = 0; ti <= 6; ti++) {
+      const t = ti / 6;
+      for (let zi = 0; zi <= 3; zi++) {
+        push(
+          atStation(fr, s0 + t * (s1 - s0), h0 + t * (h1 - h0), (zi / 3 - 0.5) * f.halfWidth * 1.8),
+          [0, -1, 0],
+          tag,
+        );
+      }
+    }
+  }
+  return { vertices, normals, tags };
+}
+
+function cpMeans(result, tags) {
+  const acc = {};
+  result.cp.forEach((cp, i) => {
+    const a = acc[tags[i]] ??= { sum: 0, n: 0 };
+    a.sum += cp;
+    a.n += 1;
+  });
+  return Object.fromEntries(Object.entries(acc).map(([k, a]) => [k, a.sum / a.n]));
+}
+
+const cloud = skinCloud(carFr, carGeo);
+const cpResult = computeCpField(cloud.vertices, cloud.normals, CAR_CONFIG, offBounds, carFlow);
+const cp = cpMeans(cpResult, cloud.tags);
+const split = (tag) => cp[`${tag}.up`] - cp[`${tag}.dn`];
+
+check(
+  cpResult.loadsApplied && cpResult.cp.every(Number.isFinite),
+  'skin Cp is finite and reads the element loads',
+  `${cloud.vertices.length} samples on the drawn surfaces`,
+);
+
+let splitErr = 0;
+for (const [id, , want] of golden) {
+  splitErr = Math.max(splitErr, Math.abs(split(id) - want));
+}
+check(
+  splitErr < 0.02,
+  'Cp split across each element equals its Cl',
+  `max |error| = ${splitErr.toFixed(4)} (${golden.map(([id, , w]) => `${id} ${split(id).toFixed(2)}/${w.toFixed(2)}`).join(', ')})`,
+);
+
+check(
+  cp['rear_wing_main.dn'] < 0 && cp['rear_wing_flap.dn'] < 0 && cp['front_wing_flap.dn'] < 0,
+  'suction faces the ground, not the sky',
+  `undersides: rear main ${cp['rear_wing_main.dn'].toFixed(2)}, rear flap ${cp['rear_wing_flap.dn'].toFixed(2)}, front flap ${cp['front_wing_flap.dn'].toFixed(2)}`,
+);
+check(
+  cp['floor.dn'] < 0 && cp['diffuser.dn'] < 0,
+  'underbody and diffuser read suction',
+  `floor ${cp['floor.dn'].toFixed(2)}, diffuser ${cp['diffuser.dn'].toFixed(2)}`,
+);
+
+// An edge-on face belongs to the element but sees neither side of its jump, so
+// it keeps the field level. Reading the face by its vertical normal alone put
+// these skin points at Cp = 0 on the real mesh instead.
+const edgeOnPlateau = golden
+  .map(([id, , cl]) => [id, cp[`${id}.tip`], cl / 2])
+  .filter(([, v, half]) => Math.abs(Math.abs(v) - half) < 0.02);
+check(
+  edgeOnPlateau.length === 0,
+  'edge-on skin keeps the field level, not the jump',
+  golden.map(([id, , cl]) => `${id} tip ${cp[`${id}.tip`].toFixed(2)} (jump plateau +-${(cl / 2).toFixed(2)})`).join(', '),
+);
+
+// A knob that changes a load has to change the map.
+const highRwConfig = {
+  ...CAR_CONFIG,
+  rear_wing_main: { ...CAR_CONFIG.rear_wing_main, angle_deg: 12 },
+};
+const highRw = cpMeans(
+  computeCpField(cloud.vertices, cloud.normals, highRwConfig, offBounds, { ...baseFlow, geo: geoFor(highRwConfig) }),
+  cloud.tags,
+);
+check(
+  highRw['rear_wing_main.dn'] < cp['rear_wing_main.dn'] - 0.05,
+  'more rear incidence deepens its suction',
+  `rear main underside ${cp['rear_wing_main.dn'].toFixed(2)} -> ${highRw['rear_wing_main.dn'].toFixed(2)} for 5 -> 12 deg`,
+);
+const drsCp = cpMeans(
+  computeCpField(cloud.vertices, cloud.normals, drsConfig, offBounds, { ...baseFlow, geo: geoFor(drsConfig) }),
+  cloud.tags,
+);
+const drsSplit = drsCp['rear_wing_flap.up'] - drsCp['rear_wing_flap.dn'];
+check(
+  drsSplit <= split('rear_wing_flap') - 0.05,
+  'DRS unloads the flap on the pressure map too',
+  `split ${split('rear_wing_flap').toFixed(2)} -> ${drsSplit.toFixed(2)}`,
+);
+
+// Ownership resolves in the car frame, so a yawed and 2x-drawn model has to put
+// the same load on the same skin. This catches a panel stored as a world point
+// rather than a station/height pair: those coincide only at zero yaw, scale 1.
+const yawGeo = geoFor(CAR_CONFIG, 2, 25);
+const yawFr = flowFrame({ ...baseFlow, geo: yawGeo }, offBounds);
+const yawCloud = skinCloud(yawFr, yawGeo);
+const yawCp = cpMeans(
+  computeCpField(yawCloud.vertices, yawCloud.normals, CAR_CONFIG, offBounds, { ...baseFlow, geo: yawGeo }),
+  yawCloud.tags,
+);
+let yawErr = 0;
+for (const [id, , want] of golden) {
+  yawErr = Math.max(yawErr, Math.abs(yawCp[`${id}.up`] - yawCp[`${id}.dn`] - want));
+}
+check(
+  yawErr < 0.02,
+  'loads land on the yawed, scaled model',
+  `max |error| = ${yawErr.toFixed(4)} at 25 deg yaw, 2x scale`,
+);
+
+// An uploaded model has no solved elements, so it must not invent a load split.
+const cadCp = computeCpField(cloud.vertices, cloud.normals, CAR_CONFIG, bounds, baseFlow);
+check(
+  !cadCp.loadsApplied && cadCp.cp.every(Number.isFinite),
+  'no geometry, no invented loads',
+  `field-only Cp ${cadCp.range.min.toFixed(2)} to ${cadCp.range.max.toFixed(2)}`,
 );
 
 console.log('');

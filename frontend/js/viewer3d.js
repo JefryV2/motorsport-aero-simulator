@@ -9,10 +9,11 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { computeCpField, computeSpeedField, cpToColor } from './aeroField.js';
+import { computeCpField, computeSpeedField, cpFromSpeed, cpToColor, CP_MIN, CP_MAX } from './aeroField.js';
 import {
   DEFAULT_FLOW,
   velocityAt,
+  potentialVelocityAt,
   generateStreamlines,
   spawnOneParticle,
   speedToColor,
@@ -26,7 +27,6 @@ import { VIEW_THEME } from './theme.js';
 import { buildCarGeometry } from './carGeometry.js';
 import { toFlowGeo } from './carSpec.js';
 import { MeshFlowSampler, velocityAtMesh, generateSurfaceStreamlines, spawnSurfaceParticle, snapToSurface, surfaceOffset } from './meshFlow.js';
-import { CP_MIN, CP_MAX } from './aeroField.js';
 
 const FALLBACK_CONFIG = {
   front_wing_main: { angle_deg: 2, chord_m: 0.35, span_m: 1.8, gurney_mm: 0 },
@@ -941,11 +941,12 @@ export class AeroViewer {
       ));
     } else {
       const result = computeCpField(
-        world.vertices, world.normals, config, this.bounds, forces, this.flow,
+        world.vertices, world.normals, config, this.bounds, this.flow,
       );
       colors = result.colors;
       range = result.range;
       this.cpField = result.cp;
+      this.cpLoadsApplied = result.loadsApplied;
     }
 
     const attr = this.carMesh.geometry.attributes.color;
@@ -963,7 +964,7 @@ export class AeroViewer {
       if (this.viewMode === 'velocity') {
         el.textContent = `Speed ${(range.min * 3.6).toFixed(0)}–${(range.max * 3.6).toFixed(0)} km/h on surface · warm=slow · cool=fast`;
       } else {
-        el.textContent = `Cp ${CP_MIN.toFixed(1)} (blue suction) → ${CP_MAX.toFixed(1)} (red stagnation) · car ${range.min.toFixed(2)} to ${range.max.toFixed(2)}`;
+        el.textContent = `Cp ${CP_MIN.toFixed(1)} (blue suction) → ${CP_MAX.toFixed(1)} (red stagnation) · car ${range.min.toFixed(2)} to ${range.max.toFixed(2)} · ${this.cpLoadsApplied ? 'field + element load jump' : 'field only (uploaded model has no solved elements)'}`;
       }
     }
     this._updateFlowHud();
@@ -1188,15 +1189,17 @@ export class AeroViewer {
       tempV.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
       tempV.applyMatrix4(mesh.matrixWorld);
 
-      const [vx, vy, vz] = this._velocityAt(tempV.x, tempV.y, tempV.z, cfg);
+      // Pressure comes from the inviscid field, so the slice and the car skin
+      // agree; speed stays on the tracer field the smoke is advected by.
+      const [vx, vy, vz] = this.sliceMode === 'pressure'
+        ? potentialVelocityAt(tempV.x, tempV.y, tempV.z, cfg, this.bounds, this.flow)
+        : this._velocityAt(tempV.x, tempV.y, tempV.z, cfg);
       const speedMs = Math.sqrt(vx * vx + vy * vy + vz * vz);
 
       let color;
       if (this.sliceMode === 'pressure') {
-        const ratio = speedMs / (ref || 1);
-        let cp = 1.0 - ratio * ratio;
-        cp = Math.max(-2.0, Math.min(1.0, cp));
-        color = cpToColor(cp);
+        const cp = cpFromSpeed(speedMs, ref);
+        color = cpToColor(Math.max(CP_MIN, Math.min(CP_MAX, cp)));
       } else {
         color = speedToColor(speedMs, ref, 0, ref * 1.4);
       }
