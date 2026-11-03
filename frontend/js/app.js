@@ -1,7 +1,7 @@
 /** Main app — vehicle setup + wind tunnel flow controls. */
 
 import { AeroViewer } from './viewer3d.js';
-import { deriveSurfaces, rearFlapAngleDeg } from './carSpec.js';
+import { deriveSurfaces, rearFlapAngleDeg, lapTimeDeltaS } from './carSpec.js';
 import {
   engineeringContext,
   compareToBaseline,
@@ -440,14 +440,11 @@ function getTrackLapDelta(forces, fidelity) {
   const referenceSim = baselineFidelity === fidelity ? baselineSim : referenceByFidelity.get(fidelity);
   if (!referenceSim) return 0.0;
 
-  // Simple, explicitly relative lap-time proxy. It only compares runs from the
-  // same fidelity family: a CFD hybrid is never presented as a lap-time gain
-  // over a VLM preview, because those numbers are not directly comparable.
-  const reference = referenceSim.forces;
-  const drag_delta = (forces.drag_N - reference.drag_N) * 0.0001 * track.dragMultiplier;
-  const df_delta = -(forces.downforce_total_N - reference.downforce_total_N) * 0.00008 * track.dfMultiplier;
-
-  return drag_delta + df_delta;
+  // Explicitly relative lap-time proxy, and only between runs of the same
+  // fidelity family: a CFD hybrid is never presented as a lap-time gain over a
+  // VLM preview, because those numbers are not directly comparable. The
+  // coefficients themselves are analytical.lap_time_delta_s's, imported.
+  return lapTimeDeltaS(forces, referenceSim.forces, track);
 }
 
 function populateCfdCard(sim) {

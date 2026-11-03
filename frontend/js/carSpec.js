@@ -7,7 +7,7 @@
  *
  * Axis convention here matches the frontend: +x forward, +y up, +z lateral.
  * The backend VLM uses [x, y=lateral, z=up]; the station formulas below are
- * transcribed from backend/simulation/panel_method.py and
+ * transcribed from backend/simulation/analytical.py:wing_stations and
  * backend/simulation/vlm/geometry.py:transform_point, with that swap applied.
  *
  * Only the four lifting surfaces and the two ride heights are aerodynamic
@@ -18,7 +18,7 @@
 
 // Mirrors the module constants in backend/simulation/analytical.py (RHO,
 // REF_AREA, WHEELBASE_M, DRS_FLAP_ANGLE_DEG) and the stations in
-// backend/simulation/panel_method.py:simulate_panel.
+// backend/simulation/analytical.py:wing_stations.
 export const REFERENCE = {
   wheelbaseM: 3.35,
   refAreaM2: 1.5,
@@ -28,11 +28,11 @@ export const REFERENCE = {
   // they do on a real car: the wing is ahead of the front axle, the rear wing
   // just ahead of the rear axle.
   fwLeadingEdgeM: 0.2,
-  fwFlapStationFrac: 0.75, // simulate_panel: fw_flap origin = main chord * 0.75
-  fwFlapGapM: 0.035, // simulate_panel: z_fw_flap = z_fw_main + 0.035
-  rwFlapStationFrac: 0.75, // simulate_panel: rw_flap origin = main chord * 0.75
-  rwFlapRiseM: 0.05, // simulate_panel: rw_flap sits 0.05 above the main plane
-  rwMainHeightM: 0.85, // simulate_panel: rear wing main origin height
+  fwFlapStationFrac: 0.75, // wing_stations: fw_flap origin = main chord * 0.75
+  fwFlapGapM: 0.035, // wing_stations: z_fw_flap = z_fw_main + 0.035
+  rwFlapStationFrac: 0.75, // wing_stations: rw_flap origin = main chord * 0.75
+  rwFlapRiseM: 0.05, // wing_stations: rw_flap sits 0.05 above the main plane
+  rwMainHeightM: 0.85, // wing_stations: rear wing main origin height
   // The rear-wing endplate is the highest point on the car, so the declared
   // overall height is derived from these same two numbers and carGeometry.js
   // draws the plate from them: they cannot drift apart.
@@ -40,7 +40,7 @@ export const REFERENCE = {
   rwEndplateDropM: 0.12, // plate centre sits this far below the main plane
   frontAxleM: 0.55,
   rearAxleM: 3.9,
-  // Camber height ratios used by the VLM surfaces (simulate_panel VLMSurface args).
+  // Camber height ratios used by the VLM surfaces (panel_method._VLM_CAMBER args).
   camber: {
     front_wing_main: 0.03,
     front_wing_flap: 0.05,
@@ -70,6 +70,13 @@ export const REFERENCE = {
   bodyCd: 0.75, // _body_drag cd_body: wheels, suspension, cockpit
   profileCd: 0.008, // _wing_forces profile drag term
   drsFlapAngleDeg: 2.0, // analytical.DRS_FLAP_ANGLE_DEG: rear flap when DRS is open
+  // Lap-time proxy: analytical.lap_time_delta_s is the only implementation and
+  // these are its four numbers. The tiers report against lapBaseline*; the UI
+  // passes the setup it loaded as the baseline and the track's weighting.
+  lapBaselineDragN: 1200.0, // analytical.LAP_BASELINE_DRAG_N
+  lapBaselineDfN: 3500.0, // analytical.LAP_BASELINE_DF_N
+  lapSecPerDragN: 0.0001, // analytical.LAP_SEC_PER_DRAG_N
+  lapSecPerDfN: 0.00008, // analytical.LAP_SEC_PER_DF_N
 };
 
 const DEG = Math.PI / 180;
@@ -95,6 +102,24 @@ const DEFAULT_ELEMENT = {
 export function rearFlapAngleDeg(config) {
   const angle = num(config?.rear_wing_flap?.angle_deg, DEFAULT_ELEMENT.rear_wing_flap.angle_deg);
   return config?.drs_active ? Math.min(angle, REFERENCE.drsFlapAngleDeg) : angle;
+}
+
+/**
+ * Lap-time proxy in seconds (analytical.lap_time_delta_s): a linear sensitivity
+ * of one car between two setups, not a track simulation. `baseline` is the force
+ * pair the number is measured against - REFERENCE.lapBaseline* for the solver
+ * tiers, the setup the session loaded for the UI - and `track` scales the two
+ * terms by the circuit's weighting. Negative means the compared setup is faster
+ * on this proxy.
+ */
+export function lapTimeDeltaS(forces, baseline, track = null) {
+  if (!forces || !baseline) return 0.0;
+  const dragScale = num(track?.dragMultiplier, 1.0);
+  const dfScale = num(track?.dfMultiplier, 1.0);
+  return (
+    (forces.drag_N - baseline.drag_N) * REFERENCE.lapSecPerDragN * dragScale -
+    (forces.downforce_total_N - baseline.downforce_total_N) * REFERENCE.lapSecPerDfN * dfScale
+  );
 }
 
 function element(config, name) {

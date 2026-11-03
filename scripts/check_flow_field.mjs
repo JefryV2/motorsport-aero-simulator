@@ -56,7 +56,7 @@ try {
 }
 
 const { velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl, underbodyTerms, atStation } = mod;
-const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, REFERENCE } = spec;
+const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, lapTimeDeltaS, REFERENCE } = spec;
 const { computeCpField } = press;
 
 const bounds = { min: [-1.75, 0, -0.5], max: [1.75, 0.6, 0.5] };
@@ -330,6 +330,33 @@ check(
     && Math.abs(ub.cdUnder - 0.04089201550876271) < 1e-12,
   'underbody terms mirror analytical.py',
   `Cl = ${ub.clUnder.toFixed(9)}, Cd = ${ub.cdUnder.toFixed(9)}`,
+);
+
+// The lap-time proxy is one arithmetic on both sides of the wire: the literals
+// are backend analytical.lap_time_delta_s at the same force pair and the same
+// track weights the UI offers (verified 2026-11-03 by running the Python).
+const lapForces = { drag_N: 1500.0, downforce_total_N: 4000.0 };
+const lapBase = {
+  drag_N: REFERENCE.lapBaselineDragN,
+  downforce_total_N: REFERENCE.lapBaselineDfN,
+};
+const lapWant = [
+  [{ dragMultiplier: 1.0, dfMultiplier: 1.0 }, -0.009999999999999998],
+  [{ dragMultiplier: 2.2, dfMultiplier: 0.35 }, 0.05200000000000002],
+  [{ dragMultiplier: 0.15, dfMultiplier: 2.4 }, -0.0915],
+];
+const lapErr = Math.max(
+  ...lapWant.map(([track, want]) => Math.abs(lapTimeDeltaS(lapForces, lapBase, track) - want)),
+);
+check(
+  lapErr === 0,
+  'lap proxy mirrors analytical.py',
+  `max |diff| = ${lapErr.toExponential(1)} s over ${lapWant.length} track weights`,
+);
+check(
+  lapTimeDeltaS(lapBase, lapBase, null) === 0.0,
+  'lap proxy is a delta, not an absolute',
+  `baseline against itself = ${lapTimeDeltaS(lapBase, lapBase, null)} s`,
 );
 
 // Probe cloud: the same physical points for every config, clear of the floor's

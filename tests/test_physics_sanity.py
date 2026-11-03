@@ -11,6 +11,7 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 8. The diffuser throat the model prices is one the car can actually draw
 9. The pressure map's surface regions sit on the solver's stations, not on
    fractions of the bounding box that arrived with the mesh
+10. One lap-time proxy prices all three tiers and the frontend mirror
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from backend.simulation.analytical import (
     floor_height_at_m,
     simulate,
 )
+from backend.simulation.cfd.openfoam_runner import run_cfd_with_provenance
 from backend.visualization import aero_field
 from backend.visualization.aero_field import compute_cp_field, generate_streamlines
 
@@ -408,6 +410,10 @@ class TestDiffuserThroatMustBeBuildable:
             "wheelRadiusRearM": analytical.WHEEL_RADIUS_REAR_M,
             "wheelWidthFrontM": analytical.WHEEL_WIDTH_FRONT_M,
             "wheelWidthRearM": analytical.WHEEL_WIDTH_REAR_M,
+            "lapBaselineDragN": analytical.LAP_BASELINE_DRAG_N,
+            "lapBaselineDfN": analytical.LAP_BASELINE_DF_N,
+            "lapSecPerDragN": analytical.LAP_SEC_PER_DRAG_N,
+            "lapSecPerDfN": analytical.LAP_SEC_PER_DF_N,
         }
         for name, value in shared.items():
             match = re.search(rf"^\s*{name}:\s*([0-9.]+),", js, re.MULTILINE)
@@ -543,3 +549,48 @@ class TestPressureMapRegionsAreStations:
                 station.span_m,
                 station.angle_deg,
             )
+
+
+class TestOneLapProxyAcrossTiers:
+    """All three tiers must price the lap proxy with the same one function.
+
+    `lap_time_delta_s` was restated in each tier and the CFD copy was not a delta
+    at all - it reported (drag - 0.3 x downforce) / 10000, so a setup with no
+    reference whatsoever still came back as +0.0300 s, and its sign flipped with
+    the downforce term the other two tiers subtract.
+    """
+
+    def test_every_tier_reports_the_shared_proxy(self):
+        cfg = FormulaAeroConfig()
+        tiers = {
+            "analytical": simulate(cfg),
+            "panel_vlm": panel_method.simulate_panel(cfg),
+            "cfd": run_cfd_with_provenance(cfg)[0],
+        }
+        for method, sim in tiers.items():
+            want = analytical.lap_time_delta_s(
+                sim.forces.drag_N, sim.forces.downforce_total_N
+            )
+            # The tiers round their forces before reporting, so the proxy the
+            # result carries is within the rounding of the reported forces.
+            assert sim.lap_time_delta_s == pytest.approx(want, abs=1e-4), (
+                f"{method} prices its own lap proxy: {sim.lap_time_delta_s} vs {want}"
+            )
+
+    def test_the_proxy_is_zero_against_its_own_baseline(self):
+        """A delta has to vanish when nothing changed; an absolute term cannot."""
+        assert (
+            analytical.lap_time_delta_s(
+                analytical.LAP_BASELINE_DRAG_N, analytical.LAP_BASELINE_DF_N
+            )
+            == 0.0
+        )
+
+    def test_the_two_terms_move_in_opposite_directions(self):
+        """More drag is slower, more downforce is faster, at the pinned rates."""
+        base = analytical.lap_time_delta_s(1500.0, 3500.0)
+        draggier = analytical.lap_time_delta_s(1600.0, 3500.0)
+        loaded = analytical.lap_time_delta_s(1500.0, 4500.0)
+
+        assert draggier - base == pytest.approx(100.0 * analytical.LAP_SEC_PER_DRAG_N)
+        assert base - loaded == pytest.approx(1000.0 * analytical.LAP_SEC_PER_DF_N)

@@ -70,6 +70,14 @@ CAR_LENGTH_M = REAR_AXLE_M + WHEEL_RADIUS_REAR_M
 CAR_HEIGHT_M = REAR_WING_TOP_M
 CAR_HALF_WIDTH_M = 0.90  # max(front wing span, track) / 2 at the default setup
 
+# Lap-time proxy sensitivities. `lap_time_delta_s` below is the only
+# implementation the three solver tiers use, and frontend/js/carSpec.js mirrors
+# the two coefficients so the UI's track-weighted delta is the same arithmetic.
+LAP_BASELINE_DRAG_N = 1200.0
+LAP_BASELINE_DF_N = 3500.0
+LAP_SEC_PER_DRAG_N = 0.0001
+LAP_SEC_PER_DF_N = 0.00008
+
 
 def geometric_rake_deg(config: FormulaAeroConfig) -> float:
     """Body attitude implied by the two ride heights.
@@ -115,6 +123,28 @@ def diffuser_exit_height_m(config: FormulaAeroConfig) -> float:
     throat = diffuser_throat_height_m(config)
     rise = DIFFUSER_LENGTH_M * math.tan(math.radians(config.diffuser_angle_deg))
     return min(throat + rise, DIFFUSER_EXIT_MAX_M)
+
+
+def lap_time_delta_s(
+    drag_N: float,
+    downforce_N: float,
+    baseline_drag_N: float = LAP_BASELINE_DRAG_N,
+    baseline_df_N: float = LAP_BASELINE_DF_N,
+    drag_scale: float = 1.0,
+    downforce_scale: float = 1.0,
+) -> float:
+    """Seconds per lap against a reference forces pair: a sensitivity, not a simulation.
+
+    Linear in both terms, so it only ever compares two setups of one car, and the
+    coefficients are fixed sensitivities rather than anything integrated over a
+    track. The tiers pass no baseline of their own - one number, one rule - while
+    the UI passes the setup it loaded as the baseline and the track's weighting.
+    A negative result means the comparison setup is faster on this proxy. Rounding
+    stays with the caller, which knows how many digits it displays.
+    """
+    return (drag_N - baseline_drag_N) * LAP_SEC_PER_DRAG_N * drag_scale - (
+        downforce_N - baseline_df_N
+    ) * LAP_SEC_PER_DF_N * downforce_scale
 
 
 @dataclass(frozen=True)
@@ -326,11 +356,7 @@ def simulate(config: FormulaAeroConfig, method: str = "analytical") -> Simulatio
     cd_total = drag_total / (q * REF_AREA) if q > 0 else 0.0
     efficiency = df_total / drag_total if drag_total > 0 else 0.0
 
-    # Lap time proxy: aero drag penalty + downforce cornering gain
-    # Simplified: each 10N drag ≈ 0.001s/lap, each 100N DF ≈ -0.008s/lap at typical circuit
-    baseline_drag = 1200.0
-    baseline_df = 3500.0
-    lap_delta = (drag_total - baseline_drag) * 0.0001 - (df_total - baseline_df) * 0.00008
+    lap_delta = lap_time_delta_s(drag_total, df_total)
 
     forces = AeroForces(
         drag_N=round(drag_total, 1),

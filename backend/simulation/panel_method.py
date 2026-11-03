@@ -13,6 +13,7 @@ from backend.simulation.analytical import (
     WHEELBASE_M,
     _body_drag,
     _underbody_forces,
+    lap_time_delta_s,
     wing_stations,
 )
 from backend.simulation.vlm.core import VLMSurface, solve_vlm
@@ -82,9 +83,7 @@ def simulate_panel(
     cd_total = drag_total / (q * REF_AREA) if q > 0 else 0.0
     efficiency = df_total / drag_total if drag_total > 0 else 0.0
 
-    baseline_drag = 1200.0
-    baseline_df = 3500.0
-    lap_delta = (drag_total - baseline_drag) * 0.0001 - (df_total - baseline_df) * 0.00008
+    lap_delta = lap_time_delta_s(drag_total, df_total)
 
     forces = AeroForces(
         drag_N=round(drag_total, 1),

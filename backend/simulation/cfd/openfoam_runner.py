@@ -12,6 +12,7 @@ from backend.simulation.analytical import (
     _body_drag,
     _underbody_forces,
     effective_rear_flap,
+    lap_time_delta_s,
 )
 from backend.simulation.cfd.case_builder import build_openfoam_case
 from backend.simulation.cfd.models import AirfoilGeometry, MeshLevel
@@ -170,7 +171,7 @@ def run_cfd_with_provenance(
     sim = SimulationResult(
         config=config,
         forces=forces,
-        lap_time_delta_s=round((drag_total_N - df_total_N * 0.3) / 10000.0, 4),
+        lap_time_delta_s=round(lap_time_delta_s(drag_total_N, df_total_N), 4),
         method=method_tag,
         fidelity=provenance.fidelity,
         provenance=provenance.as_dict(),
