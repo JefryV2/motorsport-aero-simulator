@@ -1167,3 +1167,44 @@ class TestTheInteractionLayerAnswersToTheFieldBudget:
         assert f"within {self._budget()} U" in title, (
             "the tooltip quotes an overshoot the code no longer enforces"
         )
+
+
+class TestTheChangelogStillRendersAsATable:
+    """GitHub splits a table row on every unescaped `|`, including inside code
+    spans, and only then honours the backslash. Writing `\\|U\\|` in a cell's
+    prose is therefore a column, not a magnitude: four rows had silently grown
+    five and six columns, so everything after the first prose pipe shifted one
+    cell right and the commit hash that closed the row was pushed off the end of
+    the table.
+    """
+
+    SEPARATOR = re.compile(r"(?<!\\)\|")
+    ROW = re.compile(
+        r"^\| \d{4}-\d{2}-\d{2} \| [^|]* \| "
+        r".* \| (?:`[0-9a-f]{7}`|[0-9a-f]{7}) \|$",
+        re.DOTALL,
+    )
+
+    def test_every_row_has_exactly_four_columns(self):
+        text = (Path(__file__).resolve().parents[1] / "docs" / "STATUS.md").read_text(
+            encoding="utf-8"
+        )
+        rows = [line for line in text.split("\n") if line.startswith("| 2026-")]
+        assert len(rows) > 30, f"the change-log table lost rows ({len(rows)})"
+        broken = [
+            f"line {n}: {self.SEPARATOR.findall(row)} columns, "
+            f"{row[:60].rstrip()}"
+            for n, row in enumerate(rows, 1)
+            if len(self.SEPARATOR.findall(row)) != 5
+        ]
+        assert not broken, "rows whose prose escaped the table:\n" + "\n".join(broken)
+
+    def test_every_row_names_the_commit_it_describes(self):
+        text = (Path(__file__).resolve().parents[1] / "docs" / "STATUS.md").read_text(
+            encoding="utf-8"
+        )
+        rows = [line for line in text.split("\n") if line.startswith("| 2026-")]
+        unnamed = [row[:70] for row in rows if not self.ROW.match(row)]
+        assert not unnamed, "rows without a date/title/body/hash shape:\n" + "\n".join(
+            unnamed
+        )
