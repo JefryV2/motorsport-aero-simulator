@@ -2,6 +2,7 @@
 
 import { AeroViewer } from './viewer3d.js';
 import { DEFAULT_ELEMENT, deriveSurfaces, rearFlapAngleDeg, lapTimeDeltaS } from './carSpec.js';
+import { reynoldsLabel } from './flowEngine.js';
 import {
   engineeringContext,
   compareToBaseline,
@@ -426,7 +427,7 @@ function updateEngineerPanel(speedRange = null) {
   const drsStatusStr = drsActive ? ' · DRS ACTIVE' : '';
   const hudEl = document.getElementById('flowHud');
   if (hudEl) {
-    hudEl.textContent = `${flow.windSpeedKmh} km/h · ${(flow.windSpeedKmh / 3.6).toFixed(1)} m/s · Re=${(ctx.reynolds / 1e6).toFixed(2)}M${drsStatusStr}`;
+    hudEl.textContent = `${flow.windSpeedKmh} km/h · ${(flow.windSpeedKmh / 3.6).toFixed(1)} m/s · ${reynoldsLabel(flow)}${drsStatusStr}`;
   }
 }
 

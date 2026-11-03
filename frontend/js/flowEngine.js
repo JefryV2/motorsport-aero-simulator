@@ -951,9 +951,17 @@ export function speedsAlongPath(points, config, bounds, flow, velocityFn = veloc
   return points.map(([x, y, z]) => len(velocityFn(x, y, z, config, bounds, flow)));
 }
 
-export function reynoldsNumber(flow, charLengthM = 3.5) {
+/**
+ * Full-car Reynolds number at the speed the tunnel is showing, on the drawn
+ * car length. Display only: no force tier reads Re, so this number moves the
+ * readout and never the numbers.
+ */
+export function reynoldsNumber(flow, charLengthM = REFERENCE.carLengthM) {
   const v = flow.windSpeedKmh / 3.6;
-  const rho = 1.225;
-  const mu = 1.81e-5;
-  return Math.round((rho * v * charLengthM) / mu);
+  return Math.round((REFERENCE.rho * v * charLengthM) / REFERENCE.muAirPaS);
+}
+
+/** HUD text for `reynoldsNumber`, with the length the number was taken on. */
+export function reynoldsLabel(flow) {
+  return `Re=${(reynoldsNumber(flow) / 1e6).toFixed(2)}M (L=${REFERENCE.carLengthM} m)`;
 }

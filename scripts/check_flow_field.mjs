@@ -16,6 +16,8 @@
  *      that moves the body must move the smoke.
  *   8. skin pressure: each drawn element carries the pressure jump its own Cl
  *      says, faces the right way, and follows the car when it is yawed.
+ *   9. the Reynolds readout: priced on the length the car is drawn at, and
+ *      labelled with it.
  *
  * Run: node scripts/check_flow_field.mjs
  *
@@ -55,7 +57,10 @@ try {
   rmSync(tmpDir, { recursive: true, force: true });
 }
 
-const { velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl, underbodyTerms, atStation } = mod;
+const {
+  velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl,
+  underbodyTerms, atStation, reynoldsNumber, reynoldsLabel,
+} = mod;
 const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, lapTimeDeltaS, REFERENCE } = spec;
 const { computeCpField } = press;
 
@@ -736,6 +741,22 @@ check(
   !cadCp.loadsApplied && cadCp.cp.every(Number.isFinite),
   'no geometry, no invented loads',
   `field-only Cp ${cadCp.range.min.toFixed(2)} to ${cadCp.range.max.toFixed(2)}`,
+);
+
+// The Re the HUD prints has to be the Re of the car on screen, not of a length
+// the module invented beside it.
+const reDefault = reynoldsNumber({ windSpeedKmh: 200 });
+const reDeclared = (REFERENCE.rho * U * REFERENCE.carLengthM) / REFERENCE.muAirPaS;
+check(
+  Math.abs(reDefault - reDeclared) < 1,
+  'Re is priced on the drawn car length',
+  `Re ${reDefault.toExponential(3)} at 200 km/h on L=${REFERENCE.carLengthM} m, ` +
+    `rho=${REFERENCE.rho}, mu=${REFERENCE.muAirPaS}`,
+);
+check(
+  reynoldsLabel({ windSpeedKmh: 200 }).includes(`L=${REFERENCE.carLengthM} m`),
+  'the Re readout names its length',
+  reynoldsLabel({ windSpeedKmh: 200 }),
 );
 
 console.log('');

@@ -14,10 +14,13 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 10. One lap-time proxy prices all three tiers and the frontend mirror
 11. The wing ground-effect gain is priced at each element's own gap to the plane,
     so the front ride height moves the wing and not only the floor
+12. The Reynolds readout is taken on the length the viewer actually draws, and
+    names that length wherever it is shown
 """
 
 from __future__ import annotations
 
+import inspect
 import math
 import re
 from pathlib import Path
@@ -35,6 +38,7 @@ from backend.simulation.analytical import (
     simulate,
 )
 from backend.simulation.cfd.openfoam_runner import run_cfd_with_provenance
+from backend.simulation.cfd.runner import evaluate_calibrated_synthetic_cfd
 from backend.visualization import aero_field
 from backend.visualization.aero_field import compute_cp_field, generate_streamlines
 
@@ -392,6 +396,8 @@ class TestDiffuserThroatMustBeBuildable:
         shared = {
             "wheelbaseM": analytical.WHEELBASE_M,
             "refAreaM2": analytical.REF_AREA,
+            "rho": analytical.RHO,
+            "carLengthM": analytical.CAR_LENGTH_M,
             "frontAxleM": analytical.FRONT_AXLE_M,
             "rearAxleM": analytical.REAR_AXLE_M,
             "floorXStartM": analytical.FLOOR_X_START_M,
@@ -755,3 +761,68 @@ class TestRequestPayloadTakesThePlanformFromTheModel:
             f"getConfig() hardcodes planform {leaked} again - the payload must "
             "take chord and span from DEFAULT_ELEMENT"
         )
+
+
+class TestReynoldsReadoutSitsOnTheDrawnCar:
+    """The viewer used to price Re on a length it neither drew nor named.
+
+    `reynoldsNumber()` defaulted to a bare 3.5 m while `carGeometry.js` draws the
+    4.25 m envelope `analytical.CAR_LENGTH_M` normalises uploaded meshes with, and
+    it restated rho and mu next to that. The HUD printed a tunnel condition for a
+    car 0.75 m shorter than the one on screen: 13.16 M where 200 km/h over the
+    drawn length is 15.98 M.
+    """
+
+    def _js(self, name: str) -> str:
+        path = Path(__file__).resolve().parents[1] / "frontend" / "js" / name
+        return path.read_text(encoding="utf-8")
+
+    def _ref(self, key: str) -> float:
+        match = re.search(
+            rf"^\s*{key}:\s*([0-9.eE+-]+),", self._js("carSpec.js"), re.MULTILINE
+        )
+        assert match, f"carSpec.js no longer declares {key}"
+        return float(match.group(1))
+
+    def _fn(self, name: str) -> str:
+        body = re.search(
+            rf"export function {name}\(.*?\n\}}", self._js("flowEngine.js"), re.DOTALL
+        )
+        assert body, f"flowEngine.js no longer defines {name}"
+        return body.group(0)
+
+    def test_the_declared_length_is_the_envelope_the_viewer_draws(self):
+        drawn = self._ref("rearAxleM") + self._ref("wheelRadiusRearM")
+        assert self._ref("carLengthM") == pytest.approx(drawn)
+        assert self._ref("carLengthM") == pytest.approx(analytical.CAR_LENGTH_M)
+
+    def test_reynolds_is_computed_from_the_declared_constants(self):
+        src = self._fn("reynoldsNumber")
+        for shared in ("REFERENCE.carLengthM", "REFERENCE.rho", "REFERENCE.muAirPaS"):
+            assert shared in src, f"reynoldsNumber no longer reads {shared}"
+        magic = [
+            token
+            for token in ("3.5", "1.225", "1.81e-5")
+            if re.search(rf"(?<![\w.]){re.escape(token)}\b", src)
+        ]
+        assert not magic, f"reynoldsNumber hardcodes {magic} again"
+
+    def test_the_readout_names_the_length_it_was_taken_on(self):
+        label = self._fn("reynoldsLabel")
+        assert "REFERENCE.carLengthM" in label, "the label dropped the length"
+        for consumer in ("app.js", "viewer3d.js"):
+            assert re.search(r"textContent[^\n]*reynoldsLabel\(", self._js(consumer)), (
+                f"{consumer} prints a bare Reynolds number again"
+            )
+
+    def test_the_two_reynolds_conventions_describe_the_same_air(self):
+        """The HUD's car-length Re and the CFD tier's chord Re are the same fluid.
+
+        `evaluate_calibrated_synthetic_cfd` scales its skin-friction term with
+        `speed * chord / nu` at nu = 1.5e-5 m²/s; the viewer reaches the same
+        kinematic value through mu = 1.81e-5 Pa·s over rho = 1.225 kg/m³.
+        """
+        signature = inspect.signature(evaluate_calibrated_synthetic_cfd)
+        nu_cfd = signature.parameters["nu"].default
+        kinematic = self._ref("muAirPaS") / self._ref("rho")
+        assert kinematic == pytest.approx(nu_cfd, rel=0.03)

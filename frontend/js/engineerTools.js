@@ -1,8 +1,9 @@
 /** Engineering utilities — exports, comparisons, unit formatting. */
 
 import { reynoldsNumber } from './flowEngine.js';
+import { REFERENCE } from './carSpec.js';
 
-const RHO = 1.225; // kg/m³ sea level
+const RHO = REFERENCE.rho; // kg/m³ sea level, the same constant the geometry uses
 
 export function dynamicPressurePa(flow) {
   const v = flow.windSpeedKmh / 3.6;
@@ -93,6 +94,12 @@ export function exportResultsCsv(sim, engCtx) {
     ['Wind speed', engCtx?.windSpeedKmh ?? '', 'km/h'],
     ['Dynamic pressure', engCtx?.dynamicPressureKPa ?? '', 'kPa'],
     ['Reynolds number', engCtx?.reynolds ?? '', ''],
+    [
+      'Reynolds basis',
+      `car length ${REFERENCE.carLengthM} m nose to tail; the analytical and VLM tiers apply no Re scaling, ` +
+        'the CFD tier reads a chord Reynolds number in its own section case',
+      '',
+    ],
     ['Flow speed min', engCtx?.flowSpeedMinKmh ?? '', 'km/h'],
     ['Flow speed max', engCtx?.flowSpeedMaxKmh ?? '', 'km/h'],
     ['Method', sim?.method ?? '', ''],
@@ -116,7 +123,10 @@ function downloadBlob(content, filename, mime) {
 export function renderEngineerPanel(ctx, delta = null) {
   const lines = [];
   lines.push(`V∞ ${ctx.windSpeedKmh} km/h (${ctx.windSpeedMs.toFixed(1)} m/s) · yaw ${ctx.yawDeg}° · pitch ${ctx.pitchDeg}°`);
-  lines.push(`Re ${(ctx.reynolds / 1e6).toFixed(2)}×10⁶ · q ${ctx.dynamicPressureKPa.toFixed(2)} kPa · ρ ${ctx.airDensity} kg/m³`);
+  lines.push(
+    `Re ${(ctx.reynolds / 1e6).toFixed(2)}×10⁶ on L ${REFERENCE.carLengthM} m (readout - the analytical and VLM tiers apply no Re scaling) · ` +
+      `q ${ctx.dynamicPressureKPa.toFixed(2)} kPa · ρ ${ctx.airDensity} kg/m³`,
+  );
   if (ctx.flowSpeedMinMs != null) {
     lines.push(`Flow field ${ctx.flowSpeedMinKmh.toFixed(0)}–${ctx.flowSpeedMaxKmh.toFixed(0)} km/h (color scale)`);
   }

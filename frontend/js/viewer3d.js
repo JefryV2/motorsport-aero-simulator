@@ -18,7 +18,7 @@ import {
   spawnOneParticle,
   speedToColor,
   windDirection,
-  reynoldsNumber,
+  reynoldsLabel,
   distToBBox,
   isInsideBBox,
   speedsAlongPath,
@@ -660,7 +660,7 @@ export class AeroViewer {
   _updateFlowHud() {
     const el = document.getElementById('flowHud');
     if (!el) return;
-    el.textContent = `${this.flow.windSpeedKmh} km/h · ${this.refSpeed.toFixed(1)} m/s · Re=${(reynoldsNumber(this.flow) / 1e6).toFixed(2)}M · ${this.particles.length} particles`;
+    el.textContent = `${this.flow.windSpeedKmh} km/h · ${this.refSpeed.toFixed(1)} m/s · ${reynoldsLabel(this.flow)} · ${this.particles.length} particles`;
   }
 
   _rebuildFlowScene() {

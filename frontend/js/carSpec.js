@@ -76,6 +76,14 @@ export const REFERENCE = {
   geLiftGainMax: 0.162, // analytical.GE_LIFT_GAIN_MAX
   geLiftDecayM: 0.14, // analytical.GE_LIFT_DECAY_M
   drsFlapAngleDeg: 2.0, // analytical.DRS_FLAP_ANGLE_DEG: rear flap when DRS is open
+  // Reynolds readout. `carLengthM` is the drawn nose-to-tail envelope,
+  // rearAxleM + wheelRadiusRearM - the same analytical.CAR_LENGTH_M the backend
+  // normalises uploaded meshes with. `muAirPaS` is the dynamic viscosity of air
+  // at 15 °C. Re is a readout of the tunnel speed: none of the force tiers reads
+  // it, only the OpenFOAM section case, which uses its own chord and
+  // nu = 1.5e-5 m²/s (1.5 % from muAirPaS / rho).
+  carLengthM: 4.25,
+  muAirPaS: 1.81e-5,
   // Lap-time proxy: analytical.lap_time_delta_s is the only implementation and
   // these are its four numbers. The tiers report against lapBaseline*; the UI
   // passes the setup it loaded as the baseline and the track's weighting.
