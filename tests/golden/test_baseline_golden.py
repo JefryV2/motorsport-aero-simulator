@@ -8,10 +8,12 @@ Locks in exact numeric outputs across four reference setups:
 
 Protects baseline physics against unintended regression during refactoring.
 
-Regenerated when `analytical.diffuser_throat_height_m()` started raising a throat
-set below the floor line up to that line: every case here has a nominal 30 mm
-throat under a floor at 39.75-44.75 mm, so the underbody lost about a tenth of
-its Cl. Drag is unchanged because the model's diffuser drag term is a constant.
+Regenerated when `analytical._wing_cl` stopped applying a flat 1.12 ground-effect
+gain to the front wing and started pricing that gain at each element's own
+trailing-edge clearance (`WingStation.min_clearance_m`): the main plane, at 30 mm,
+keeps almost exactly the augmentation it had, while the flap, stacked 77 mm up,
+loses part of it. Total rear-wing downforce is untouched because the model leaves
+that wing in the freestream.
 """
 
 from __future__ import annotations
@@ -26,31 +28,31 @@ GOLDEN_TARGETS = {
     "default": {
         "config": FormulaAeroConfig(),
         "expected": {
-            "drag_N": 2396.1,
-            "downforce_total_N": 1633.9,
-            "downforce_front_N": 719.1,
+            "drag_N": 2395.7,
+            "downforce_total_N": 1627.6,
+            "downforce_front_N": 712.8,
             "downforce_rear_N": 914.8,
-            "balance_front_pct": 44.0,
-            "cop_x_m": 1.876,
-            "cl_total": 0.576,
+            "balance_front_pct": 43.8,
+            "cop_x_m": 1.883,
+            "cl_total": 0.574,
             "cd_total": 0.845,
             "efficiency": 0.68,
-            "lap_time_delta_s": 0.2689,
+            "lap_time_delta_s": 0.2694,
         },
     },
     "low_speed_100kmh": {
         "config": FormulaAeroConfig(speed_kmh=100.0),
         "expected": {
-            "drag_N": 599.0,
-            "downforce_total_N": 408.5,
-            "downforce_front_N": 179.8,
+            "drag_N": 598.9,
+            "downforce_total_N": 406.9,
+            "downforce_front_N": 178.2,
             "downforce_rear_N": 228.7,
-            "balance_front_pct": 44.0,
-            "cop_x_m": 1.876,
-            "cl_total": 0.576,
+            "balance_front_pct": 43.8,
+            "cop_x_m": 1.883,
+            "cl_total": 0.574,
             "cd_total": 0.845,
             "efficiency": 0.68,
-            "lap_time_delta_s": 0.1872,
+            "lap_time_delta_s": 0.1873,
         },
     },
     "monaco_high_df": {
@@ -64,16 +66,16 @@ GOLDEN_TARGETS = {
             diffuser_angle_deg=16.0,
         ),
         "expected": {
-            "drag_N": 2838.6,
-            "downforce_total_N": 4581.3,
-            "downforce_front_N": 2695.3,
+            "drag_N": 2827.7,
+            "downforce_total_N": 4529.8,
+            "downforce_front_N": 2643.8,
             "downforce_rear_N": 1886.0,
-            "balance_front_pct": 58.8,
-            "cop_x_m": 1.379,
-            "cl_total": 1.616,
-            "cd_total": 1.001,
-            "efficiency": 1.61,
-            "lap_time_delta_s": 0.0773,
+            "balance_front_pct": 58.4,
+            "cop_x_m": 1.395,
+            "cl_total": 1.597,
+            "cd_total": 0.997,
+            "efficiency": 1.60,
+            "lap_time_delta_s": 0.0804,
         },
     },
     "monza_low_drag": {
@@ -88,16 +90,16 @@ GOLDEN_TARGETS = {
             ride_height_rear_mm=50.0,
         ),
         "expected": {
-            "drag_N": 2343.9,
-            "downforce_total_N": 864.8,
-            "downforce_front_N": 446.6,
+            "drag_N": 2343.5,
+            "downforce_total_N": 856.9,
+            "downforce_front_N": 438.6,
             "downforce_rear_N": 418.3,
-            "balance_front_pct": 51.6,
-            "cop_x_m": 1.62,
-            "cl_total": 0.305,
-            "cd_total": 0.827,
+            "balance_front_pct": 51.2,
+            "cop_x_m": 1.635,
+            "cl_total": 0.302,
+            "cd_total": 0.826,
             "efficiency": 0.37,
-            "lap_time_delta_s": 0.3252,
+            "lap_time_delta_s": 0.3258,
         },
     },
 }

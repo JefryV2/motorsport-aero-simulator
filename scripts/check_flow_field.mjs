@@ -310,21 +310,44 @@ check(
 
 // The mirror of backend/simulation/analytical.py has to keep returning the
 // numbers that model returns, or the smoke argues with the readout. These
-// literals are _wing_cl() and the underbody terms of that file at its own
-// defaults (verified 2026-11-02 by running it).
+// literals are _wing_cl() of that file at its own defaults, priced at the
+// trailing-edge clearance WingStation.min_clearance_m reports for that element —
+// null means the model leaves it in the freestream (verified 2026-11-03 by
+// running it).
 const golden = [
-  ['front_wing_main', true, 0.2417821459261147],
-  ['front_wing_flap', true, 0.9609262532524657],
-  ['rear_wing_main', false, 0.5046788703966693],
-  ['rear_wing_flap', false, 1.4917784990863654],
+  ['front_wing_main', 0.029999999999999995, 0.24410348659790082],
+  ['front_wing_flap', 0.07721482384587533, 0.9380378135449086],
+  ['rear_wing_main', null, 0.5046788703966693],
+  ['rear_wing_flap', null, 1.4917784990863654],
 ];
 let clErr = 0;
-for (const [id, inGround, want] of golden) {
+const clearanceMismatch = [];
+for (const [id, wantC, wantCl] of golden) {
   const w = carGeo.aero.wings.find((x) => x.id === id);
-  clErr = Math.max(clErr, Math.abs(wingCl(w, inGround) - want));
+  clErr = Math.max(clErr, Math.abs(wingCl(w) - wantCl));
+  const ok = wantC === null
+    ? w.clearanceM === null
+    : w.clearanceM !== null && Math.abs(w.clearanceM - wantC) < 1e-12;
+  if (!ok) clearanceMismatch.push(`${id} = ${w.clearanceM}, want ${wantC}`);
 }
 const ub = underbodyTerms(carGeo.aero);
 check(clErr < 1e-12, 'wing Cl mirrors analytical.py', `max |diff| = ${clErr.toExponential(1)}`);
+check(clearanceMismatch.length === 0, 'wing clearances mirror wing_stations', clearanceMismatch.join('; ') || 'two trailing-edge gaps, two nulls');
+
+// Ground effect is priced from that gap, so it has to bleed off as the nose
+// rises — the front ride height moves the wings, not only the floor. These
+// literals are _wing_cl(cfg.front_wing_main, clearance) at those ride heights.
+const riseCl = [60, 100].map((mm) => {
+  const geo = geoFor({ ...CAR_CONFIG, ride_height_front_mm: mm });
+  return wingCl(geo.aero.wings.find((x) => x.id === 'front_wing_main'));
+});
+check(
+  Math.abs(riseCl[0] - 0.2378597912862731) < 1e-12
+    && Math.abs(riseCl[1] - 0.23239654761549694) < 1e-12
+    && riseCl[0] < wingCl(carGeo.aero.wings.find((x) => x.id === 'front_wing_main')) - 1e-3,
+  'front wing lift falls as the nose rises',
+  `main plane Cl = ${riseCl[0].toFixed(5)} at 60 mm, ${riseCl[1].toFixed(5)} at 100 mm (25 mm gives 0.24410)`,
+);
 check(
   Math.abs(ub.clUnder - 0.05885059942994359) < 1e-12
     && Math.abs(ub.cdUnder - 0.04089201550876271) < 1e-12,

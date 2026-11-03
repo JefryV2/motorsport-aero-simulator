@@ -12,6 +12,8 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 9. The pressure map's surface regions sit on the solver's stations, not on
    fractions of the bounding box that arrived with the mesh
 10. One lap-time proxy prices all three tiers and the frontend mirror
+11. The wing ground-effect gain is priced at each element's own gap to the plane,
+    so the front ride height moves the wing and not only the floor
 """
 
 from __future__ import annotations
@@ -410,6 +412,8 @@ class TestDiffuserThroatMustBeBuildable:
             "wheelRadiusRearM": analytical.WHEEL_RADIUS_REAR_M,
             "wheelWidthFrontM": analytical.WHEEL_WIDTH_FRONT_M,
             "wheelWidthRearM": analytical.WHEEL_WIDTH_REAR_M,
+            "geLiftGainMax": analytical.GE_LIFT_GAIN_MAX,
+            "geLiftDecayM": analytical.GE_LIFT_DECAY_M,
             "lapBaselineDragN": analytical.LAP_BASELINE_DRAG_N,
             "lapBaselineDfN": analytical.LAP_BASELINE_DF_N,
             "lapSecPerDragN": analytical.LAP_SEC_PER_DRAG_N,
@@ -594,3 +598,87 @@ class TestOneLapProxyAcrossTiers:
 
         assert draggier - base == pytest.approx(100.0 * analytical.LAP_SEC_PER_DRAG_N)
         assert base - loaded == pytest.approx(1000.0 * analytical.LAP_SEC_PER_DF_N)
+
+
+class TestWingGroundEffectIsPricedAtItsOwnGap:
+    """The front wing used to get a flat x1.12 lift gain whatever its height was.
+
+    `ride_height_front_mm` therefore moved the floor and the front/rear share but
+    left the wing alone: at a 150 mm nose the model still claimed the same 12 %
+    augmentation it used at 25 mm. The gain is now priced at each element's
+    trailing-edge clearance, anchored so the default front wing as a whole keeps
+    the 1.12 it used to assert.
+    """
+
+    def _stations(self, config: FormulaAeroConfig):
+        return {s.name: s for s in analytical.wing_stations(config)}
+
+    def _wing_only_front_df(self, monkeypatch, front_mm: float) -> float:
+        """Front downforce with the underbody term switched off, so only the wing moves."""
+        monkeypatch.setattr(
+            analytical, "_underbody_forces", lambda config, speed_ms: (0.0, 0.0, 0.35)
+        )
+        return simulate(FormulaAeroConfig(ride_height_front_mm=front_mm)).forces.downforce_front_N
+
+    def test_the_gain_decays_with_the_gap_and_vanishes_far_above_the_plane(self):
+        near = analytical.ground_effect_lift_factor(0.030)
+        mid = analytical.ground_effect_lift_factor(0.077)
+        far = analytical.ground_effect_lift_factor(0.150)
+
+        assert near > mid > far
+        assert analytical.ground_effect_lift_factor(2.0) == pytest.approx(1.0, abs=1e-5)
+        assert analytical.ground_effect_lift_factor(None) == 1.0
+
+    def test_the_gap_is_the_trailing_edge_not_the_station_height(self):
+        """A pitched wing's lowest point is its trailing edge, and that is the gap."""
+        cfg = FormulaAeroConfig(ride_height_front_mm=25.0)
+        main = self._stations(cfg)["front_wing_main"]
+        assert main.min_clearance_m == pytest.approx(
+            0.025 + analytical.FW_GROUND_CLEARANCE_M
+        )
+
+        pitched_cfg = cfg.model_copy(
+            update={
+                "front_wing_main": cfg.front_wing_main.model_copy(
+                    update={"angle_deg": 12.0}
+                )
+            }
+        )
+        pitched = self._stations(pitched_cfg)["front_wing_main"]
+        assert pitched.height_m > main.height_m + 0.02, "the nose did not lift with incidence"
+        assert pitched.min_clearance_m == pytest.approx(main.min_clearance_m)
+
+    def test_the_default_front_wing_keeps_the_flat_augmentation(self):
+        """Anchor for the two constants: the wing as a whole still reads ~1.12."""
+        cfg = FormulaAeroConfig()
+        stations = self._stations(cfg)
+        areas, weighted = 0.0, 0.0
+        for name in ("front_wing_main", "front_wing_flap"):
+            element = getattr(cfg, name)
+            area = element.chord_m * element.span_m
+            gain = analytical.ground_effect_lift_factor(stations[name].min_clearance_m)
+            areas += area
+            weighted += gain * area
+
+        assert weighted / areas == pytest.approx(1.12, abs=0.005)
+
+    def test_the_stacked_flap_gets_less_gain_than_the_main_plane(self):
+        cfg = FormulaAeroConfig()
+        stations = self._stations(cfg)
+        main = analytical.ground_effect_lift_factor(
+            stations["front_wing_main"].min_clearance_m
+        )
+        flap = analytical.ground_effect_lift_factor(
+            stations["front_wing_flap"].min_clearance_m
+        )
+
+        assert main > 1.125 > flap > 1.05, f"main {main:.4f}, flap {flap:.4f}"
+
+    def test_front_wing_lift_falls_as_the_nose_rises(self, monkeypatch):
+        """The behaviour the old flat factor could not show at all."""
+        low = self._wing_only_front_df(monkeypatch, 10.0)
+        mid = self._wing_only_front_df(monkeypatch, 60.0)
+        high = self._wing_only_front_df(monkeypatch, 150.0)
+
+        assert low > mid > high, f"wing ignored ride height: {low} / {mid} / {high}"
+        assert low - high > 30.0, f"only {low - high:.1f} N lost over 140 mm of nose lift"

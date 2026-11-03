@@ -30,6 +30,15 @@ GE_DECAY_REAR_M = 0.020
 GE_DECAY_DIFFUSER_M = 0.025
 RAKE_COEF_PER_DEG = 0.08
 
+# Ground-effect lift gain for a lifting element near the plane, priced from the
+# clearance of that element's own section (see `ground_effect_lift_factor`). The
+# two numbers are anchored: across the default front wing the area-weighted gain
+# is 1.1214, so the whole model keeps the flat 1.12 augmentation it used to
+# apply - it is now distributed by each element's gap instead of asserted, and
+# the front ride-height knob moves the wings as well as the floor.
+GE_LIFT_GAIN_MAX = 0.162
+GE_LIFT_DECAY_M = 0.14
+
 # Floor and diffuser stations in car-local metres from the nose. These mirror
 # REFERENCE in frontend/js/carSpec.js, which draws the same lines; the tests in
 # tests/test_physics_sanity.py assert the two do not drift apart.
@@ -159,6 +168,19 @@ class WingStation:
     chord_m: float
     angle_deg: float
 
+    @property
+    def min_clearance_m(self) -> float:
+        """Height of the lowest point of this section over the ground plane.
+
+        Positive incidence drops the trailing edge, and `wing_stations` lifts the
+        leading edge by exactly that drop, so the trailing edge is what the plane
+        sees. That is the gap ground effect is priced at - pricing the leading
+        edge instead would take lift away from a wing for pitching its trailing
+        edge down toward the floor.
+        """
+        drop = self.chord_m * max(0.0, math.sin(math.radians(self.angle_deg)))
+        return self.height_m - drop
+
 
 def wing_stations(config: FormulaAeroConfig) -> tuple[WingStation, ...]:
     """The four lifting surfaces as the solver places them.
@@ -242,8 +264,29 @@ def effective_rear_flap(config: FormulaAeroConfig) -> WingElement:
     return flap.model_copy(update={"angle_deg": DRS_FLAP_ANGLE_DEG})
 
 
-def _wing_cl(element: WingElement, in_ground_effect: bool = False) -> tuple[float, float]:
-    """Estimate Cl and induced drag factor for a wing element."""
+def ground_effect_lift_factor(clearance_m: float | None) -> float:
+    """Lift augmentation of an element whose lowest point is `clearance_m` up.
+
+    None means the model does not place that element in ground effect (the rear
+    wing). A negative or zero clearance - a setup that would run the plane through
+    the floor - is clipped to the in-contact gain rather than extrapolated. The
+    constants are anchored so the default front wing as a whole still reads the
+    1.12 this model used to assert flat.
+    """
+    if clearance_m is None:
+        return 1.0
+    return 1.0 + GE_LIFT_GAIN_MAX * math.exp(-max(0.0, clearance_m) / GE_LIFT_DECAY_M)
+
+
+def _wing_cl(
+    element: WingElement, clearance_m: float | None = None
+) -> tuple[float, float]:
+    """Estimate Cl and induced drag factor for a wing element.
+
+    `clearance_m` is the element's trailing-edge gap to the ground plane, from
+    `WingStation.min_clearance_m`; the front wing elements get their gain from
+    `ground_effect_lift_factor`, the rear wing passes None.
+    """
     alpha_rad = math.radians(element.angle_deg)
     # Thin-airfoil slope with stall softening
     cl_2d = 2 * math.pi * alpha_rad
@@ -257,18 +300,17 @@ def _wing_cl(element: WingElement, in_ground_effect: bool = False) -> tuple[floa
     # Gurney flap boost (~0.08 Cl per 10mm at racing Re)
     cl_3d += (element.gurney_mm / 10.0) * 0.08
 
-    if in_ground_effect:
-        cl_3d *= 1.12  # ground effect augmentation on front wing
+    cl_3d *= ground_effect_lift_factor(clearance_m)
 
     cd_i_factor = cl_3d**2 / (math.pi * ar * e)
     return cl_3d, cd_i_factor
 
 
 def _wing_forces(
-    element: WingElement, speed_ms: float, in_ground_effect: bool = False
+    element: WingElement, speed_ms: float, clearance_m: float | None = None
 ) -> tuple[float, float]:
     """Return (downforce_N, drag_N) for a wing element."""
-    cl, cd_i = _wing_cl(element, in_ground_effect)
+    cl, cd_i = _wing_cl(element, clearance_m)
     q = 0.5 * RHO * speed_ms**2
     area = element.chord_m * element.span_m
     lift = q * area * cl  # downforce-positive convention for the empirical wing model
@@ -325,9 +367,14 @@ def simulate(config: FormulaAeroConfig, method: str = "analytical") -> Simulatio
     """Run full-car aero simulation."""
     speed_ms = config.speed_kmh / 3.6
 
-    # Front wing (both elements, in ground effect)
-    df_fw_main, drag_fw_main = _wing_forces(config.front_wing_main, speed_ms, in_ground_effect=True)
-    df_fw_flap, drag_fw_flap = _wing_forces(config.front_wing_flap, speed_ms, in_ground_effect=True)
+    # Front wing (both elements, in ground effect at their own trailing-edge gap)
+    stations = {s.name: s for s in wing_stations(config)}
+    df_fw_main, drag_fw_main = _wing_forces(
+        config.front_wing_main, speed_ms, stations["front_wing_main"].min_clearance_m
+    )
+    df_fw_flap, drag_fw_flap = _wing_forces(
+        config.front_wing_flap, speed_ms, stations["front_wing_flap"].min_clearance_m
+    )
     df_front_wing = df_fw_main + df_fw_flap
     drag_front_wing = drag_fw_main + drag_fw_flap
 

@@ -69,6 +69,12 @@ export const REFERENCE = {
   floorAreaM2: 2.2, // _underbody_forces floor_area: effective underbody area
   bodyCd: 0.75, // _body_drag cd_body: wheels, suspension, cockpit
   profileCd: 0.008, // _wing_forces profile drag term
+  // Wing ground effect: analytical.ground_effect_lift_factor prices the lift
+  // gain at each section's trailing-edge clearance, so the front ride height
+  // moves the wings as well as the floor. The gain is anchored so the default
+  // front wing as a whole keeps the flat 1.12 this model used to apply.
+  geLiftGainMax: 0.162, // analytical.GE_LIFT_GAIN_MAX
+  geLiftDecayM: 0.14, // analytical.GE_LIFT_DECAY_M
   drsFlapAngleDeg: 2.0, // analytical.DRS_FLAP_ANGLE_DEG: rear flap when DRS is open
   // Lap-time proxy: analytical.lap_time_delta_s is the only implementation and
   // these are its four numbers. The tiers report against lapBaseline*; the UI
@@ -266,6 +272,13 @@ export function deriveSurfaces(config) {
         chordM: w.chord,
         spanM: w.span,
         gurneyM: w.gurneyM,
+        // Ground-effect gap: the lowest point of the section over the plane,
+        // analytical.WingStation.min_clearance_m. Positive incidence drops the
+        // trailing edge by chord * sin(angle); the rear wing is null because the
+        // model leaves it in the freestream. TRUE metres, never the display scale.
+        clearanceM: w.id.startsWith('front_wing')
+          ? w.y - w.chord * Math.max(0, Math.sin(w.angle * DEG))
+          : null,
       })),
       refAreaM2: REFERENCE.refAreaM2,
       floorAreaM2: REFERENCE.floorAreaM2,

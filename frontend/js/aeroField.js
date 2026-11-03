@@ -91,7 +91,7 @@ function pressureElements(fr) {
     // Stations and heights in the frame's own 1-D coordinates, never world
     // points: a yawed or lifted model has to land in the same rectangles.
     panels.push({
-      dCp: w ? wingCl(w, l.id.startsWith('front_wing')) : 0,
+      dCp: w ? wingCl(w) : 0,
       s: l.station,
       h: l.height,
       cos: Math.cos(angle),

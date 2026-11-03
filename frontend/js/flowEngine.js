@@ -1,6 +1,6 @@
 /** Wind tunnel flow physics — air/car interaction for any model. */
 
-import { rearFlapAngleDeg } from './carSpec.js';
+import { rearFlapAngleDeg, REFERENCE } from './carSpec.js';
 
 export const DEFAULT_FLOW = {
   windSpeedKmh: 200,
@@ -149,14 +149,20 @@ const _vortexOut = [0, 0, 0];
 const DEG = Math.PI / 180;
 const OSWALD_E = 0.85; // _wing_cl e
 
+/** analytical.ground_effect_lift_factor. Null clearance = not priced in ground effect. */
+export function groundEffectLiftFactor(clearanceM) {
+  if (clearanceM === null || clearanceM === undefined) return 1.0;
+  return 1 + REFERENCE.geLiftGainMax * Math.exp(-Math.max(0, clearanceM) / REFERENCE.geLiftDecayM);
+}
+
 /** Downforce-positive lift coefficient (_wing_cl). */
-export function wingCl(w, inGroundEffect = false) {
+export function wingCl(w) {
   let cl2d = 2 * Math.PI * (w.angleDeg * DEG);
   cl2d = Math.max(-0.5, Math.min(cl2d, 1.8)); // stall softening
   const ar = Math.max(0.5, w.spanM / w.chordM);
   let cl = cl2d / (1 + cl2d / (Math.PI * ar * OSWALD_E)); // Prandtl tip loss
   cl += w.gurneyM * 8; // _wing_cl — 0.08 Cl per 10 mm
-  if (inGroundEffect) cl *= 1.12;
+  cl *= groundEffectLiftFactor(w.clearanceM);
   return cl;
 }
 
@@ -180,7 +186,7 @@ export function underbodyTerms(aero) {
 function dragAreaM2(aero) {
   let cdArea = aero.refAreaM2 * aero.bodyCd;
   for (const w of aero.wings) {
-    const cl = wingCl(w, w.id.startsWith('front_wing'));
+    const cl = wingCl(w);
     const ar = Math.max(0.5, w.spanM / w.chordM);
     cdArea += w.chordM * w.spanM * (aero.profileCd + (cl * cl) / (Math.PI * ar * OSWALD_E));
   }
@@ -191,7 +197,7 @@ function dragAreaM2(aero) {
 function downforceAreaM2(aero) {
   let clArea = 0;
   for (const w of aero.wings) {
-    clArea += wingCl(w, w.id.startsWith('front_wing')) * w.chordM * w.spanM;
+    clArea += wingCl(w) * w.chordM * w.spanM;
   }
   return clArea + aero.floorAreaM2 * underbodyTerms(aero).clUnder;
 }
@@ -374,7 +380,7 @@ function buildSources(fr, config, wind) {
     const tipSites = [];
     for (const l of g.lines) {
       const w = byId[l.id];
-      const cl = w ? wingCl(w, l.id.startsWith('front_wing')) : 0.2;
+      const cl = w ? wingCl(w) : 0.2;
       // Γ = ½·U·c·Cl. With v ∝ d × r and d along +lateral, positive Γ lifts the
       // air behind the surface — the reaction a downforce wing requires.
       const gamma = 0.5 * u * l.chord * cl;
