@@ -61,10 +61,12 @@ reports measured y+ and `checkMesh` quality per run. See
 
 ## Optimization and advice
 
-- **Bayesian optimizer** (Optuna TPE) over wing angles, ride heights, rake,
-  diffuser and gurney flaps. It always uses the fast VLM path — real CFD is
-  single-point verification, never a 100-case inner loop. The UI runs 30 trials
-  with an elapsed-time counter.
+- **Bayesian optimizer** (Optuna TPE) over wing angles, ride heights, rake and
+  diffuser. It always uses the fast VLM path — real CFD is single-point
+  verification, never a 100-case inner loop. Gurney height joins the search space
+  only when the objective is the analytical tier: the panel method has no gurney
+  term, so tuning it there would return a flap height the objective cannot see.
+  The UI runs 30 trials with an elapsed-time counter.
 - **Advisor** posts to any OpenAI-compatible endpoint (`LLM_BASE_URL`,
   `LLM_MODEL`; default `gpt-4o-mini`) and falls back to a rule-based advisor
   with no key. Rule-based advice labels improvement as a normalized objective

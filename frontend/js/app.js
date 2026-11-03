@@ -321,9 +321,9 @@ function getConfig() {
   }
   
   return {
-    front_wing_main: { angle_deg: +document.getElementById('fw_main').value, chord_m: 0.35, span_m: 1.80, gurney_mm: 0 },
+    front_wing_main: { angle_deg: +document.getElementById('fw_main').value, chord_m: 0.35, span_m: 1.80, gurney_mm: +document.getElementById('fw_gurney').value },
     front_wing_flap: { angle_deg: +document.getElementById('fw_flap').value, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
-    rear_wing_main: { angle_deg: +document.getElementById('rw_main').value, chord_m: 0.40, span_m: 0.95, gurney_mm: 0 },
+    rear_wing_main: { angle_deg: +document.getElementById('rw_main').value, chord_m: 0.40, span_m: 0.95, gurney_mm: +document.getElementById('rw_gurney').value },
     rear_wing_flap: { angle_deg: rwFlapAngle, chord_m: 0.15, span_m: 0.90, gurney_mm: 0 },
     ride_height_front_mm: +document.getElementById('rh_front').value,
     ride_height_rear_mm: +document.getElementById('rh_rear').value,
@@ -559,8 +559,10 @@ function showResults(sim) {
 function applyOptimizedConfig(cfg) {
   document.getElementById('fw_main').value = cfg.front_wing_main.angle_deg;
   document.getElementById('fw_flap').value = cfg.front_wing_flap.angle_deg;
+  document.getElementById('fw_gurney').value = cfg.front_wing_main.gurney_mm;
   document.getElementById('rw_main').value = cfg.rear_wing_main.angle_deg;
   document.getElementById('rw_flap').value = cfg.rear_wing_flap.angle_deg;
+  document.getElementById('rw_gurney').value = cfg.rear_wing_main.gurney_mm;
   document.getElementById('rh_front').value = cfg.ride_height_front_mm;
   document.getElementById('rh_rear').value = cfg.ride_height_rear_mm;
   document.getElementById('rake').value = cfg.rake_deg;

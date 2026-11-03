@@ -92,8 +92,12 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
         cfg.rake_deg = trial.suggest_float("rake", 0.0, 3.5)
         cfg.diffuser_angle_deg = trial.suggest_float("diffuser_angle", 8.0, 18.0)
         cfg.diffuser_ride_height_mm = trial.suggest_float("diffuser_rh", 15.0, 50.0)
-        cfg.front_wing_main.gurney_mm = trial.suggest_float("fw_gurney", 0.0, 30.0)
-        cfg.rear_wing_main.gurney_mm = trial.suggest_float("rw_gurney", 0.0, 20.0)
+        # panel_method.py has no gurney term, so under the panel tier these two
+        # dimensions cannot move the objective and would only return arbitrary
+        # flap heights that change the answer under `analytical`.
+        if not use_panel:
+            cfg.front_wing_main.gurney_mm = trial.suggest_float("fw_gurney", 0.0, 30.0)
+            cfg.rear_wing_main.gurney_mm = trial.suggest_float("rw_gurney", 0.0, 20.0)
 
         result = sim_fn(cfg)
         forces = result.forces
@@ -128,8 +132,9 @@ def optimize(request: OptimizationRequest, use_panel: bool = True) -> Optimizati
     best_cfg.rake_deg = best_params["rake"]
     best_cfg.diffuser_angle_deg = best_params["diffuser_angle"]
     best_cfg.diffuser_ride_height_mm = best_params["diffuser_rh"]
-    best_cfg.front_wing_main.gurney_mm = best_params["fw_gurney"]
-    best_cfg.rear_wing_main.gurney_mm = best_params["rw_gurney"]
+    if not use_panel:
+        best_cfg.front_wing_main.gurney_mm = best_params["fw_gurney"]
+        best_cfg.rear_wing_main.gurney_mm = best_params["rw_gurney"]
 
     best_result = sim_fn(best_cfg)
     best_score = _objective_score(best_result.forces, request.objective, target_balance)
