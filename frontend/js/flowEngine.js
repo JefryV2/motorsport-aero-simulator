@@ -564,6 +564,15 @@ export function isInsideBBox(x, y, z, bounds, pad = 0) {
 }
 
 /**
+ * Ceiling on |v - U| as a fraction of U. Singularities grow as 1/d² and 1/d³,
+ * so inside a core the perturbation reaches hundreds of m/s and tracers skip
+ * clean through the car; this is the attached-flow overshoot the field is
+ * allowed to report. meshFlow.js holds its own deflection to the same budget,
+ * so nothing downstream can quietly exceed it.
+ */
+export const PERTURBATION_BUDGET = 0.85;
+
+/**
  * Freestream plus the model's singularity system, with the near-body cap.
  *
  * This is the inviscid half of the field, and the only half a static pressure
@@ -602,11 +611,8 @@ function potentialFrom(fr, src, wx, wy, wz, uRef, x, y, z) {
     }
   }
 
-  // Singularities grow as 1/d² and 1/d³, so inside a core the perturbation
-  // reaches hundreds of m/s and tracers skip clean through the car. Cap it at
-  // a plausible attached-flow overshoot to keep |v| near 1.5 U.
   const pMag = Math.sqrt(px * px + py * py + pz * pz);
-  const pCap = 0.85 * uRef;
+  const pCap = PERTURBATION_BUDGET * uRef;
   if (pMag > pCap) {
     const k = pCap / pMag;
     px *= k;

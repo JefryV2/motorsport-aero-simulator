@@ -1,5 +1,7 @@
 /** Nearest-point queries on car mesh for shape-aware airflow. */
 
+import { PERTURBATION_BUDGET, windVector } from './flowEngine.js';
+
 function dot(a, b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -194,6 +196,20 @@ export function velocityAtMesh(x, y, z, sampler, baseVelocityFn, config, bounds,
     vx += slide[0] * speed * push;
     vy += slide[1] * speed * push * 0.5;
     vz += slide[2] * speed * push;
+  }
+
+  // The base field is already held to PERTURBATION_BUDGET x U, and everything
+  // above is added on top of it, so the result has to answer to the same
+  // ceiling or the deflection quietly doubles the field's own overshoot.
+  const [ux, uy, uz] = windVector(flow);
+  const dx = vx - ux;
+  const dy = vy - uy;
+  const dz = vz - uz;
+  const dMag = len([dx, dy, dz]);
+  const cap = PERTURBATION_BUDGET * len([ux, uy, uz]);
+  if (dMag > cap) {
+    const k = cap / dMag;
+    return [ux + dx * k, uy + dy * k, uz + dz * k];
   }
 
   return [vx, vy, vz];

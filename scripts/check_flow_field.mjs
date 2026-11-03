@@ -23,6 +23,10 @@
  *  11. the wake: a deficit with a width, whose drawn envelope is the field's
  *      own profile edge at its own recovery station, cut at the floor and
  *      deepened by drag.
+ *  12. the air/car interaction layer: deflection around the skin may add to the
+ *      field, but never past the field's own perturbation budget.
+ *  13. every frontend module parses, so a syntax error fails here instead of
+ *      showing up as a blank canvas.
  *
  * Run: node scripts/check_flow_field.mjs
  *
@@ -32,7 +36,8 @@
  * the source layout. None of them imports Three.js.
  */
 
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -42,6 +47,7 @@ const copies = [
   ['../frontend/js/flowEngine.js', 'flowEngine.mjs'],
   ['../frontend/js/carSpec.js', 'carSpec.mjs'],
   ['../frontend/js/aeroField.js', 'aeroField.mjs'],
+  ['../frontend/js/meshFlow.js', 'meshFlow.mjs'],
 ];
 const urls = copies.map(([src, name]) => {
   const dest = join(tmpDir, name);
@@ -54,10 +60,12 @@ const urls = copies.map(([src, name]) => {
 let mod;
 let spec;
 let press;
+let mesh;
 try {
   mod = await import(urls[0]);
   spec = await import(urls[1]);
   press = await import(urls[2]);
+  mesh = await import(urls[3]);
 } finally {
   rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -65,10 +73,11 @@ try {
 const {
   velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl,
   underbodyTerms, atStation, reynoldsNumber, reynoldsLabel, windVector,
-  wakeShape, potentialVelocityAt,
+  wakeShape, potentialVelocityAt, PERTURBATION_BUDGET,
 } = mod;
 const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, lapTimeDeltaS, REFERENCE } = spec;
 const { computeCpField } = press;
+const { velocityAtMesh } = mesh;
 
 const bounds = { min: [-1.75, 0, -0.5], max: [1.75, 0.6, 0.5] };
 const baseFlow = {
@@ -894,6 +903,76 @@ check(
   reynoldsLabel({ windSpeedKmh: 200 }).includes(`L=${REFERENCE.carLengthM} m`),
   'the Re readout names its length',
   reynoldsLabel({ windSpeedKmh: 200 }),
+);
+
+// ---------------------------------------------------------------------------
+// 12. the air/car interaction layer answers to the budget of the field it is
+//     added to. It takes an already-capped velocity and deflects it around the
+//     skin, so without its own ceiling the shipped page reported 2.08 U on the
+//     centreline slice of a field that forbids more than 1.85 U.
+// ---------------------------------------------------------------------------
+const plate = {
+  nearest(x, y, z, influence) {
+    const dist = Math.abs(y - 0.35);
+    return dist <= influence ? { point: [x, 0.35, z], normal: [0, 1, 0], dist } : null;
+  },
+};
+const [mwx, mwy, mwz] = windVector(calm);
+const meshU = Math.hypot(mwx, mwy, mwz);
+let meshWorst = 0;
+let meshAtCap = 0;
+let meshN = 0;
+for (let i = 0; i < 16; i++) {
+  for (let j = 0; j < 12; j++) {
+    for (let k = 0; k < 12; k++) {
+      const x = -1.6 + 3.2 * (i / 15);
+      const y = 0.02 + 0.7 * (j / 11);
+      const z = -0.45 + 0.9 * (k / 11);
+      const v = velocityAtMesh(x, y, z, plate, velocityAt, CAR_CONFIG, offBounds, calm);
+      const pert = Math.hypot(v[0] - mwx, v[1] - mwy, v[2] - mwz) / meshU;
+      meshN += 1;
+      if (pert > meshWorst) meshWorst = pert;
+      if (pert > PERTURBATION_BUDGET - 1e-9) meshAtCap += 1;
+    }
+  }
+}
+check(
+  meshWorst <= PERTURBATION_BUDGET + 1e-9,
+  'the interaction layer cannot out-reach the field it modifies',
+  `worst perturbation ${meshWorst.toFixed(3)} U over ${meshN} points around a skin plate (budget ${PERTURBATION_BUDGET} U)`,
+);
+check(
+  meshAtCap > 0,
+  'that ceiling is load-bearing, not decorative',
+  `${meshAtCap} of ${meshN} points sit on the cap - the deflection alone wants more than the field allows`,
+);
+
+// ---------------------------------------------------------------------------
+// 13. Every shipped module parses. The gate imports three of them; the rest are
+// only parsed by a browser, so a redeclared const in meshFlow.js sat green
+// until the page threw and the smoke stopped entirely.
+// ---------------------------------------------------------------------------
+const jsDir = new URL('../frontend/js/', import.meta.url);
+const jsFiles = readdirSync(jsDir).filter((n) => n.endsWith('.js'));
+const parseDir = mkdtempSync(join(tmpdir(), 'parsecheck-'));
+const parseFail = [];
+try {
+  for (const name of jsFiles) {
+    const dest = join(parseDir, name.replace(/\.js$/, '.mjs'));
+    copyFileSync(new URL(name, jsDir), dest);
+    try {
+      execFileSync(process.execPath, ['--check', dest], { stdio: 'pipe' });
+    } catch (e) {
+      parseFail.push(`${name}: ${String(e.stderr).split('\n').filter(Boolean)[0] || 'syntax error'}`);
+    }
+  }
+} finally {
+  rmSync(parseDir, { recursive: true, force: true });
+}
+check(
+  parseFail.length === 0,
+  'every frontend module parses',
+  parseFail.length ? parseFail.join(' | ') : `${jsFiles.length} files, node --check clean`,
 );
 
 console.log('');

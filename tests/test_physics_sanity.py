@@ -1072,3 +1072,98 @@ class TestTheSliceLegendNamesWhatTheSliceIsPaintedWith:
         assert composer, "the legend no longer composes its lines in one place"
         for name in ("_skinRangeText", "_sliceRangeText"):
             assert name in composer.group(1), f"{name} is not part of the legend"
+
+
+class TestTheInteractionLayerAnswersToTheFieldBudget:
+    """The air/car deflection was added on top of a clamped field, unclamped.
+
+    `potentialVelocityAt()` holds the singularity perturbation to
+    `PERTURBATION_BUDGET` x U because the doublets and vortices grow as 1/d² and
+    1/d³ - inside a core they reach hundreds of m/s and tracers skip clean
+    through the car. `velocityAtMesh()` then piles a slide-along-the-skin term on
+    that already-capped result with no ceiling of its own, which let the tracer
+    field, the velocity map and the probe report an overshoot the analytic model
+    deliberately refuses: a flat plate over the skin put 40 of 2304 samples past
+    twice the freestream, and the live 200 km/h slice peaked at 421 km/h.
+    """
+
+    def _text(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def _budget(self) -> str:
+        engine = self._text("frontend", "js", "flowEngine.js")
+        found = re.search(r"export const PERTURBATION_BUDGET = ([0-9.]+);", engine)
+        assert found, "the field no longer states its own perturbation budget"
+        return found.group(1)
+
+    def test_the_budget_is_stated_once_and_imported(self):
+        engine = self._text("frontend", "js", "flowEngine.js")
+        assert engine.count("export const PERTURBATION_BUDGET") == 1
+        cap = re.search(r"const pCap = ([A-Za-z_]+) \* uRef;", engine)
+        assert cap, "the analytic cap no longer multiplies a named budget"
+        assert cap.group(1) == "PERTURBATION_BUDGET", (
+            "the analytic cap reads a different constant than the one exported"
+        )
+        mesh = self._text("frontend", "js", "meshFlow.js")
+        imports = re.search(r"import \{([^}]*)\} from '\./flowEngine\.js';", mesh)
+        assert imports, (
+            "meshFlow no longer imports the field it modifies, so the two "
+            "ceilings can drift apart"
+        )
+        assert "PERTURBATION_BUDGET" in imports.group(1)
+
+    def test_the_deflection_is_capped_against_the_wind_it_started_from(self):
+        mesh = self._text("frontend", "js", "meshFlow.js")
+        body = re.search(
+            r"export function velocityAtMesh\(.*?\n\}", mesh, re.DOTALL
+        )
+        assert body, "the tracer field no longer has a near-skin velocity fn of its own"
+        code = body.group(0)
+        assert "const [ux, uy, uz] = windVector(flow);" in code, (
+            "the deflection is measured against something other than the "
+            "freestream, so a yawed or pitched car gets a different ceiling"
+        )
+        block = code.split("const [ux, uy, uz] = windVector(flow);", 1)[1]
+        assert "const cap = PERTURBATION_BUDGET * len([ux, uy, uz]);" in block, (
+            "the ceiling is no longer the budget scaled by the actual |U|"
+        )
+        assert re.search(r"return \[ux \+ dx \* k, uy \+ dy \* k, uz \+ dz \* k\];", block), (
+            "the over-budget vector is thrown away instead of pulled back onto "
+            "the cap, which would delete the deflection rather than bound it"
+        )
+        guard = block.find("if (dMag > cap)")
+        rescale = block.find("return [ux + dx * k")
+        assert guard != -1 and rescale != -1, (
+            "the cap no longer tests the deflection and pulls it back inside "
+            "the budget, which is the whole point of the block"
+        )
+        assert guard < rescale, "the rescale runs without the test that triggers it"
+        # Everything the deflection adds has to be inside the function before the
+        # cap runs, or the ceiling would bound the base field and not the result.
+        plain = block.rfind("return [vx, vy, vz];")
+        assert plain == -1 or rescale < plain, (
+            "the uncapped vector is returned after the ceiling, so the cap "
+            "cannot be the last word on the result"
+        )
+        for term in ("slide[0] * speed * push", "vx += slide[0] * speed * push"):
+            if term in code:
+                assert code.index(term) < code.index("const [ux, uy, uz] = windVector")
+        for literal in ("0.85", "1.85"):
+            assert literal not in block, (
+                f"the cap restates {literal} instead of using the exported budget"
+            )
+
+    def test_the_tooltip_shares_the_number_it_is_bound_to(self):
+        html = self._text("frontend", "index.html")
+        tip = re.search(r'id="show_interaction"[^>]*title="([^"]+)"', html)
+        assert tip, "the interaction checkbox stopped explaining itself"
+        title = tip.group(1)
+        assert "tracer" in title, "the tooltip no longer says which field it touches"
+        assert "inviscid" in title and "forces never see it" in title, (
+            "the tooltip hides that the pressure map and the forces ignore it"
+        )
+        assert f"within {self._budget()} U" in title, (
+            "the tooltip quotes an overshoot the code no longer enforces"
+        )
