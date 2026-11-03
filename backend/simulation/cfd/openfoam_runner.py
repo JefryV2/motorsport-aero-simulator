@@ -12,6 +12,7 @@ from backend.simulation.analytical import (
     _body_drag,
     _underbody_forces,
     _wing_forces,
+    centre_of_pressure_m,
     effective_rear_flap,
     lap_time_delta_s,
 )
@@ -128,7 +129,7 @@ def run_cfd_with_provenance(
     df_total_N = df_front_total + df_rear_total
     drag_total_N = drag_front_wing_N + drag_rear_wing_N + drag_floor + _body_drag(speed_ms)
 
-    balance_front_pct = (df_front_total / df_total_N * 100.0) if df_total_N > 1.0 else 50.0
+    balance_front_pct = (df_front_total / df_total_N * 100.0) if df_total_N > 0.0 else 50.0
     efficiency = df_total_N / drag_total_N if drag_total_N > 1.0 else 1.0
 
     cl_total = df_total_N / (q * REF_AREA) if q > 0 else 0.0
@@ -140,7 +141,7 @@ def run_cfd_with_provenance(
         downforce_front_N=round(df_front_total, 1),
         downforce_rear_N=round(df_rear_total, 1),
         balance_front_pct=round(balance_front_pct, 1),
-        cop_x_m=round(1.6 * (balance_front_pct / 100.0), 3),
+        cop_x_m=round(centre_of_pressure_m(df_front_total, df_total_N), 3),
         cl_total=round(cl_total, 3),
         cd_total=round(cd_total, 3),
         efficiency=round(efficiency, 2),

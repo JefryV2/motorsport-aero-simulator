@@ -18,7 +18,12 @@ from backend.ai.advisor import _fallback_advice
 from backend.main import app
 from backend.ml.dataset import DEFAULT_DATASET_PATH, load_dataset_parquet
 from backend.models.aero_config import AdvisorRequest, FormulaAeroConfig
-from backend.simulation.analytical import geometric_rake_deg, simulate
+from backend.simulation.analytical import (
+    WHEELBASE_M,
+    centre_of_pressure_m,
+    geometric_rake_deg,
+    simulate,
+)
 from backend.simulation.cfd.models import (
     AirfoilGeometry,
     CFDResult,
@@ -177,6 +182,49 @@ def test_hybrid_rear_load_moves_with_the_rear_wing_knobs(
     drs = run_cfd_with_provenance(cases["drs_open"])[0].forces
     assert drs.downforce_rear_N < base.downforce_rear_N
     assert drs.drag_N < base.drag_N
+
+
+class TestOneBalanceLeverAcrossTiers:
+    """Aero balance and centre of pressure are one split stated twice.
+
+    The CFD tier reported `1.6 * balance_front_pct / 100` for `cop_x_m` while the
+    other two tiers used the wheelbase lever, so the same 91.8 % front-loaded
+    hybrid result printed a CoP 0.858 m aft of the front axle - and moved it
+    rearward as the car became more front-heavy, the opposite of the definition
+    `backend/models/aero_config.py` documents ("from front axle, metres").
+    """
+
+    def test_the_lever_endpoints_and_direction(self) -> None:
+        assert centre_of_pressure_m(1000.0, 1000.0) == 0.0
+        assert centre_of_pressure_m(0.0, 1000.0) == WHEELBASE_M
+        assert centre_of_pressure_m(500.0, 1000.0) == WHEELBASE_M * 0.5
+        assert centre_of_pressure_m(0.0, 0.0) == WHEELBASE_M * 0.5
+        # More of the load ahead of the centre of pressure pulls it forward.
+        assert centre_of_pressure_m(700.0, 1000.0) < centre_of_pressure_m(300.0, 1000.0)
+
+    def test_every_tier_reports_the_shared_lever(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "backend.simulation.cfd.openfoam_runner.run_cfd_case",
+            lambda *args, **kwargs: _fake_cfd_result(synthetic=False),
+        )
+        cfg = FormulaAeroConfig()
+        tiers = {
+            "analytical": simulate(cfg),
+            "panel_vlm": simulate_panel(cfg),
+            "cfd": run_cfd_with_provenance(cfg)[0],
+        }
+        for label, sim in tiers.items():
+            forces = sim.forces
+            want = centre_of_pressure_m(forces.downforce_front_N, forces.downforce_total_N)
+            assert forces.cop_x_m == pytest.approx(want, abs=1e-3), (
+                f"{label} restates the lever: {forces.cop_x_m} vs {want:.3f}"
+            )
+            # The two fields must describe the same split, to their own rounding.
+            assert forces.cop_x_m == pytest.approx(
+                WHEELBASE_M * (1.0 - forces.balance_front_pct / 100.0), abs=2e-3
+            ), label
 
 
 def test_real_cfd_failure_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:

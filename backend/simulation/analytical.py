@@ -98,6 +98,20 @@ def geometric_rake_deg(config: FormulaAeroConfig) -> float:
     return math.degrees(math.atan(rise_mm / (WHEELBASE_M * 1000.0)))
 
 
+def centre_of_pressure_m(df_front_N: float, df_total_N: float) -> float:
+    """Aerodynamic centre as a station behind the front axle.
+
+    The rear axle carries the share of downforce the centre of pressure has
+    travelled back, so `x = wheelbase * (1 - front share)`. Every tier reports
+    this: the CFD hybrid used to print `1.6 * front share`, a different lever on a
+    different origin, which sent the reported CoP rearward as the car became more
+    front-loaded.
+    """
+    if df_total_N <= 0.0:
+        return WHEELBASE_M * 0.5
+    return WHEELBASE_M * (1.0 - df_front_N / df_total_N)
+
+
 def floor_height_at_m(config: FormulaAeroConfig, x_m: float) -> float:
     """Floor line height in metres above the ground plane at station `x_m`.
 
@@ -396,7 +410,7 @@ def simulate(config: FormulaAeroConfig, method: str = "analytical") -> Simulatio
     drag_total = drag_front_wing + drag_rear_wing + drag_floor + _body_drag(speed_ms)
 
     balance = (df_front / df_total * 100) if df_total > 0 else 50.0
-    cop_x = WHEELBASE_M * (1.0 - df_front / df_total) if df_total > 0 else WHEELBASE_M * 0.5
+    cop_x = centre_of_pressure_m(df_front, df_total)
 
     q = 0.5 * RHO * speed_ms**2
     cl_total = df_total / (q * REF_AREA) if q > 0 else 0.0

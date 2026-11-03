@@ -10,9 +10,9 @@ from backend.models.aero_config import AeroForces, FormulaAeroConfig, Simulation
 from backend.simulation.analytical import (
     REF_AREA,
     RHO,
-    WHEELBASE_M,
     _body_drag,
     _underbody_forces,
+    centre_of_pressure_m,
     lap_time_delta_s,
     wing_stations,
 )
@@ -78,7 +78,7 @@ def simulate_panel(
     drag_total = drag_wings + drag_floor + _body_drag(speed_ms)
 
     balance = (df_front / df_total * 100.0) if df_total > 0 else 50.0
-    cop_x = WHEELBASE_M * (1.0 - df_front / df_total) if df_total > 0 else WHEELBASE_M * 0.5
+    cop_x = centre_of_pressure_m(df_front, df_total)
     cl_total = df_total / (q * REF_AREA) if q > 0 else 0.0
     cd_total = drag_total / (q * REF_AREA) if q > 0 else 0.0
     efficiency = df_total / drag_total if drag_total > 0 else 0.0
