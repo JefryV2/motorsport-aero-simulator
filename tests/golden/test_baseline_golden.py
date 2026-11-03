@@ -14,7 +14,8 @@ from __future__ import annotations
 import math
 
 from backend.models.aero_config import FormulaAeroConfig
-from backend.simulation.analytical import simulate
+from backend.simulation.analytical import DRS_FLAP_ANGLE_DEG, effective_rear_flap, simulate
+from backend.simulation.panel_method import simulate_panel
 
 GOLDEN_TARGETS = {
     "default": {
@@ -76,21 +77,22 @@ GOLDEN_TARGETS = {
             front_wing_flap={"angle_deg": 4.0, "span_m": 1.8, "chord_m": 0.25, "gurney_mm": 0.0},
             rear_wing_main={"angle_deg": 2.0, "span_m": 1.0, "chord_m": 0.40, "gurney_mm": 0.0},
             rear_wing_flap={"angle_deg": 6.0, "span_m": 1.0, "chord_m": 0.30, "gurney_mm": 0.0},
+            # drs_active folds this 6 degree flap to analytical.DRS_FLAP_ANGLE_DEG
             drs_active=True,
             ride_height_front_mm=30.0,
             ride_height_rear_mm=50.0,
         ),
         "expected": {
-            "drag_N": 2364.9,
-            "downforce_total_N": 1123.4,
+            "drag_N": 2343.9,
+            "downforce_total_N": 897.3,
             "downforce_front_N": 453.7,
-            "downforce_rear_N": 669.7,
-            "balance_front_pct": 40.4,
-            "cop_x_m": 1.997,
-            "cl_total": 0.396,
-            "cd_total": 0.834,
-            "efficiency": 0.48,
-            "lap_time_delta_s": 0.3066,
+            "downforce_rear_N": 443.7,
+            "balance_front_pct": 50.6,
+            "cop_x_m": 1.656,
+            "cl_total": 0.316,
+            "cd_total": 0.827,
+            "efficiency": 0.38,
+            "lap_time_delta_s": 0.3226,
         },
     },
 }
@@ -111,6 +113,35 @@ def test_golden_baseline():
                 f"[{case_name}] Mismatch on {k}: actual={actual}, expected={v}"
             )
         print(f"PASS: {case_name}")
+
+
+def test_drs_flag_reaches_the_model():
+    """`drs_active` must survive validation and actually fold the rear flap.
+
+    Pydantic drops unknown kwargs without complaining, so a flag the model does
+    not define looks wired up in the UI while changing nothing at all.
+
+    Total drag is asserted for the analytical tier only: the VLM's coupled
+    Trefftz integral is non-monotone in rear flap angle (2383 N at 0 deg, 2368 N
+    at 10 deg, 2507 N at 25 deg), because unloading the rear wing increases the
+    front wing's induced drag. That is a property of the model, not of DRS.
+    """
+    cfg = FormulaAeroConfig(
+        rear_wing_flap={"angle_deg": 6.0, "span_m": 1.0, "chord_m": 0.30},
+        drs_active=True,
+    )
+    assert cfg.drs_active is True
+    assert cfg.rear_wing_flap.angle_deg == 6.0
+    assert effective_rear_flap(cfg).angle_deg == DRS_FLAP_ANGLE_DEG
+
+    for name, run in (("analytical", simulate), ("panel", simulate_panel)):
+        closed = run(cfg.model_copy(update={"drs_active": False}))
+        opened = run(cfg)
+        assert opened.forces.downforce_rear_N < closed.forces.downforce_rear_N, name
+        assert opened.forces.downforce_total_N < closed.forces.downforce_total_N, name
+
+    closed = simulate(cfg.model_copy(update={"drs_active": False}))
+    assert simulate(cfg).forces.drag_N < closed.forces.drag_N
 
 
 if __name__ == "__main__":

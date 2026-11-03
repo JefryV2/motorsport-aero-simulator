@@ -214,3 +214,17 @@ def test_rake_term_is_not_reported_as_body_attitude() -> None:
     advice = _fallback_advice(AdvisorRequest(config=cfg, simulation=simulate(cfg), question="what about rake"))
     assert "0.34" in advice
     assert "giving a rake of 1.5" not in advice
+
+
+def test_advisor_prices_drs_from_the_model() -> None:
+    """DRS advice must quote this model's own delta, not a handbook percentage."""
+    cfg = FormulaAeroConfig()
+    closed = simulate(cfg.model_copy(update={"drs_active": False})).forces
+    opened = simulate(cfg.model_copy(update={"drs_active": True})).forces
+
+    advice = _fallback_advice(
+        AdvisorRequest(config=cfg, simulation=simulate(cfg), question="what does DRS do")
+    )
+    assert f"{closed.drag_N:.0f}" in advice
+    assert f"{opened.drag_N:.0f}" in advice
+    assert "25-30%" not in advice

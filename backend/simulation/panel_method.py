@@ -15,6 +15,7 @@ from backend.simulation.analytical import (
     WHEELBASE_M,
     _body_drag,
     _underbody_forces,
+    effective_rear_flap,
 )
 from backend.simulation.vlm.core import VLMSurface, solve_vlm
 
@@ -30,7 +31,6 @@ def simulate_panel(
     q = 0.5 * RHO * speed_ms**2
 
     h_front = config.ride_height_front_mm / 1000.0
-    config.ride_height_rear_mm / 1000.0
 
     # Ensure front wing elements maintain positive ground clearance
     alpha_main_rad = math.radians(config.front_wing_main.angle_deg)
@@ -69,12 +69,13 @@ def simulate_panel(
         n_span=n_span,
         n_chord=n_chord,
     )
+    rw_flap_elem = effective_rear_flap(config)
     rw_flap = VLMSurface(
         name="rear_wing_flap",
         origin=(WHEELBASE_M + 0.20 + config.rear_wing_main.chord_m * 0.75, 0.0, 0.85 + 0.05),
-        span=config.rear_wing_flap.span_m,
-        chord=config.rear_wing_flap.chord_m,
-        angle_deg=config.rear_wing_flap.angle_deg,
+        span=rw_flap_elem.span_m,
+        chord=rw_flap_elem.chord_m,
+        angle_deg=rw_flap_elem.angle_deg,
         camber=0.06,
         n_span=n_span,
         n_chord=n_chord,

@@ -1311,12 +1311,13 @@
         <div class="inline-card" style="margin-bottom:0.55rem;">
           <div class="inline-card-head">
             <span class="name">DRS<small>Drag Reduction System</small></span>
-            <button type="button" id="btnDRS" class="drs-btn">
+            <button type="button" id="btnDRS" class="drs-btn" title="Folds the rear flap to 2 degrees in every solver tier. A flap already set at or below 2 degrees is unaffected.">
               <span id="drsIndicator" class="dot" aria-hidden="true"></span>
               <span id="drsText">OFF</span>
             </button>
           </div>
         </div>
+        <p class="status">Rear flap the model runs: <span id="rw_flap_eff_val">15.0</span>&deg;<span id="drsNoteVal"></span></p>
         
         <label for="track_profile">Track Profile</label>
         <select id="track_profile">

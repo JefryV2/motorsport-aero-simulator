@@ -7,7 +7,12 @@ import os
 import httpx
 
 from backend.models.aero_config import AdvisorRequest
-from backend.simulation.analytical import geometric_rake_deg
+from backend.simulation.analytical import (
+    DRS_FLAP_ANGLE_DEG,
+    effective_rear_flap,
+    geometric_rake_deg,
+    simulate,
+)
 
 SYSTEM_PROMPT = """You are an expert motorsport aerodynamicist specializing in formula open-wheel cars.
 You analyze simulation data and provide actionable setup recommendations.
@@ -32,6 +37,8 @@ def _build_context(request: AdvisorRequest) -> str:
 - Speed: {c.speed_kmh} km/h
 - Front wing: main {c.front_wing_main.angle_deg}°, flap {c.front_wing_flap.angle_deg}° (gurney {c.front_wing_main.gurney_mm}mm)
 - Rear wing: main {c.rear_wing_main.angle_deg}°, flap {c.rear_wing_flap.angle_deg}° (gurney {c.rear_wing_main.gurney_mm}mm)
+- Rear flap as the model ran it: {effective_rear_flap(c).angle_deg}°
+- DRS: {'open' if c.drs_active else 'closed'}
 - Ride height: front {c.ride_height_front_mm}mm, rear {c.ride_height_rear_mm}mm
 - Rake model term: {c.rake_deg}° (suction multiplier, not a body angle); body rake implied by those ride heights: {geometric_rake_deg(c):.2f}°
 - Diffuser: {c.diffuser_angle_deg}° at {c.diffuser_ride_height_mm}mm
@@ -104,10 +111,28 @@ def _fallback_advice(request: AdvisorRequest) -> str:
                 f"and lowering the Rear Wing Main plane angle (currently {c.rear_wing_main.angle_deg}°)."
             )
         elif "drs" in q:
-            lines.append(
-                "Drag Reduction System (DRS) flattens the rear wing flap to ~2°, which drops total aerodynamic drag "
-                "by approximately 25-30%. This is critical for overtaking on straights, but sacrifices rear downforce."
-            )
+            closed = simulate(c.model_copy(update={"drs_active": False})).forces
+            opened = simulate(c.model_copy(update={"drs_active": True})).forces
+            if c.rear_wing_flap.angle_deg <= DRS_FLAP_ANGLE_DEG:
+                lines.append(
+                    f"DRS folds the rear flap to {DRS_FLAP_ANGLE_DEG}°, but this setup already runs it at "
+                    f"{c.rear_wing_flap.angle_deg}°, so opening DRS changes nothing in the model. "
+                    f"Drag {closed.drag_N:.0f} N, rear downforce {closed.downforce_rear_N:.0f} N either way."
+                )
+            else:
+                drag_pct = (
+                    (opened.drag_N - closed.drag_N) / closed.drag_N * 100.0
+                    if closed.drag_N
+                    else 0.0
+                )
+                lines.append(
+                    f"DRS folds the rear flap from {c.rear_wing_flap.angle_deg}° to {DRS_FLAP_ANGLE_DEG}°. "
+                    f"Analytical model: drag {closed.drag_N:.0f} N -> {opened.drag_N:.0f} N ({drag_pct:.1f}%), "
+                    f"rear downforce {closed.downforce_rear_N:.0f} N -> {opened.downforce_rear_N:.0f} N, "
+                    f"balance {closed.balance_front_pct:.1f}% -> {opened.balance_front_pct:.1f}% front. "
+                    f"Drag falls less than rear downforce, which is why the rear of the car gets lighter. "
+                    f"Your DRS is currently {'open' if c.drs_active else 'closed'}."
+                )
         elif "ride height" in q or "rake" in q or "ground" in q:
             lines.append(
                 f"Your ride heights are {c.ride_height_front_mm}mm front and {c.ride_height_rear_mm}mm rear, "

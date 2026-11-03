@@ -16,7 +16,9 @@
  * aero model has no chassis representation at all.
  */
 
-// backend/simulation/analytical.py:19-21 and backend/simulation/panel_method.py
+// Mirrors the module constants in backend/simulation/analytical.py (RHO,
+// REF_AREA, WHEELBASE_M, DRS_FLAP_ANGLE_DEG) and the stations in
+// backend/simulation/panel_method.py:simulate_panel.
 export const REFERENCE = {
   wheelbaseM: 3.35,
   refAreaM2: 1.5,
@@ -26,11 +28,11 @@ export const REFERENCE = {
   // they do on a real car: the wing is ahead of the front axle, the rear wing
   // just ahead of the rear axle.
   fwLeadingEdgeM: 0.2,
-  fwFlapStationFrac: 0.75, // panel_method.py:54 - main chord * 0.75
-  fwFlapGapM: 0.035, // panel_method.py:39
-  rwFlapStationFrac: 0.75, // panel_method.py:74
-  rwFlapRiseM: 0.05, // panel_method.py:74
-  rwMainHeightM: 0.85, // panel_method.py:64
+  fwFlapStationFrac: 0.75, // simulate_panel: fw_flap origin = main chord * 0.75
+  fwFlapGapM: 0.035, // simulate_panel: z_fw_flap = z_fw_main + 0.035
+  rwFlapStationFrac: 0.75, // simulate_panel: rw_flap origin = main chord * 0.75
+  rwFlapRiseM: 0.05, // simulate_panel: rw_flap sits 0.05 above the main plane
+  rwMainHeightM: 0.85, // simulate_panel: rear wing main origin height
   // The rear-wing endplate is the highest point on the car, so the declared
   // overall height is derived from these same two numbers and carGeometry.js
   // draws the plate from them: they cannot drift apart.
@@ -38,7 +40,7 @@ export const REFERENCE = {
   rwEndplateDropM: 0.12, // plate centre sits this far below the main plane
   frontAxleM: 0.55,
   rearAxleM: 3.9,
-  // Camber height ratios used by the VLM surfaces (panel_method.py:48-78).
+  // Camber height ratios used by the VLM surfaces (simulate_panel VLMSurface args).
   camber: {
     front_wing_main: 0.03,
     front_wing_flap: 0.05,
@@ -61,9 +63,10 @@ export const REFERENCE = {
   diffuserLengthM: 0.6,
   // Constants the analytic tunnel field mirrors so it moves with the same
   // setup fields the reported numbers do.
-  floorAreaM2: 2.2, // analytical.py:71 effective underbody area
-  bodyCd: 0.75, // analytical.py:94 wheels, suspension, cockpit
-  profileCd: 0.008, // analytical.py:54 wing profile drag
+  floorAreaM2: 2.2, // _underbody_forces floor_area: effective underbody area
+  bodyCd: 0.75, // _body_drag cd_body: wheels, suspension, cockpit
+  profileCd: 0.008, // _wing_forces profile drag term
+  drsFlapAngleDeg: 2.0, // analytical.DRS_FLAP_ANGLE_DEG: rear flap when DRS is open
 };
 
 const DEG = Math.PI / 180;
@@ -72,7 +75,8 @@ function num(v, fallback) {
   return Number.isFinite(v) ? v : fallback;
 }
 
-/** Element defaults from backend/models/aero_config.py:32-49. */
+/** Element defaults from the FormulaAeroConfig WingElement factories
+ * (backend/models/aero_config.py). */
 const DEFAULT_ELEMENT = {
   front_wing_main: { angle_deg: 2, chord_m: 0.35, span_m: 1.8, gurney_mm: 0 },
   front_wing_flap: { angle_deg: 8, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
@@ -80,11 +84,22 @@ const DEFAULT_ELEMENT = {
   rear_wing_flap: { angle_deg: 15, chord_m: 0.15, span_m: 0.9, gurney_mm: 0 },
 };
 
+/**
+ * Rear flap incidence the solver actually uses (analytical.effective_rear_flap).
+ * DRS folds the flap toward the main plane; a flap already below that angle
+ * cannot be reduced further, so DRS is a no-op.
+ */
+export function rearFlapAngleDeg(config) {
+  const angle = num(config?.rear_wing_flap?.angle_deg, DEFAULT_ELEMENT.rear_wing_flap.angle_deg);
+  return config?.drs_active ? Math.min(angle, REFERENCE.drsFlapAngleDeg) : angle;
+}
+
 function element(config, name) {
   const src = config?.[name] || {};
   const d = DEFAULT_ELEMENT[name];
+  const angle = name === 'rear_wing_flap' ? rearFlapAngleDeg(config) : num(src.angle_deg, d.angle_deg);
   return {
-    angle: num(src.angle_deg, d.angle_deg),
+    angle,
     chord: Math.max(0.02, num(src.chord_m, d.chord_m)),
     span: Math.max(0.05, num(src.span_m, d.span_m)),
     gurneyM: Math.max(0, num(src.gurney_mm, d.gurney_mm)) / 1000,

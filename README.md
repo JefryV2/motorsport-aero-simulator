@@ -53,6 +53,13 @@ server; `/api/health` reports the detected backend.
 kept as a legacy alias, and only the echoed label differs. A real solver failure
 returns HTTP 503; it never silently substitutes synthetic numbers.
 
+DRS is one config flag (`drs_active`), not a UI override: every tier folds the
+rear flap to 2°, and the panel shows the incidence the model actually ran. At the
+default setup the analytical tier prices that as 2396 → 2361 N drag and
+933 → 608 N rear downforce. The VLM's drag barely moves (2366 → 2365 N) because
+its coupled Trefftz integral is non-monotone in rear flap angle — unloading the
+rear wing raises the front wing's induced drag.
+
 The CFD tier is a 2D section, not a full car. It writes a body-fitted O-grid
 `polyMesh` directly (wall facets exactly on an inverted NACA 4412, first-cell
 height from a target y+, moving-ground wall patch), solves steady RANS, and

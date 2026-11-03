@@ -19,6 +19,7 @@ from backend.models.aero_config import (
 RHO = 1.225  # air density kg/m³
 REF_AREA = 1.5  # reference frontal area m²
 WHEELBASE_M = 3.35  # typical formula car wheelbase
+DRS_FLAP_ANGLE_DEG = 2.0  # rear flap angle once DRS is open
 
 
 def geometric_rake_deg(config: FormulaAeroConfig) -> float:
@@ -29,6 +30,19 @@ def geometric_rake_deg(config: FormulaAeroConfig) -> float:
     """
     rise_mm = config.ride_height_rear_mm - config.ride_height_front_mm
     return math.degrees(math.atan(rise_mm / (WHEELBASE_M * 1000.0)))
+
+
+def effective_rear_flap(config: FormulaAeroConfig) -> WingElement:
+    """The rear flap as the model sees it: DRS folds it toward the main plane.
+
+    Opening the DRS gap drops the flap's effective incidence, so the model caps
+    it at DRS_FLAP_ANGLE_DEG rather than inventing a separate drag term. A flap
+    already set below that angle cannot be reduced further, so DRS is a no-op.
+    """
+    flap = config.rear_wing_flap
+    if not config.drs_active or flap.angle_deg <= DRS_FLAP_ANGLE_DEG:
+        return flap
+    return flap.model_copy(update={"angle_deg": DRS_FLAP_ANGLE_DEG})
 
 
 def _wing_cl(element: WingElement, in_ground_effect: bool = False) -> tuple[float, float]:
@@ -117,7 +131,7 @@ def simulate(config: FormulaAeroConfig, method: str = "analytical") -> Simulatio
 
     # Rear wing (both elements, freestream)
     df_rw_main, drag_rw_main = _wing_forces(config.rear_wing_main, speed_ms)
-    df_rw_flap, drag_rw_flap = _wing_forces(config.rear_wing_flap, speed_ms)
+    df_rw_flap, drag_rw_flap = _wing_forces(effective_rear_flap(config), speed_ms)
     df_rear_wing = df_rw_main + df_rw_flap
     drag_rear_wing = drag_rw_main + drag_rw_flap
 

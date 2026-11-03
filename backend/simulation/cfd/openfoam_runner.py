@@ -11,6 +11,7 @@ from backend.simulation.analytical import (
     RHO,
     _body_drag,
     _underbody_forces,
+    effective_rear_flap,
 )
 from backend.simulation.cfd.case_builder import build_openfoam_case
 from backend.simulation.cfd.models import AirfoilGeometry, MeshLevel
@@ -111,7 +112,7 @@ def run_cfd_with_provenance(
     df_floor, drag_floor, floor_front_share = _underbody_forces(config, speed_ms)
 
     # Rear wing empirical balance
-    rear_angle = config.rear_wing_main.angle_deg + config.rear_wing_flap.angle_deg
+    rear_angle = config.rear_wing_main.angle_deg + effective_rear_flap(config).angle_deg
     df_rear_wing_N = 0.08 * rear_angle * q * 1.0
     drag_rear_wing_N = (0.012 + 0.003 * rear_angle) * q * 1.0
 

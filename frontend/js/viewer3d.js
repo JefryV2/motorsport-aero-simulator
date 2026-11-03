@@ -33,6 +33,7 @@ const FALLBACK_CONFIG = {
   front_wing_flap: { angle_deg: 8, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
   rear_wing_main: { angle_deg: 5, chord_m: 0.4, span_m: 0.95, gurney_mm: 0 },
   rear_wing_flap: { angle_deg: 15, chord_m: 0.15, span_m: 0.9, gurney_mm: 0 },
+  drs_active: false,
   ride_height_front_mm: 25,
   ride_height_rear_mm: 45,
   rake_deg: 1.5,
@@ -60,6 +61,10 @@ function _geometryKey(config) {
     num(config?.ride_height_rear_mm, 45),
     num(config?.diffuser_angle_deg, 12),
     num(config?.diffuser_ride_height_mm, 30),
+    // Folds the drawn rear flap; the element angles themselves are unchanged.
+    // rake_deg is absent on purpose: the floor line is drawn from the two ride
+    // heights, and the rake term only scales underbody suction.
+    config?.drs_active ? 1 : 0,
   ].join('|');
 }
 

@@ -1,7 +1,7 @@
 /** Main app — vehicle setup + wind tunnel flow controls. */
 
 import { AeroViewer } from './viewer3d.js';
-import { deriveSurfaces } from './carSpec.js';
+import { deriveSurfaces, rearFlapAngleDeg } from './carSpec.js';
 import {
   engineeringContext,
   compareToBaseline,
@@ -314,17 +314,13 @@ let chatHistory = [
 function getConfig() {
   const windKmh = +document.getElementById('wind_speed').value;
   document.getElementById('speed').value = windKmh;
-  
-  let rwFlapAngle = +document.getElementById('rw_flap').value;
-  if (drsActive) {
-    rwFlapAngle = 2.0; // Override rear flap to 2 degrees in DRS
-  }
-  
+
   return {
     front_wing_main: { angle_deg: +document.getElementById('fw_main').value, chord_m: 0.35, span_m: 1.80, gurney_mm: +document.getElementById('fw_gurney').value },
     front_wing_flap: { angle_deg: +document.getElementById('fw_flap').value, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
     rear_wing_main: { angle_deg: +document.getElementById('rw_main').value, chord_m: 0.40, span_m: 0.95, gurney_mm: +document.getElementById('rw_gurney').value },
-    rear_wing_flap: { angle_deg: rwFlapAngle, chord_m: 0.15, span_m: 0.90, gurney_mm: 0 },
+    rear_wing_flap: { angle_deg: +document.getElementById('rw_flap').value, chord_m: 0.15, span_m: 0.90, gurney_mm: 0 },
+    drs_active: drsActive,
     ride_height_front_mm: +document.getElementById('rh_front').value,
     ride_height_rear_mm: +document.getElementById('rh_rear').value,
     rake_deg: +document.getElementById('rake').value,
@@ -384,10 +380,25 @@ function syncSliderLabels() {
   });
   const geo = document.getElementById('rake_geo_val');
   const throat = document.getElementById('diff_throat_val');
-  if (geo || throat) {
-    const surfaces = deriveSurfaces(getConfig());
+  const flapEff = document.getElementById('rw_flap_eff_val');
+  const drsNote = document.getElementById('drsNoteVal');
+  if (geo || throat || flapEff) {
+    const config = getConfig();
+    const surfaces = deriveSurfaces(config);
     if (geo) geo.textContent = `${surfaces.floor.angleDeg.toFixed(2)}°`;
     if (throat) throat.textContent = (surfaces.diffuser.throatHeight * 1000).toFixed(1);
+    if (flapEff) {
+      const requested = +document.getElementById('rw_flap').value;
+      const used = rearFlapAngleDeg(config);
+      flapEff.textContent = used.toFixed(1);
+      if (drsNote) {
+        drsNote.textContent = !drsActive
+          ? ''
+          : used < requested
+            ? ` (DRS open, folded from ${requested.toFixed(1)}°)`
+            : ' (DRS open — this flap is already at or below the folded angle, so DRS changes nothing)';
+      }
+    }
   }
 }
 
@@ -758,6 +769,7 @@ function toggleDRS() {
   const txt = document.getElementById('drsText');
   if (btn) btn.classList.toggle('enabled', drsActive);
   if (txt) txt.textContent = drsActive ? 'ACTIVE' : 'OFF';
+  syncSliderLabels();
   if (isCfdMethod()) {
     refreshVisualization();
     const status = document.getElementById('status');

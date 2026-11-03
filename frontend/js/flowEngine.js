@@ -1,5 +1,7 @@
 /** Wind tunnel flow physics — air/car interaction for any model. */
 
+import { rearFlapAngleDeg } from './carSpec.js';
+
 export const DEFAULT_FLOW = {
   windSpeedKmh: 200,
   yawDeg: 0,
@@ -145,20 +147,20 @@ const _vortexOut = [0, 0, 0];
 // are calibrated lengths, so the user's display scale must not stretch them.
 
 const DEG = Math.PI / 180;
-const OSWALD_E = 0.85; // analytical.py:33
+const OSWALD_E = 0.85; // _wing_cl e
 
-/** Downforce-positive lift coefficient (analytical.py:24-43). */
+/** Downforce-positive lift coefficient (_wing_cl). */
 export function wingCl(w, inGroundEffect = false) {
   let cl2d = 2 * Math.PI * (w.angleDeg * DEG);
   cl2d = Math.max(-0.5, Math.min(cl2d, 1.8)); // stall softening
   const ar = Math.max(0.5, w.spanM / w.chordM);
   let cl = cl2d / (1 + cl2d / (Math.PI * ar * OSWALD_E)); // Prandtl tip loss
-  cl += w.gurneyM * 8; // analytical.py:37 — 0.08 Cl per 10 mm
+  cl += w.gurneyM * 8; // _wing_cl — 0.08 Cl per 10 mm
   if (inGroundEffect) cl *= 1.12;
   return cl;
 }
 
-/** Underbody and diffuser terms (analytical.py:58-88). */
+/** Underbody and diffuser terms (_underbody_forces). */
 export function underbodyTerms(aero) {
   const geFront = Math.exp(-aero.frontRideHeightM / 0.015);
   const geRear = Math.exp(-aero.rearRideHeightM / 0.020);
@@ -444,9 +446,10 @@ function buildSources(fr, config, wind) {
   }
 
   const fwAngle = ((config?.front_wing_main?.angle_deg ?? 2) + (config?.front_wing_flap?.angle_deg ?? 8)) / 2;
-  const rwAngle = ((config?.rear_wing_main?.angle_deg ?? 5) + (config?.rear_wing_flap?.angle_deg ?? 15)) / 2;
+  const rwFlapAngle = rearFlapAngleDeg(config);
+  const rwAngle = ((config?.rear_wing_main?.angle_deg ?? 5) + rwFlapAngle) / 2;
   const frontLoad = Math.min(1.4, 0.35 + ((config?.front_wing_main?.angle_deg ?? 2) + (config?.front_wing_flap?.angle_deg ?? 8)) / 12);
-  const rearLoad = Math.min(1.6, 0.4 + ((config?.rear_wing_main?.angle_deg ?? 5) + (config?.rear_wing_flap?.angle_deg ?? 15)) / 30);
+  const rearLoad = Math.min(1.6, 0.4 + ((config?.rear_wing_main?.angle_deg ?? 5) + rwFlapAngle) / 30);
   const bound = [
     [0.04, 0.14, fwAngle * 0.15 * u, 0.475],
     [0.88, 0.74, rwAngle * 0.18 * u, 0.275],
@@ -491,14 +494,13 @@ function buildSources(fr, config, wind) {
 let _srcCache = { geo: null, bounds: null, sig: '', fr: null, src: null };
 
 function sourcesFor(flow, config, bounds, wind) {
+  // Over-invalidation only costs a rebuild; under-invalidation leaves the
+  // field drawn from a setup that no longer exists.
   const sig = [
     flow.windSpeedKmh, flow.yawDeg, flow.pitchDeg, flow.showInteraction,
-    config?.front_wing_main?.angle_deg, config?.front_wing_main?.chord_m,
-    config?.front_wing_main?.span_m, config?.front_wing_flap?.angle_deg,
-    config?.rear_wing_main?.angle_deg, config?.rear_wing_main?.chord_m,
-    config?.rear_wing_main?.span_m, config?.rear_wing_flap?.angle_deg,
-    config?.ride_height_front_mm,
-  ].join(',');
+    rearFlapAngleDeg(config),
+    config ? JSON.stringify(config) : '',
+  ].join('|');
   const geo = flow.geo || null;
   if (_srcCache.geo === geo && _srcCache.bounds === bounds && _srcCache.sig === sig) {
     return _srcCache;

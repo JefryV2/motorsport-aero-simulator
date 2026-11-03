@@ -23,7 +23,7 @@
  * the source layout. Neither file imports Three.js.
  */
 
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,6 +36,8 @@ const copies = [
 const urls = copies.map(([src, name]) => {
   const dest = join(tmpDir, name);
   copyFileSync(new URL(src, import.meta.url), dest);
+  // The gate imports .mjs copies, so relative specifiers have to follow them.
+  writeFileSync(dest, readFileSync(dest, 'utf8').replace(/(from '\.\/[\w-]+)\.js'/g, "$1.mjs'"));
   return pathToFileURL(dest).href;
 });
 
@@ -49,7 +51,7 @@ try {
 }
 
 const { velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl, underbodyTerms, atStation } = mod;
-const { deriveSurfaces, toFlowGeo, summarize, REFERENCE } = spec;
+const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, REFERENCE } = spec;
 
 const bounds = { min: [-1.75, 0, -0.5], max: [1.75, 0.6, 0.5] };
 const baseFlow = {
@@ -372,6 +374,7 @@ for (const [label, patch] of [
   ['rear gurney 0 -> 10 mm', { rear_wing_main: { ...CAR_CONFIG.rear_wing_main, gurney_mm: 10 } }],
   ['front wing chord 0.35 -> 0.5 m', { front_wing_main: { ...CAR_CONFIG.front_wing_main, chord_m: 0.5 } }],
   ['front ride height 25 -> 60 mm', { ride_height_front_mm: 60 }],
+  ['DRS open (rear flap 15 -> 2 deg)', { drs_active: true }],
 ]) {
   const d = rmsDelta(CAR_CONFIG, knob(patch));
   // A small threshold is still a real signal: eddy size, lattice origin and
@@ -465,6 +468,18 @@ check(
     && diff.exitHeight > diff.throatHeight,
   'diffuser throat clamped to the floor line',
   `requested ${CAR_CONFIG.diffuser_ride_height_mm} mm, drawn ${(diff.throatHeight * 1000).toFixed(1)} mm`,
+);
+
+// DRS is a solver mode, so the fold has to land in the geometry the field and
+// the drawn car both read from - not in a UI-only override of the slider value.
+const drsConfig = { ...CAR_CONFIG, drs_active: true };
+const foldedFlap = rearFlapAngleDeg(drsConfig);
+check(
+  foldedFlap === REFERENCE.drsFlapAngleDeg
+    && rearFlapAngleDeg(CAR_CONFIG) === CAR_CONFIG.rear_wing_flap.angle_deg
+    && deriveSurfaces(drsConfig).wings.find((w) => w.id === 'rear_wing_flap').angle === foldedFlap,
+  'DRS folds the rear flap in the shared geometry',
+  `requested ${CAR_CONFIG.rear_wing_flap.angle_deg} deg, DRS ${foldedFlap} deg`,
 );
 
 // Display scale must not change the physics: every length in the field is
