@@ -1085,12 +1085,19 @@ async function sendChatMessage() {
       }
     }
     
-    const fullQuestion = `[Active track context: ${track.name} - ${track.description}] User question: ${text}`;
-    
+    // The track goes as data, not prose inside the question: the rule-based
+    // advisor keyword-matched whatever arrived in `question`, so a selected
+    // circuit's own description decided which answer the user got.
     const payload = {
       config: config,
       simulation: simRes,
-      question: fullQuestion
+      question: text,
+      track: {
+        name: track.name,
+        description: track.description,
+        drag_multiplier: track.dragMultiplier,
+        downforce_multiplier: track.dfMultiplier,
+      },
     };
     
     const res = await fetch(`${API}/api/advise`, {

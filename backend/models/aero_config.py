@@ -132,8 +132,23 @@ class OptimizationResult(BaseModel):
     )
 
 
+class TrackContext(BaseModel):
+    """The track weighting the UI applies to the lap proxy.
+
+    It used to travel inside `question` as a `[Active track context: Name - desc]`
+    prefix, so the rule-based advisor keyword-matched the track's own description
+    and answered a different question than the one asked.
+    """
+
+    name: str
+    description: str = ""
+    drag_multiplier: float = Field(default=1.0, ge=0.0)
+    downforce_multiplier: float = Field(default=1.0, ge=0.0)
+
+
 class AdvisorRequest(BaseModel):
     config: FormulaAeroConfig
     simulation: SimulationResult
     optimization: OptimizationResult | None = None
     question: str | None = None
+    track: TrackContext | None = None

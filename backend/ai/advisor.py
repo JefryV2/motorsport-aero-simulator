@@ -6,12 +6,13 @@ import os
 
 import httpx
 
-from backend.models.aero_config import AdvisorRequest
+from backend.models.aero_config import AdvisorRequest, FormulaAeroConfig, TrackContext
 from backend.simulation.analytical import (
     DRS_FLAP_ANGLE_DEG,
     diffuser_throat_height_m,
     effective_rear_flap,
     geometric_rake_deg,
+    lap_time_delta_s,
     simulate,
 )
 
@@ -76,10 +77,92 @@ Optimization Results ({opt.trials_run} trials):
 - Balance target: {opt.target_balance_pct}%; sampled achievable range: {opt.achievable_balance_pct}; target reachable: {opt.target_reachable}
 """
 
+    if request.track:
+        context += (
+            f"\nSelected track: {request.track.name}"
+            f"{f' ({request.track.description})' if request.track.description else ''}. "
+            f"Lap proxy weighting: drag x{request.track.drag_multiplier:g}, "
+            f"downforce x{request.track.downforce_multiplier:g}."
+        )
+
     if request.question:
         context += f"\nUser question: {request.question}"
 
     return context
+
+
+WING_ANGLE_MAX_DEG = 35.0
+WING_ANGLE_MIN_DEG = -5.0
+
+
+def _priced_track_advice(
+    c: FormulaAeroConfig, track: TrackContext | None, step_deg: float = 3.0
+) -> list[str]:
+    """Price one-knob flap moves on the selected track's own lap-proxy weights.
+
+    This replaces a string that told every low-speed question to "run maximum
+    downforce: front wing flap to 18-20 deg and rear wing flap to 25-30 deg" -
+    degrees no tier has ever produced, for a track the model was never shown.
+    """
+    drag_scale = track.drag_multiplier if track else 1.0
+    df_scale = track.downforce_multiplier if track else 1.0
+
+    def lap(f) -> float:
+        return lap_time_delta_s(
+            f.drag_N,
+            f.downforce_total_N,
+            drag_scale=drag_scale,
+            downforce_scale=df_scale,
+        )
+
+    base = simulate(c).forces
+    base_lap = lap(base)
+
+    moves: list[tuple[str, float, float, float]] = []
+    for name, element in (
+        ("Front wing flap", "front_wing_flap"),
+        ("Rear wing flap", "rear_wing_flap"),
+        ("Rear wing main", "rear_wing_main"),
+    ):
+        current = getattr(c, element).angle_deg
+        for delta in (-step_deg, step_deg):
+            angle = min(WING_ANGLE_MAX_DEG, max(WING_ANGLE_MIN_DEG, current + delta))
+            if angle == current:
+                continue
+            cfg = c.model_copy(
+                update={
+                    element: getattr(c, element).model_copy(update={"angle_deg": angle})
+                }
+            )
+            f = simulate(cfg).forces
+            moves.append(
+                (
+                    f"{name} {current:g} to {angle:g} deg",
+                    lap(f) - base_lap,
+                    f.downforce_total_N - base.downforce_total_N,
+                    f.drag_N - base.drag_N,
+                )
+            )
+
+    if not moves:
+        return ["No wing angle on this setup can move further within the model's bounds."]
+
+    best = min(moves, key=lambda m: m[1])
+    worst = max(moves, key=lambda m: m[1])
+    head = (
+        f"{track.name} weights the lap proxy drag x{drag_scale:g} / downforce x{df_scale:g}"
+        if track
+        else "No track selected, so both lap-proxy terms carry weight x1"
+    )
+    return [
+        f"{head}. On those weights the model charges these one-knob moves:",
+        f"- Fastest: {best[0]} at {best[1]:+.3f} s ({best[2]:+.0f} N downforce, "
+        f"{best[3]:+.0f} N drag).",
+        f"- Slowest: {worst[0]} at {worst[1]:+.3f} s ({worst[2]:+.0f} N downforce, "
+        f"{worst[3]:+.0f} N drag).",
+        "This is the linear lap proxy, so it compares two setups of one car - "
+        "it is not a lap simulation. Negative means faster than the setup you asked about.",
+    ]
 
 
 def _fallback_advice(request: AdvisorRequest) -> str:
@@ -149,11 +232,14 @@ def _fallback_advice(request: AdvisorRequest) -> str:
                 "Lowering the front ride height maximizes front wing and floor suction. Raising the rear expands the diffuser, "
                 "increasing rear underbody downforce, but going too high can cause diffuser flow stall."
             )
-        elif "monaco" in q or "slow" in q or "downforce" in q:
-            lines.append(
-                "For low-speed tracks like Monaco, drag is not a major penalty because average speed is low. "
-                "You should run maximum downforce setup: front wing flap to 18-20° and rear wing flap to 25-30°."
-            )
+        elif (
+            "monaco" in q
+            or "slow" in q
+            or "downforce" in q
+            or "track" in q
+            or (request.track is not None and request.track.name.lower() in q)
+        ):
+            lines.extend(_priced_track_advice(c, request.track))
         else:
             lines.append(
                 f"As an aerodynamicist, looking at your current setup, we have a total downforce of {f.downforce_total_N} N "

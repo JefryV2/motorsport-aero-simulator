@@ -9,6 +9,7 @@ advertised as a full-car CFD solution.
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -17,11 +18,12 @@ from fastapi.testclient import TestClient
 from backend.ai.advisor import _fallback_advice
 from backend.main import app
 from backend.ml.dataset import DEFAULT_DATASET_PATH, load_dataset_parquet
-from backend.models.aero_config import AdvisorRequest, FormulaAeroConfig
+from backend.models.aero_config import AdvisorRequest, FormulaAeroConfig, TrackContext
 from backend.simulation.analytical import (
     WHEELBASE_M,
     centre_of_pressure_m,
     geometric_rake_deg,
+    lap_time_delta_s,
     simulate,
 )
 from backend.simulation.cfd.models import (
@@ -336,3 +338,138 @@ def test_advisor_prices_drs_from_the_model() -> None:
     assert f"{closed.drag_N:.0f}" in advice
     assert f"{opened.drag_N:.0f}" in advice
     assert "25-30%" not in advice
+
+
+# The UI's own preset descriptions, kept verbatim because their wording is the
+# point: each one contains a keyword a rule branch matches on.
+TRACK_PRESETS = {
+    "Silverstone": ("Balanced medium-high downforce circuit. High-speed corners.", 1.0, 1.0),
+    "Monza": ("Temple of Speed. Ultra-low drag is required.", 2.2, 0.35),
+    "Monaco": ("Tight street circuit. Maximum downforce setup.", 0.15, 2.4),
+    "Spa-Francorchamps": ("Speed in Sector 1/3, cornering downforce in Sector 2.", 1.3, 0.95),
+    "Singapore": ("Street circuit. High downforce and stability.", 0.6, 1.8),
+}
+
+
+def _track(name: str) -> TrackContext:
+    description, drag_scale, df_scale = TRACK_PRESETS[name]
+    return TrackContext(
+        name=name,
+        description=description,
+        drag_multiplier=drag_scale,
+        downforce_multiplier=df_scale,
+    )
+
+
+def _advice(question: str, track: TrackContext | None = None) -> str:
+    cfg = FormulaAeroConfig()
+    return _fallback_advice(
+        AdvisorRequest(config=cfg, simulation=simulate(cfg), question=question, track=track)
+    )
+
+
+def test_the_selected_track_cannot_steer_an_unrelated_question() -> None:
+    """A circuit used to ride into the advisor as prose inside `question`, and the
+    rule branches keyword-matched whatever arrived there. Measured before the fix:
+    one question - "how do I read the pressure map?" - got five different answers,
+    an understeer lecture under Silverstone (its description says "Balanced"), a
+    drag lecture under Monza and Spa, and Monaco's canned degrees under Monaco and
+    Singapore, because those descriptions say "drag" or "downforce".
+    """
+    question = "how do I read the pressure map?"
+    answers = {_advice(question, _track(name)) for name in TRACK_PRESETS} | {
+        _advice(question, None)
+    }
+
+    assert len(answers) == 1, "the selected track changed which answer a question got"
+    answer = answers.pop()
+    for tell in (
+        "To resolve understeer",
+        "To resolve oversteer",
+        "you must reduce aerodynamic drag",
+        "18-20",
+    ):
+        assert tell not in answer, f"the track's prose chose a branch: {tell!r}"
+
+
+def test_track_setup_advice_is_priced_by_the_solver() -> None:
+    """The old low-speed branch ended with fixed degrees no tier had ever produced.
+
+    The replacement has to be reproducible from the model: the test parses the move
+    the advice reports and recomputes its lap delta and force changes itself.
+    """
+    advice = _advice("what track setup should I run?", _track("Monaco"))
+    assert "18-20" not in advice
+    assert "25-30" not in advice
+
+    move = re.search(
+        r"Fastest: (Front wing flap|Rear wing flap|Rear wing main) "
+        r"(-?[0-9.]+) to (-?[0-9.]+) deg at ([-+][0-9.]+) s "
+        r"\(([-+][0-9.]+) N downforce, ([-+][0-9.]+) N drag\)",
+        advice,
+    )
+    assert move, f"no move in the advice can be recomputed:\n{advice}"
+    element, frm, to, reported_lap, reported_df, reported_drag = move.groups()
+
+    cfg = FormulaAeroConfig()
+    field = {
+        "Front wing flap": "front_wing_flap",
+        "Rear wing flap": "rear_wing_flap",
+        "Rear wing main": "rear_wing_main",
+    }[element]
+    assert getattr(cfg, field).angle_deg == pytest.approx(float(frm))
+
+    variant = cfg.model_copy(
+        update={field: getattr(cfg, field).model_copy(update={"angle_deg": float(to)})}
+    )
+    base, moved = simulate(cfg).forces, simulate(variant).forces
+    track = _track("Monaco")
+
+    def lap(f) -> float:
+        return lap_time_delta_s(
+            f.drag_N,
+            f.downforce_total_N,
+            drag_scale=track.drag_multiplier,
+            downforce_scale=track.downforce_multiplier,
+        )
+
+    assert float(reported_lap) == pytest.approx(lap(moved) - lap(base), abs=5e-4)
+    assert float(reported_df) == pytest.approx(
+        moved.downforce_total_N - base.downforce_total_N, abs=0.5
+    )
+    assert float(reported_drag) == pytest.approx(moved.drag_N - base.drag_N, abs=0.5)
+
+
+def test_track_weighting_actually_changes_the_verdict() -> None:
+    """If the multipliers were decoration, both circuits would print the same line."""
+    monaco = _advice("what track setup should I run?", _track("Monaco"))
+    monza = _advice("what track setup should I run?", _track("Monza"))
+
+    assert monaco != monza
+    assert "drag x0.15 / downforce x2.4" in monaco
+    assert "drag x2.2 / downforce x0.35" in monza
+
+
+def test_advise_endpoint_takes_the_track_as_fields(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    cfg = FormulaAeroConfig()
+    track = _track("Monza")
+
+    response = TestClient(app).post(
+        "/api/advise",
+        json={
+            "config": cfg.model_dump(),
+            "simulation": simulate(cfg).model_dump(),
+            "question": "what track setup should I run?",
+            "track": track.model_dump(),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "rule_based"
+    advice = payload["advice"]
+    assert "### Answer to: 'what track setup should I run?'" in advice
+    assert "Active track context" not in advice
+    assert f"{track.name} weights the lap proxy" in advice
