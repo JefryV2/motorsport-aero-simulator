@@ -8,6 +8,13 @@ from typing import Any
 import numpy as np
 
 from backend.models.aero_config import FormulaAeroConfig
+from backend.simulation.analytical import (
+    GE_DECAY_DIFFUSER_M,
+    GE_DECAY_FRONT_M,
+    GE_DECAY_REAR_M,
+    RAKE_COEF_PER_DEG,
+    effective_rear_flap,
+)
 from backend.simulation.panel_method import simulate_panel
 
 
@@ -72,10 +79,11 @@ def compute_cp_field(
     cd_scale = sim.forces.cd_total / 1.2
 
     fw_angle = config.front_wing_main.angle_deg + config.front_wing_flap.angle_deg * 0.6
-    rw_angle = config.rear_wing_main.angle_deg + config.rear_wing_flap.angle_deg * 0.6
-    ge_front = math.exp(-config.ride_height_front_mm / 1000.0 / 0.015)
-    ge_rear = math.exp(-config.ride_height_rear_mm / 1000.0 / 0.020)
-    rake = 1.0 + config.rake_deg * 0.1
+    rw_angle = config.rear_wing_main.angle_deg + effective_rear_flap(config).angle_deg * 0.6
+    ge_front = math.exp(-config.ride_height_front_mm / 1000.0 / GE_DECAY_FRONT_M)
+    ge_rear = math.exp(-config.ride_height_rear_mm / 1000.0 / GE_DECAY_REAR_M)
+    ge_diffuser = math.exp(-config.diffuser_ride_height_mm / 1000.0 / GE_DECAY_DIFFUSER_M)
+    rake = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
     diff_boost = math.sin(math.radians(config.diffuser_angle_deg)) * 0.8
 
     cp_values: list[float] = []
@@ -92,7 +100,7 @@ def compute_cp_field(
         cp -= regions["front_wing"] * (fw_angle / 15.0) * 1.8 * ge_front * cl_scale
         cp -= regions["rear_wing"] * (rw_angle / 20.0) * 1.6 * cl_scale
         cp -= regions["underbody"] * ge_rear * rake * 1.2 * cl_scale
-        cp -= regions["diffuser"] * diff_boost * ge_rear * rake * cl_scale
+        cp -= regions["diffuser"] * diff_boost * ge_diffuser * rake * cl_scale
         cp += regions["body"] * 0.25 * cd_scale
         cp += regions["wheels"] * 0.45 * cd_scale
 
@@ -122,7 +130,7 @@ def generate_streamlines(
     center = (vmin + vmax) / 2
     span = vmax - vmin
 
-    wake_strength = config.rear_wing_flap.angle_deg / 30.0
+    wake_strength = effective_rear_flap(config).angle_deg / 30.0
 
     lines: list[list[list[float]]] = []
     for i in range(n_lines):

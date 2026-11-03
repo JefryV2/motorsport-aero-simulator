@@ -17,6 +17,7 @@ from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 
 from backend.ml.dataset import FEATURE_COLUMNS, sample_vector_to_config
+from backend.simulation.analytical import REF_AREA, RHO
 from backend.simulation.panel_method import simulate_panel
 
 
@@ -215,11 +216,10 @@ class AeroSurrogatePipeline:
         cl_val = float(cl_pred[0])
         cd_val = float(cd_pred[0])
         speed_ms = sample_values["speed_kmh"] / 3.6
-        q = 0.5 * 1.225 * speed_ms**2
-        ref_area = 1.6
+        q = 0.5 * RHO * speed_ms**2
 
-        df_N = cl_val * q * ref_area
-        drag_N = cd_val * q * ref_area
+        df_N = cl_val * q * REF_AREA
+        drag_N = cd_val * q * REF_AREA
         eff = df_N / drag_N if drag_N > 1.0 else 1.0
 
         return AeroPrediction(

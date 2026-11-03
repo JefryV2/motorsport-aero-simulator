@@ -215,7 +215,12 @@ force a pass.
   semi-empirical Cl as the force readout. An uploaded CAD model has no solved
   elements, so it gets the field level only, and the legend says so.
 - **`backend/visualization/aero_field.py` is still the normal-based heuristic**,
-  and it is API-only: nothing in the UI reads its Cp.
+  and it is API-only: nothing in the UI reads its Cp. It does now share state with
+  the solver instead of restating it: the effective rear flap (so DRS reaches the
+  map and the drawn wake), the diffuser throat height, the ground-effect decay
+  lengths and the rake coefficient all come from `backend/simulation/analytical.py`,
+  and `tests/test_physics_sanity.py` locks the decay lengths and the DRS and
+  throat-height responses. The region masks are still bbox fractions, not stations.
 - **Advisor has no conversation memory and no tool calling.** Quoted numbers come
   from the request payload.
 - **Heavy jobs:** a medium real CFD run took 45.8 s; the 28-point envelope

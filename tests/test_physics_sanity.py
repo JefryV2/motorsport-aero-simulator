@@ -7,17 +7,22 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 4. Ground effect ride-height and diffuser angle sensitivity
 5. Dynamic pressure and non-dimensional coefficient consistency
 6. Schema boundary validation on speed
+7. The API pressure map and streamlines follow the same config state as the forces
 """
 
 from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from backend.models.aero_config import FormulaAeroConfig
+from backend.simulation import analytical
 from backend.simulation.analytical import WHEELBASE_M, simulate
+from backend.visualization import aero_field
+from backend.visualization.aero_field import compute_cp_field, generate_streamlines
 
 
 class TestPhysicsSanity:
@@ -144,3 +149,142 @@ class TestPhysicsSanity:
 
         with pytest.raises(ValidationError):
             FormulaAeroConfig(speed_kmh=351.0)
+
+
+BOUNDS = {"min": [0.0, -0.9, 0.0], "max": [4.2, 0.9, 0.9]}
+# Single points inside the map's own front-wing and diffuser masks
+PROBE_FRONT_WING = [[0.0, 0.0, 0.0]]
+PROBE_DIFFUSER = [[4.2, 0.0, 0.0]]
+
+
+def _rear_flap(angle_deg: float) -> dict:
+    return {"angle_deg": angle_deg, "span_m": 0.85, "chord_m": 0.05}
+
+
+def _pinned_cp(
+    monkeypatch, field: str, value_mm: float, probe: list[list[float]]
+) -> float:
+    """One probe point with the map's force scale pinned to exactly 1.0.
+
+    cl_total = 3.0 and cd_total = 1.2 are the divisors `compute_cp_field` uses,
+    so every term but the one under test becomes a constant across the configs.
+    """
+
+    class _Forces:
+        cl_total = 3.0
+        cd_total = 1.2
+
+    class _PinnedSim:
+        forces = _Forces()
+
+        @staticmethod
+        def model_dump() -> dict:
+            return {}
+
+    monkeypatch.setattr(aero_field, "simulate_panel", lambda _cfg: _PinnedSim())
+    config = FormulaAeroConfig(**{field: value_mm})
+    return float(np.mean(aero_field.compute_cp_field(probe, None, config, BOUNDS)["cp"]))
+
+
+def _spread(values: tuple[float, ...], factors: dict[float, float]) -> float:
+    """Ratio of two differences taken against a common far station.
+
+    Subtracting the same station from both removes every additive term, and
+    dividing the two differences removes the region weight and the angle
+    prefactor, which are common to both. Only the decay length survives.
+    """
+    far = values[-1]
+    return (factors[values[0]] - factors[far]) / (factors[values[1]] - factors[far])
+
+
+class TestFieldConsumersShareSolverState:
+    """The pressure map and streamlines must follow the same state as the forces.
+
+    `compute_cp_field` and `generate_streamlines` are the API's only picture of
+    the car, and they read the sealed rear flap, the rear ride height in place of
+    the diffuser throat, and their own rake coefficient, so the screen could show
+    loads the solver was not charging.
+    """
+
+    REGIONS = {
+        # station window, height window in metres
+        "rear_wing": ((3.4, 4.2), (0.58, 0.88)),
+        "front_wing": ((0.05, 0.60), (0.05, 0.28)),
+    }
+
+    def _cloud(self, region: str) -> list[list[float]]:
+        stations = np.linspace(*self.REGIONS[region][0], 6)
+        heights = np.linspace(*self.REGIONS[region][1], 4)
+        return [
+            [float(x), y, float(z)]
+            for x in stations
+            for y in (-0.5, 0.0, 0.5)
+            for z in heights
+        ]
+
+    def _mean_cp(self, config: FormulaAeroConfig, region: str) -> float:
+        return float(
+            np.mean(compute_cp_field(self._cloud(region), None, config, BOUNDS)["cp"])
+        )
+
+    def test_rear_wing_pressure_responds_to_drs(self):
+        """Opening DRS must relieve the rear wing in the map, not only in the forces."""
+        sealed = FormulaAeroConfig(rear_wing_flap=_rear_flap(20.0))
+        opened = sealed.model_copy(update={"drs_active": True})
+
+        shift = self._mean_cp(opened, "rear_wing") - self._mean_cp(sealed, "rear_wing")
+
+        # Measured shift is ~0.061 Cp; ignoring the flap angle leaves ~0.002,
+        # which comes only from the force scale, so 0.04 needs the real flap.
+        assert shift > 0.04, f"DRS barely moved the rear wing pressure ({shift:+.4f})"
+
+    def test_wake_strength_responds_to_drs(self):
+        """The drawn wake must weaken with the effective flap, not the sealed one."""
+        sealed = FormulaAeroConfig(rear_wing_flap=_rear_flap(20.0))
+        opened = sealed.model_copy(update={"drs_active": True})
+
+        def mean_height(cfg: FormulaAeroConfig) -> float:
+            lines = generate_streamlines(cfg, BOUNDS, n_lines=6, n_points=20)
+            return float(np.mean([p[2] for line in lines for p in line]))
+
+        assert mean_height(opened) > mean_height(sealed) + 0.001
+
+    def test_front_wing_suction_follows_ride_height(self):
+        """Lower front ride height must read as more suction on the map's front wing."""
+        low = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=10.0), "front_wing")
+        high = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=60.0), "front_wing")
+
+        assert low < high - 0.02, f"front wing ignored ride height ({low:+.4f} vs {high:+.4f})"
+
+    def test_front_wing_suction_uses_the_solver_decay_length(self, monkeypatch):
+        """With the force scale pinned, the front wing must decay as the solver says.
+
+        A 0.030 m decay length instead of the solver's 0.015 m would give 1.65
+        here rather than the measured 2.72.
+        """
+        stations = (10.0, 25.0, 200.0)
+        cp = {
+            v: _pinned_cp(monkeypatch, "ride_height_front_mm", v, PROBE_FRONT_WING)
+            for v in stations
+        }
+        ge = {v: math.exp(-v / 1000.0 / analytical.GE_DECAY_FRONT_M) for v in stations}
+
+        assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-3)
+
+    def test_diffuser_suction_follows_throat_height(self, monkeypatch):
+        """The map used to price the diffuser with the rear ride height only.
+
+        `diffuser_ride_height_mm` moved the solver's diffuser Cl and nothing on
+        the screen; the throat height now drives the same decay the solver uses.
+        """
+        stations = (10.0, 30.0, 60.0)
+        cp = {
+            v: _pinned_cp(monkeypatch, "diffuser_ride_height_mm", v, PROBE_DIFFUSER)
+            for v in stations
+        }
+        ge = {v: math.exp(-v / 1000.0 / analytical.GE_DECAY_DIFFUSER_M) for v in stations}
+
+        assert cp[stations[2]] - cp[stations[0]] > 0.02, (
+            "diffuser throat height does not reach the pressure map"
+        )
+        assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-3)

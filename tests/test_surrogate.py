@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from backend.ml.dataset import (
     DESIGN_SPACE,
@@ -21,6 +22,7 @@ from backend.ml.surrogate import (
     AR1MultiFidelitySurrogate,
     SingleFidelityGP,
 )
+from backend.simulation.analytical import REF_AREA, RHO
 
 
 def test_sampling_bounds_and_distribution() -> None:
@@ -161,21 +163,26 @@ def test_metrics_and_calibration() -> None:
     assert rel["empirical"][-1] == 1.0
 
 
+def _synthetic_frame() -> pd.DataFrame:
+    """Minimal 4-point DoE big enough to fit both surrogates deterministically."""
+    return pd.DataFrame(
+        {
+            "fw_main_angle": [1.0, 3.0, 5.0, 7.0],
+            "fw_flap_angle": [6.0, 10.0, 14.0, 18.0],
+            "ride_height_front_mm": [20.0, 30.0, 40.0, 50.0],
+            "rear_wing_main_angle": [8.0, 12.0, 16.0, 20.0],
+            "speed_kmh": [120.0, 180.0, 240.0, 300.0],
+            "cl_lf": [1.5, 2.0, 2.5, 3.0],
+            "cd_lf": [0.4, 0.6, 0.8, 1.0],
+            "cl_hf": [1.7, 2.2, 2.7, 3.2],
+            "cd_hf": [0.45, 0.65, 0.85, 1.05],
+        }
+    )
+
+
 def test_aero_pipeline_save_and_load(tmp_path: Path) -> None:
     """Verify end-to-end pipeline serialization and point prediction."""
-    # Build minimal synthetic dataset
-    data = {
-        "fw_main_angle": [1.0, 3.0, 5.0, 7.0],
-        "fw_flap_angle": [6.0, 10.0, 14.0, 18.0],
-        "ride_height_front_mm": [20.0, 30.0, 40.0, 50.0],
-        "rear_wing_main_angle": [8.0, 12.0, 16.0, 20.0],
-        "speed_kmh": [120.0, 180.0, 240.0, 300.0],
-        "cl_lf": [1.5, 2.0, 2.5, 3.0],
-        "cd_lf": [0.4, 0.6, 0.8, 1.0],
-        "cl_hf": [1.7, 2.2, 2.7, 3.2],
-        "cd_hf": [0.45, 0.65, 0.85, 1.05],
-    }
-    df = pd.DataFrame(data)
+    df = _synthetic_frame()
 
     pipeline = AeroSurrogatePipeline(random_state=42)
     pipeline.fit_from_dataframe(df)
@@ -197,3 +204,28 @@ def test_aero_pipeline_save_and_load(tmp_path: Path) -> None:
     assert pred.cl_mean > 0.0
     assert pred.cd_mean > 0.0
     assert pred.downforce_N > 0.0
+
+
+def test_predict_point_forces_use_solver_reference_area() -> None:
+    """Forces must be the predicted Cl/Cd priced with the solver's q and area.
+
+    The pipeline used to restate 1.6 m² where every other tier uses
+    `analytical.REF_AREA`, so its newton figures were 6.7% above the physics.
+    """
+    pipeline = AeroSurrogatePipeline(random_state=42)
+    pipeline.fit_from_dataframe(_synthetic_frame())
+
+    speed_kmh = 200.0
+    pred = pipeline.predict_point({
+        "fw_main_angle": 3.0,
+        "fw_flap_angle": 10.0,
+        "ride_height_front_mm": 30.0,
+        "rear_wing_main_angle": 12.0,
+        "speed_kmh": speed_kmh,
+    })
+
+    q = 0.5 * RHO * (speed_kmh / 3.6) ** 2
+    # cl_mean is rounded to 4 dp and the forces to 0.1 N, so 0.25 N covers
+    # both roundings and nothing else.
+    assert pred.downforce_N == pytest.approx(pred.cl_mean * q * REF_AREA, abs=0.25)
+    assert pred.drag_N == pytest.approx(pred.cd_mean * q * REF_AREA, abs=0.25)

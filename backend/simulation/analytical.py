@@ -21,6 +21,14 @@ REF_AREA = 1.5  # reference frontal area m²
 WHEELBASE_M = 3.35  # typical formula car wheelbase
 DRS_FLAP_ANGLE_DEG = 2.0  # rear flap angle once DRS is open
 
+# Suction decay lengths (m) and the rake coefficient below are calibrated
+# lengths, not tuning knobs: backend/visualization/aero_field.py imports them so
+# the pressure map cannot drift away from the forces the solver reports.
+GE_DECAY_FRONT_M = 0.015
+GE_DECAY_REAR_M = 0.020
+GE_DECAY_DIFFUSER_M = 0.025
+RAKE_COEF_PER_DEG = 0.08
+
 
 def geometric_rake_deg(config: FormulaAeroConfig) -> float:
     """Body attitude implied by the two ride heights.
@@ -88,9 +96,9 @@ def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float
     h_rear = config.ride_height_rear_mm / 1000.0
     h_diff = config.diffuser_ride_height_mm / 1000.0
 
-    ge_front = math.exp(-h_front / 0.015)
-    ge_rear = math.exp(-h_rear / 0.020)
-    rake_boost = 1.0 + config.rake_deg * 0.08
+    ge_front = math.exp(-h_front / GE_DECAY_FRONT_M)
+    ge_rear = math.exp(-h_rear / GE_DECAY_REAR_M)
+    rake_boost = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
 
     floor_area = 2.2  # m² effective underbody
     cl_floor = 0.35 * ge_rear * rake_boost
@@ -98,7 +106,12 @@ def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float
 
     # Diffuser
     diff_angle_rad = math.radians(config.diffuser_angle_deg)
-    cl_diff = 0.25 * math.sin(diff_angle_rad) * math.exp(-h_diff / 0.025) * rake_boost
+    cl_diff = (
+        0.25
+        * math.sin(diff_angle_rad)
+        * math.exp(-h_diff / GE_DECAY_DIFFUSER_M)
+        * rake_boost
+    )
     cd_diff = 0.008
 
     cl_total = cl_floor + cl_diff
