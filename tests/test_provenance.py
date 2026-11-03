@@ -119,6 +119,66 @@ def test_real_cfd_provenance_is_hybrid(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "2D k-omega SST RANS" in provenance.note
 
 
+def _hybrid_rear_wing_cases() -> list[tuple[str, FormulaAeroConfig]]:
+    cfg = FormulaAeroConfig()
+    with_gurney = cfg.model_copy(
+        update={
+            "rear_wing_main": cfg.rear_wing_main.model_copy(update={"gurney_mm": 20.0})
+        }
+    )
+    with_shorter_span = cfg.model_copy(
+        update={
+            "rear_wing_main": cfg.rear_wing_main.model_copy(update={"span_m": 0.85}),
+            "rear_wing_flap": cfg.rear_wing_flap.model_copy(update={"span_m": 0.85}),
+        }
+    )
+    cases = [
+        ("default", cfg),
+        ("drs_open", cfg.model_copy(update={"drs_active": True})),
+        ("rear_gurney_20mm", with_gurney),
+        ("rear_span_0.85m", with_shorter_span),
+        ("speed_250kmh", cfg.model_copy(update={"speed_kmh": 250.0})),
+    ]
+    return cases
+
+
+def test_hybrid_tier_does_not_restate_the_rear_wing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CFD tier solved a 2D front-wing section; the rear wing is this model's
+    empirical term and must be the same number the analytical tier charges."""
+    monkeypatch.setattr(
+        "backend.simulation.cfd.openfoam_runner.run_cfd_case",
+        lambda *args, **kwargs: _fake_cfd_result(synthetic=False),
+    )
+
+    for label, cfg in _hybrid_rear_wing_cases():
+        hybrid, _ = run_cfd_with_provenance(cfg)
+        assert hybrid.forces.downforce_rear_N == simulate(cfg).forces.downforce_rear_N, label
+
+
+def test_hybrid_rear_load_moves_with_the_rear_wing_knobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gurney, span and DRS reach the hybrid rear wing through the shared term."""
+    monkeypatch.setattr(
+        "backend.simulation.cfd.openfoam_runner.run_cfd_case",
+        lambda *args, **kwargs: _fake_cfd_result(synthetic=False),
+    )
+    cases = dict(_hybrid_rear_wing_cases())
+    base = run_cfd_with_provenance(cases["default"])[0].forces
+
+    with_gurney = run_cfd_with_provenance(cases["rear_gurney_20mm"])[0].forces
+    assert with_gurney.downforce_rear_N > base.downforce_rear_N
+
+    narrow = run_cfd_with_provenance(cases["rear_span_0.85m"])[0].forces
+    assert narrow.downforce_rear_N < base.downforce_rear_N
+
+    drs = run_cfd_with_provenance(cases["drs_open"])[0].forces
+    assert drs.downforce_rear_N < base.downforce_rear_N
+    assert drs.drag_N < base.drag_N
+
+
 def test_real_cfd_failure_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
     """A real solver failure must surface as 503, never as synthetic results."""
 

@@ -11,6 +11,7 @@ from backend.simulation.analytical import (
     RHO,
     _body_drag,
     _underbody_forces,
+    _wing_forces,
     effective_rear_flap,
     lap_time_delta_s,
 )
@@ -112,10 +113,15 @@ def run_cfd_with_provenance(
     # Underbody floor forces
     df_floor, drag_floor, floor_front_share = _underbody_forces(config, speed_ms)
 
-    # Rear wing empirical balance
-    rear_angle = config.rear_wing_main.angle_deg + effective_rear_flap(config).angle_deg
-    df_rear_wing_N = 0.08 * rear_angle * q * 1.0
-    drag_rear_wing_N = (0.012 + 0.003 * rear_angle) * q * 1.0
+    # Rear wing: the same two empirical elements the analytical tier charges, so
+    # one setup does not come out with a different rear load depending on which
+    # fidelity was asked for. The old restatement used 0.08 Cl per summed
+    # main+flap degree over a fixed 1.0 m^2 planform, which ignored chord, span,
+    # gurney and DRS and priced this wing about four times the model's own.
+    df_rw_main, drag_rw_main = _wing_forces(config.rear_wing_main, speed_ms)
+    df_rw_flap, drag_rw_flap = _wing_forces(effective_rear_flap(config), speed_ms)
+    df_rear_wing_N = df_rw_main + df_rw_flap
+    drag_rear_wing_N = drag_rw_main + drag_rw_flap
 
     df_front_total = df_front_wing_N + df_floor * floor_front_share
     df_rear_total = df_rear_wing_N + df_floor * (1.0 - floor_front_share)
