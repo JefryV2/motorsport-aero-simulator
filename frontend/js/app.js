@@ -340,6 +340,8 @@ function getConfig() {
   };
 }
 
+// Never add a `geo` key: the viewer publishes the solved car geometry itself,
+// and setFlowSettings merges this payload over it.
 function getFlowSettings() {
   return {
     windSpeedKmh: +document.getElementById('wind_speed').value,

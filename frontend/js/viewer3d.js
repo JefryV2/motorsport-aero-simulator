@@ -19,6 +19,7 @@ import {
   speedToColor,
   windDirection,
   reynoldsLabel,
+  wakeShape,
   distToBBox,
   isInsideBBox,
   speedsAlongPath,
@@ -702,12 +703,20 @@ export class AeroViewer {
     }
 
     if (this.flow.showWake) {
+      // The surface the field says the mean deficit lives behind, not a cone
+      // sized off the bounding box. Opacity follows the deficit the momentum
+      // balance put there, so a draggier setup draws a heavier wake.
+      const shape = wakeShape(this.flow, this.config, this.bounds);
       const wake = new THREE.Mesh(
-        new THREE.ConeGeometry(span[2] * 0.5, span[0] * 0.8, 12, 1, true),
-        new THREE.MeshBasicMaterial({ color: VIEW_THEME.wake, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }),
+        this._wakeEnvelope(shape),
+        new THREE.MeshBasicMaterial({
+          color: VIEW_THEME.wake,
+          transparent: true,
+          opacity: Math.min(0.16, 0.05 + 0.18 * shape.deficit),
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
       );
-      wake.rotation.z = -Math.PI / 2;
-      wake.position.set(max[0] + span[0] * 0.4, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
       this.tunnelGroup.add(wake);
     }
 
@@ -717,6 +726,56 @@ export class AeroViewer {
       new THREE.Vector3(min[0] - span[0] * 0.12, max[1] + span[1] * 0.35, (min[2] + max[2]) / 2),
       1.2, VIEW_THEME.windArrow, 0.3, 0.18,
     ));
+  }
+
+  /**
+   * Swept tube through the rings `wakeShape` returns: one ring per station,
+   * quads between consecutive rings, and a fan closing the downstream face
+   * where the wake has recovered. The upstream end is left open inside the
+   * body, and the lower semi-axis is the one clipped at the tunnel floor.
+   * Vertical stays world-y, because that is how the field measures the deficit
+   * height; lateral follows the car's own axis, so the wake goes with a yawed
+   * model.
+   */
+  _wakeEnvelope(shape) {
+    const seg = 20;
+    const rings = shape.rings;
+    const la = shape.lateral;
+    const pos = new Float32Array((rings.length * seg + 1) * 3);
+    const idx = [];
+    rings.forEach((r, i) => {
+      for (let j = 0; j < seg; j++) {
+        const t = (j / seg) * Math.PI * 2;
+        const cos = Math.cos(t);
+        const sin = Math.sin(t);
+        const k = (i * seg + j) * 3;
+        pos[k] = r.c[0] + la[0] * r.rZ * sin;
+        pos[k + 1] = r.c[1] + (cos >= 0 ? r.rY : r.rYlow) * cos;
+        pos[k + 2] = r.c[2] + la[2] * r.rZ * sin;
+      }
+    });
+    for (let i = 0; i < rings.length - 1; i++) {
+      for (let j = 0; j < seg; j++) {
+        const a = i * seg + j;
+        const b = i * seg + ((j + 1) % seg);
+        const c = (i + 1) * seg + j;
+        const d = (i + 1) * seg + ((j + 1) % seg);
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    const last = rings[rings.length - 1];
+    const apex = rings.length * seg;
+    pos[apex * 3] = last.c[0];
+    pos[apex * 3 + 1] = last.c[1];
+    pos[apex * 3 + 2] = last.c[2];
+    for (let j = 0; j < seg; j++) {
+      idx.push((rings.length - 1) * seg + j, (rings.length - 1) * seg + ((j + 1) % seg), apex);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    return geo;
   }
 
   _clearGroup(g) {

@@ -344,6 +344,15 @@ function sourcePert(x, y, z, p, Q, s2) {
 }
 
 /**
+ * Wake cross-section `ds` downstream of its start: [vertical, lateral] Gaussian
+ * semi-axes. Both spread linearly, so the ellipse keeps its shape downstream.
+ */
+function wakeAxes(wake, ds, length) {
+  const k = ds / length;
+  return [wake.sigma0 + wake.growth * k, wake.z0 + wake.zGrowth * k];
+}
+
+/**
  * The model's singularity distribution: blockage doublets, lifting lines with
  * their tip vortices, the underbody through-flow, and the wake parameters.
  * Built once per geometry or wind change because velocityAt runs per tracer.
@@ -360,6 +369,11 @@ function buildSources(fr, config, wind) {
       hCenter: fr.height * 0.42,
       sigma0: fr.height * 0.24,
       growth: fr.height * 0.42,
+      // Lateral semi-axis: the wake is as wide as the body that made it, and
+      // spreads at the same relative rate as the vertical axis (0.42 per car
+      // length), so the cross-section stays self-similar downstream.
+      z0: fr.halfZ,
+      zGrowth: fr.halfZ * 0.42,
       decayLen: fr.length * 1.1,
       deficit: 0.4,
       upwash: 0.1,
@@ -630,6 +644,8 @@ export function velocityAt(x, y, z, config, bounds, flow) {
 
   // Station along the car axis, so the field follows a yawed or scaled model.
   const s = (x - fr.o[0]) * fr.ax[0] + (y - fr.o[1]) * fr.ax[1] + (z - fr.o[2]) * fr.ax[2];
+  // And the offset across it, for the same reason: the wake has a width.
+  const zz = (x - fr.o[0]) * fr.la[0] + (y - fr.o[1]) * fr.la[1] + (z - fr.o[2]) * fr.la[2];
 
   if (flow.showInteraction !== false) {
     const p = potentialFrom(fr, src, wx, wy, wz, uRef, x, y, z);
@@ -644,9 +660,9 @@ export function velocityAt(x, y, z, config, bounds, flow) {
     if (s > wake.sStart) {
       const ds = s - wake.sStart;
       const decay = Math.exp(-ds / wake.decayLen);
-      const sigma = wake.sigma0 + wake.growth * (ds / fr.length);
+      const axes = wakeAxes(wake, ds, fr.length);
       const dy = y - wakeH;
-      const g = Math.exp(-(dy * dy) / (2 * sigma * sigma));
+      const g = Math.exp(-((dy * dy) / (2 * axes[0] * axes[0]) + (zz * zz) / (2 * axes[1] * axes[1])));
       const m = decay * g;
       vx -= wx * wake.deficit * m;
       vy += uRef * wake.upwash * m;
@@ -660,10 +676,12 @@ export function velocityAt(x, y, z, config, bounds, flow) {
   const turbLevel = flow.turbulence ?? 0.12;
   if (turbLevel > 1e-3) {
     const n = (s - fr.nose) / fr.length;
-    const sigma = fr.height * (0.3 + 0.5 * Math.max(0, n - 0.6));
     const behind = clamp((n - 0.45) / 0.4, 0, 1);
     const dy = y - wakeH;
-    const inWake = behind * Math.exp(-(dy * dy) / (2 * sigma * sigma));
+    // Eddies live where the deficit lives: the same ellipse, not a sheet that
+    // reaches outboard long after the wake it belongs to has gone.
+    const axes = wakeAxes(wake, Math.max(0, s - wake.sStart), fr.length);
+    const inWake = behind * Math.exp(-((dy * dy) / (2 * axes[0] * axes[0]) + (zz * zz) / (2 * axes[1] * axes[1])));
     const eddy = Math.max(fr.length * 0.22, 0.05);
     const c = curlNoise(
       (x - fr.o[0]) / eddy,
@@ -710,6 +728,62 @@ export function velocityAt(x, y, z, config, bounds, flow) {
 
 export function speedAt(x, y, z, config, bounds, flow) {
   return len(velocityAt(x, y, z, config, bounds, flow));
+}
+
+/**
+ * The wake as the field defines it, ready to draw.
+ *
+ * `edge` is the profile boundary: the ellipse on which the local deficit has
+ * fallen to `edge` of the centreline deficit at the same station. Because the
+ * field's cross-section is a Gaussian whose axes both grow linearly, that
+ * ellipse spreads downstream - the self-similar wake edge, not a fixed contour.
+ * (Drawing an absolute iso-deficit surface instead would taper to a point,
+ * because the streamwise decay eats the contour faster than the spread grows;
+ * that taper is what the old bounding-box cone got by accident.)
+ *
+ * `recover` sets the length: the envelope stops where the centreline deficit
+ * has recovered to `recover` of its value at the tail, i.e. `decayLen` *
+ * ln(1/`recover`) behind the start. Each ring's downward semi-axis is clipped
+ * at the tunnel floor, below which the model has no air.
+ *
+ * Reads the same cached sources the tracers are advected by, so the picture
+ * cannot drift from the computation.
+ */
+export function wakeShape(flow, config, bounds, edge = 0.5, recover = 0.25) {
+  const [wx, wy, wz] = windVector(flow);
+  const cache = sourcesFor(flow, config, bounds, [wx, wy, wz]);
+  const fr = cache.fr;
+  const wake = cache.src.wake;
+  const f = Math.sqrt(2 * Math.log(1 / edge));
+  const reach = wake.decayLen * Math.log(1 / recover);
+  const rings = [];
+  const steps = 14;
+  for (let i = 0; i <= steps; i++) {
+    const ds = (reach * i) / steps;
+    const axes = wakeAxes(wake, ds, fr.length);
+    const rY = axes[0] * f;
+    const s = wake.sStart + ds;
+    rings.push({
+      c: [fr.o[0] + fr.ax[0] * s, fr.groundY + wake.hCenter, fr.o[2] + fr.ax[2] * s],
+      rY,
+      rYlow: Math.min(rY, wake.hCenter),
+      rZ: axes[1] * f,
+    });
+  }
+  return {
+    rings,
+    lateral: fr.la,
+    deficit: wake.deficit,
+    upwash: wake.upwash,
+    hCenter: wake.hCenter,
+    sigmaY: wake.sigma0,
+    sigmaZ: wake.z0,
+    startStation: wake.sStart,
+    reach,
+    edge,
+    recover,
+    length: fr.length,
+  };
 }
 
 /** Spawn particle at flow source. */
@@ -953,8 +1027,9 @@ export function speedsAlongPath(points, config, bounds, flow, velocityFn = veloc
 
 /**
  * Full-car Reynolds number at the speed the tunnel is showing, on the drawn
- * car length. Display only: no force tier reads Re, so this number moves the
- * readout and never the numbers.
+ * car length. Display only: the analytical and VLM tiers apply no Re scaling,
+ * and the CFD tier reads a chord Reynolds number in its own section case, so
+ * this number moves the readout and never the forces.
  */
 export function reynoldsNumber(flow, charLengthM = REFERENCE.carLengthM) {
   const v = flow.windSpeedKmh / 3.6;

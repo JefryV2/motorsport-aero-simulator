@@ -20,6 +20,9 @@
  *      labelled with it.
  *  10. the inflow tilt: yaw and pitch move the tracers, leave |U| and the
  *      singularity strengths alone, and pitch up means air arriving from below.
+ *  11. the wake: a deficit with a width, whose drawn envelope is the field's
+ *      own profile edge at its own recovery station, cut at the floor and
+ *      deepened by drag.
  *
  * Run: node scripts/check_flow_field.mjs
  *
@@ -62,6 +65,7 @@ try {
 const {
   velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl,
   underbodyTerms, atStation, reynoldsNumber, reynoldsLabel, windVector,
+  wakeShape, potentialVelocityAt,
 } = mod;
 const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, lapTimeDeltaS, REFERENCE } = spec;
 const { computeCpField } = press;
@@ -569,6 +573,100 @@ check(
   uBehind < uAside - 0.05 * U,
   'wake follows the yawed car axis',
   `u on axis = ${uBehind.toFixed(1)} vs off axis = ${uAside.toFixed(1)} m/s`,
+);
+
+// The wake used to be a sheet: the deficit depended on height only, so every
+// tracer anywhere in the tunnel - 9 m outboard of a 1.8 m car - was slowed.
+// It is an ellipse now, and the recovery has to be measurable.
+const calm = { ...carFlow, turbulence: 0 };
+const wakeIso = wakeShape(calm, CAR_CONFIG, offBounds);
+const uAtTailWake = (zOff) => velocityAt(
+  ...atStation(carFr, carFr.tail + 0.6, wakeIso.hCenter, zOff), CAR_CONFIG, offBounds, calm,
+)[0];
+const defOn = U - uAtTailWake(0);
+const defOut = U - uAtTailWake(3 * carFr.halfZ);
+check(
+  defOut < 0.12 * defOn,
+  'wake deficit dies out across the car width',
+  `${((defOn / U) * 100).toFixed(0)}% U on the axis vs ${((defOut / U) * 100).toFixed(1)}% U at 3x half-width`,
+);
+
+// The toggle draws the wake's profile edge, so the field has to read `edge` of
+// its own centreline deficit on that edge - at every station, not just one.
+// Ring 0 is skipped: it sits exactly on sStart, and the field's wake starts
+// downstream of that station.
+const [wxw] = windVector(calm);
+const wakeM = (ring, dy, dz) => {
+  const la = wakeIso.lateral;
+  const p = [ring.c[0] + la[0] * dz, ring.c[1] + dy, ring.c[2] + la[2] * dz];
+  return (potentialVelocityAt(p[0], p[1], p[2], CAR_CONFIG, offBounds, calm)[0]
+    - velocityAt(p[0], p[1], p[2], CAR_CONFIG, offBounds, calm)[0]) / (wxw * wakeIso.deficit);
+};
+const nRings = wakeIso.rings.length;
+let edgeErr = 0;
+let lenErr = 0;
+for (let i = 1; i < nRings; i++) {
+  const ring = wakeIso.rings[i];
+  const mAxis = wakeM(ring, 0, 0);
+  edgeErr = Math.max(edgeErr, Math.abs(wakeM(ring, ring.rY, 0) / mAxis - wakeIso.edge));
+  lenErr = Math.max(lenErr, Math.abs(mAxis - Math.pow(wakeIso.recover, i / (nRings - 1))));
+}
+check(
+  edgeErr < 0.02,
+  'the drawn wake edge is half the centreline deficit',
+  `max |edge - ${wakeIso.edge}| = ${edgeErr.toFixed(4)} over ${nRings - 1} stations`,
+);
+check(
+  lenErr < 0.02,
+  'the drawn wake length is the model decay law',
+  `max |deficit - ${wakeIso.recover}^(i/${nRings - 1})| = ${lenErr.toFixed(4)}, ` +
+    `face at ${wakeIso.reach.toFixed(1)} m where ${(wakeIso.recover * 100).toFixed(0)}% of the deficit is left`,
+);
+
+// A wake that narrows to a point is the wrong way round: the deficit region
+// spreads as it decays. The cone this replaced tapered downstream.
+const rZFirst = wakeIso.rings[0].rZ;
+const rZLast = wakeIso.rings[wakeIso.rings.length - 1].rZ;
+const spreadMonotonic = wakeIso.rings.every((r, i) => i === 0 || r.rZ >= wakeIso.rings[i - 1].rZ - 1e-12);
+check(
+  spreadMonotonic && rZLast > 1.4 * rZFirst,
+  'the wake spreads downstream',
+  `half-width ${rZFirst.toFixed(2)} -> ${rZLast.toFixed(2)} m over ${wakeIso.reach.toFixed(1)} m behind the tail`,
+);
+
+// No air below the floor: the envelope must stop at it, not pass through.
+const floorMin = Math.min(...wakeIso.rings.map((r) => r.c[1] - r.rYlow)) - carFr.groundY;
+check(
+  floorMin > -1e-9,
+  'the wake is cut at the tunnel floor',
+  `lowest drawn point ${(floorMin * 1000).toFixed(1)} mm relative to the floor`,
+);
+
+// The deficit is the momentum balance result, so a draggier car has to show a
+// deeper wake - this is what the envelope opacity is tied to.
+const DRAGGY = { ...CAR_CONFIG, rear_wing_main: { angle_deg: 14 }, rear_wing_flap: { angle_deg: 20 } };
+const shapeDraggy = wakeShape({ ...calm, geo: geoFor(DRAGGY) }, DRAGGY, offBounds);
+check(
+  shapeDraggy.deficit > wakeIso.deficit + 1e-3,
+  'more drag, deeper wake',
+  `deficit ${(wakeIso.deficit * 100).toFixed(0)}% -> ${(shapeDraggy.deficit * 100).toFixed(0)}% U at rear wing 14/20 deg`,
+);
+
+// And on a yawed model the drawn envelope has to sit on the car axis, which a
+// box-aligned cone could never do.
+const flowYawWake = { ...calm, geo: yawed };
+const frYawWake = flowFrame(flowYawWake, offBounds);
+const shapeYaw = wakeShape(flowYawWake, CAR_CONFIG, offBounds);
+let axisErr = 0;
+for (const ring of shapeYaw.rings) {
+  const dx = ring.c[0] - frYawWake.o[0];
+  const dz = ring.c[2] - frYawWake.o[2];
+  axisErr = Math.max(axisErr, Math.abs(dx * frYawWake.la[0] + dz * frYawWake.la[2]));
+}
+check(
+  axisErr < 1e-9,
+  'the drawn wake lies on the yawed axis',
+  `max offset off the car axis = ${axisErr.toExponential(1)} m at 25 deg yaw`,
 );
 
 // ---------------------------------------------------------------------------

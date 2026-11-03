@@ -1246,7 +1246,7 @@
         <div class="toggle-row">
           <label><input type="checkbox" id="smoke_tint" /> Tint smoke by speed</label>
           <label><input type="checkbox" id="show_interaction" checked /> Air/car interaction</label>
-          <label><input type="checkbox" id="show_wake" /> Wake hint</label>
+          <label><input type="checkbox" id="show_wake" title="The shaded volume is the flow model's own wake. Its cross-section is the ellipse on which the mean velocity deficit has fallen to half its value on the car axis at that station - the same elliptical Gaussian the smoke is advected by, spreading as it goes. Its length stops where that centreline deficit has recovered to 25% of its peak just behind the car. Size, spread, length and depth all come from the car's own geometry and from the momentum balance that reports the drag, not from a shape fitted to the bounding box, and the shading follows that depth. The surface is cut at the tunnel floor, below which the model has no air. Visualization of the analytic field model, not measured CFD." /> Wake envelope (&ge;&thinsp;50% centreline)</label>
           <label><input type="checkbox" id="show_tunnel" /> Tunnel walls</label>
           <label><input type="checkbox" id="show_source" /> Source plane</label>
           <label><input type="checkbox" id="show_ground" /> Ground plane</label>

@@ -889,3 +889,94 @@ class TestInflowAnglesAreViewerOnly:
         assert re.search(
             r"inflow yaw[^`]*inflow pitch[^`]*solver gets the speed", js
         ), "the panel quotes the inflow angles as if the loads answered to them"
+
+
+class TestTheDrawnWakeIsTheComputedWake:
+    """The wake toggle used to draw a cone sized off the model's bounding box.
+
+    Measured against the shipped field before this was fixed. On the built-in
+    car (length 4.23 m, height 0.91 m, half-width 0.90 m) the cone's radius was
+    half the box span, its axis sat at mid-box height, its opacity was fixed at
+    0.08 whatever the momentum balance reported, and it tapered to a point
+    downstream - while the field's deficit region starts 0.22 m tall (0.24 x
+    height) and *grows* at 0.42 x height per car length, centred 0.38 m above
+    the floor, with its depth set by drag. Worse, the field had no lateral
+    structure at all: the deficit depended on height only, so a probe 9 m
+    outboard of a 1.8 m car still read 0.605 U against 0.568 U on the axis.
+    """
+
+    def _text(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_wake_deficit_has_edges_in_both_directions(self):
+        js = self._text("frontend", "js", "flowEngine.js")
+        assert re.search(r"z0: fr\.halfZ,\s*\n\s*zGrowth: fr\.halfZ \* 0\.42", js), (
+            "the wake lost its lateral semi-axis"
+        )
+        deficit = re.search(r"if \(s > wake\.sStart\) \{(.*?)\n    \}", js, re.DOTALL)
+        assert deficit, "the mean-deficit term behind the car is gone"
+        assert "axes[1]" in deficit.group(1) and "zz" in deficit.group(1), (
+            "the deficit ignores the lateral axis again: it is a sheet spanning "
+            "the whole tunnel, so every tracer in it reads as wake"
+        )
+        turb = re.search(r"const inWake = (.*?);", js, re.DOTALL)
+        assert turb and "axes[1]" in turb.group(1), (
+            "the turbulence amplification no longer follows the same ellipse as "
+            "the deficit it is supposed to mark"
+        )
+
+    def test_the_envelope_is_built_from_the_field(self):
+        viewer = self._text("frontend", "js", "viewer3d.js")
+        assert re.search(r"wakeShape\(this\.flow, this\.config, this\.bounds\)", viewer), (
+            "the wake toggle no longer asks the field what its wake looks like"
+        )
+        assert "ConeGeometry" not in viewer, (
+            "a cone is back in the viewer: nothing in the model makes a wake that shape"
+        )
+
+    def test_the_viewer_restates_no_wake_number(self):
+        viewer = self._text("frontend", "js", "viewer3d.js")
+        for name in ("sigma0", "hCenter", "decayLen", "zGrowth", "sStart"):
+            assert name not in viewer, (
+                f"{name} is duplicated in the viewer - the drawn wake would drift "
+                "from the advected one"
+            )
+
+    def test_the_toggle_says_which_surface_it_draws(self):
+        engine = self._text("frontend", "js", "flowEngine.js")
+        defaults = re.search(
+            r"export function wakeShape\([^)]*?edge = ([\d.]+), recover = ([\d.]+)", engine
+        )
+        assert defaults, "wakeShape no longer publishes the fractions it draws at"
+        edge, recover = (float(x) for x in defaults.groups())
+        html = self._text("frontend", "index.html")
+        toggle = re.search(
+            r'id="show_wake"[^>]*title="([^"]+)"\s*/>\s*([^<]+)</label>', html
+        )
+        assert toggle, "the wake toggle lost its label or its explanation"
+        title, label = toggle.groups()
+        assert "Wake hint" not in html, "the toggle still promises a hint, not a surface"
+        assert f"{edge * 100:.0f}%" in label, (label, edge)
+        assert f"{recover * 100:.0f}%" in title, (title, recover)
+        assert "bounding box" in title and "momentum balance" in title, title
+
+    def test_the_settings_round_trip_cannot_unpublish_the_geometry(self):
+        """`flow.geo` is what makes the wake the car's own, not the box's.
+
+        Only `_syncFlowGeo` publishes it, and `setFlowSettings` merges the page
+        payload over the live object, so a `geo` key there - even `null`, which
+        is what DEFAULT_FLOW carries - would silently drop the solved stations
+        on every slider move and send the field back to bbox fractions.
+        """
+        app = self._text("frontend", "js", "app.js")
+        body = re.search(r"function getFlowSettings\(\) \{\s*return \{(.*?)\};", app, re.DOTALL)
+        assert body, "getFlowSettings no longer returns a literal payload"
+        assert not re.search(r"(^|[{,\s])geo\s*:", body.group(1)), (
+            "the page payload carries a geo key: it would overwrite the geometry "
+            "the viewer publishes from the built-in car's solved surfaces"
+        )
+        assert re.search(r"this\.flow = \{ \.\.\.this\.flow, \.\.\.flow \};", self._text("frontend", "js", "viewer3d.js")), (
+            "setFlowSettings no longer merges over the live flow object"
+        )
