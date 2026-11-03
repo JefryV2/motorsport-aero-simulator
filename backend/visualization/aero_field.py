@@ -13,6 +13,7 @@ from backend.simulation.analytical import (
     GE_DECAY_FRONT_M,
     GE_DECAY_REAR_M,
     RAKE_COEF_PER_DEG,
+    diffuser_throat_height_m,
     effective_rear_flap,
 )
 from backend.simulation.panel_method import simulate_panel
@@ -82,7 +83,7 @@ def compute_cp_field(
     rw_angle = config.rear_wing_main.angle_deg + effective_rear_flap(config).angle_deg * 0.6
     ge_front = math.exp(-config.ride_height_front_mm / 1000.0 / GE_DECAY_FRONT_M)
     ge_rear = math.exp(-config.ride_height_rear_mm / 1000.0 / GE_DECAY_REAR_M)
-    ge_diffuser = math.exp(-config.diffuser_ride_height_mm / 1000.0 / GE_DECAY_DIFFUSER_M)
+    ge_diffuser = math.exp(-diffuser_throat_height_m(config) / GE_DECAY_DIFFUSER_M)
     rake = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
     diff_boost = math.sin(math.radians(config.diffuser_angle_deg)) * 0.8
 

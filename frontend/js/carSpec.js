@@ -152,12 +152,14 @@ function floorRake(config) {
 }
 
 /**
- * Diffuser. The solver treats `diffuser_ride_height_mm` as a suction decay
- * height (analytical.py:78, exp(-h/0.025)), not as an exit plane, and
- * `diffuser_angle_deg` only enters through sin(angle). Geometrically the
- * consistent reading is: that height is the throat, and the angle is the ramp
- * slope over a fixed expansion length, so both sliders move the drawn exit
- * plane in the direction the force model rewards.
+ * Diffuser. The solver prices `diffuser_ride_height_mm` as a suction decay
+ * height (`analytical._underbody_forces`, exp(-h / GE_DECAY_DIFFUSER_M)) rather
+ * than as an exit plane, and `diffuser_angle_deg` only enters through
+ * sin(angle). Geometrically the consistent reading is: that height is the
+ * throat, and the angle is the ramp slope over a fixed expansion length, so
+ * both sliders move the drawn exit plane in the direction the force model
+ * rewards. `analytical.diffuser_throat_height_m` now raises a throat set below
+ * the floor line here too, so the drawn shape and the priced one are one rule.
  */
 function diffuserGeometry(config, floor) {
   const xEnd = REFERENCE.floorXEndM;

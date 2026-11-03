@@ -29,6 +29,15 @@ GE_DECAY_REAR_M = 0.020
 GE_DECAY_DIFFUSER_M = 0.025
 RAKE_COEF_PER_DEG = 0.08
 
+# Floor and diffuser stations in car-local metres from the nose. These mirror
+# REFERENCE in frontend/js/carSpec.js, which draws the same lines; the tests in
+# tests/test_physics_sanity.py assert the two do not drift apart.
+FRONT_AXLE_M = 0.55
+REAR_AXLE_M = 3.9
+FLOOR_X_START_M = 0.62
+FLOOR_X_END_M = 3.62
+DIFFUSER_LENGTH_M = 0.6
+
 
 def geometric_rake_deg(config: FormulaAeroConfig) -> float:
     """Body attitude implied by the two ride heights.
@@ -38,6 +47,30 @@ def geometric_rake_deg(config: FormulaAeroConfig) -> float:
     """
     rise_mm = config.ride_height_rear_mm - config.ride_height_front_mm
     return math.degrees(math.atan(rise_mm / (WHEELBASE_M * 1000.0)))
+
+
+def floor_height_at_m(config: FormulaAeroConfig, x_m: float) -> float:
+    """Floor line height in metres above the ground plane at station `x_m`.
+
+    The two ride heights at the two axles define the ramp, the same line the
+    viewer draws, so a setup's rake shows up in the geometry and the forces.
+    """
+    h_front = config.ride_height_front_mm / 1000.0
+    h_rear = config.ride_height_rear_mm / 1000.0
+    slope = (h_rear - h_front) / (REAR_AXLE_M - FRONT_AXLE_M)
+    return h_front + slope * (x_m - FRONT_AXLE_M)
+
+
+def diffuser_throat_height_m(config: FormulaAeroConfig) -> float:
+    """The throat the car can actually build, never below the floor line.
+
+    The diffuser starts where the floor ends and runs rearward, so a throat
+    setting under the floor height at that station is not a shape the car has.
+    `carSpec.js` already raises the drawn throat to the floor line; the forces
+    have to price the same one.
+    """
+    x_start = FLOOR_X_END_M - DIFFUSER_LENGTH_M
+    return max(config.diffuser_ride_height_mm / 1000.0, floor_height_at_m(config, x_start))
 
 
 def effective_rear_flap(config: FormulaAeroConfig) -> WingElement:
@@ -94,7 +127,7 @@ def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float
     # Ride height sensitivity (exponential ground effect)
     h_front = config.ride_height_front_mm / 1000.0
     h_rear = config.ride_height_rear_mm / 1000.0
-    h_diff = config.diffuser_ride_height_mm / 1000.0
+    h_diff = diffuser_throat_height_m(config)
 
     ge_front = math.exp(-h_front / GE_DECAY_FRONT_M)
     ge_rear = math.exp(-h_rear / GE_DECAY_REAR_M)

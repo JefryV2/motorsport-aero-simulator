@@ -9,6 +9,7 @@ import httpx
 from backend.models.aero_config import AdvisorRequest
 from backend.simulation.analytical import (
     DRS_FLAP_ANGLE_DEG,
+    diffuser_throat_height_m,
     effective_rear_flap,
     geometric_rake_deg,
     simulate,
@@ -33,6 +34,13 @@ def _build_context(request: AdvisorRequest) -> str:
     f = sim.forces
     c = sim.config
 
+    throat_mm = diffuser_throat_height_m(c) * 1000.0
+    throat_note = (
+        f"{throat_mm:.2f}mm as the model runs it (raised to the floor line)"
+        if throat_mm > c.diffuser_ride_height_mm + 1e-9
+        else f"{throat_mm:.2f}mm"
+    )
+
     context = f"""Baseline Setup:
 - Speed: {c.speed_kmh} km/h
 - Front wing: main {c.front_wing_main.angle_deg}°, flap {c.front_wing_flap.angle_deg}° (gurney {c.front_wing_main.gurney_mm}mm)
@@ -41,7 +49,7 @@ def _build_context(request: AdvisorRequest) -> str:
 - DRS: {'open' if c.drs_active else 'closed'}
 - Ride height: front {c.ride_height_front_mm}mm, rear {c.ride_height_rear_mm}mm
 - Rake model term: {c.rake_deg}° (suction multiplier, not a body angle); body rake implied by those ride heights: {geometric_rake_deg(c):.2f}°
-- Diffuser: {c.diffuser_angle_deg}° at {c.diffuser_ride_height_mm}mm
+- Diffuser: {c.diffuser_angle_deg}° throat {c.diffuser_ride_height_mm}mm requested -> {throat_note}
 
 Baseline Simulation Results ({sim.method}):
 - Total downforce: {f.downforce_total_N} N (front {f.downforce_front_N} N / rear {f.downforce_rear_N} N)

@@ -7,6 +7,11 @@ Locks in exact numeric outputs across four reference setups:
 4. monza_low_drag
 
 Protects baseline physics against unintended regression during refactoring.
+
+Regenerated when `analytical.diffuser_throat_height_m()` started raising a throat
+set below the floor line up to that line: every case here has a nominal 30 mm
+throat under a floor at 39.75-44.75 mm, so the underbody lost about a tenth of
+its Cl. Drag is unchanged because the model's diffuser drag term is a constant.
 """
 
 from __future__ import annotations
@@ -22,30 +27,30 @@ GOLDEN_TARGETS = {
         "config": FormulaAeroConfig(),
         "expected": {
             "drag_N": 2396.1,
-            "downforce_total_N": 1657.4,
-            "downforce_front_N": 724.4,
-            "downforce_rear_N": 933.0,
-            "balance_front_pct": 43.7,
-            "cop_x_m": 1.886,
-            "cl_total": 0.585,
+            "downforce_total_N": 1633.9,
+            "downforce_front_N": 719.1,
+            "downforce_rear_N": 914.8,
+            "balance_front_pct": 44.0,
+            "cop_x_m": 1.876,
+            "cl_total": 0.576,
             "cd_total": 0.845,
-            "efficiency": 0.69,
-            "lap_time_delta_s": 0.267,
+            "efficiency": 0.68,
+            "lap_time_delta_s": 0.2689,
         },
     },
     "low_speed_100kmh": {
         "config": FormulaAeroConfig(speed_kmh=100.0),
         "expected": {
             "drag_N": 599.0,
-            "downforce_total_N": 414.4,
-            "downforce_front_N": 181.1,
-            "downforce_rear_N": 233.3,
-            "balance_front_pct": 43.7,
-            "cop_x_m": 1.886,
-            "cl_total": 0.585,
+            "downforce_total_N": 408.5,
+            "downforce_front_N": 179.8,
+            "downforce_rear_N": 228.7,
+            "balance_front_pct": 44.0,
+            "cop_x_m": 1.876,
+            "cl_total": 0.576,
             "cd_total": 0.845,
-            "efficiency": 0.69,
-            "lap_time_delta_s": 0.1868,
+            "efficiency": 0.68,
+            "lap_time_delta_s": 0.1872,
         },
     },
     "monaco_high_df": {
@@ -60,15 +65,15 @@ GOLDEN_TARGETS = {
         ),
         "expected": {
             "drag_N": 2838.6,
-            "downforce_total_N": 4612.5,
-            "downforce_front_N": 2702.3,
-            "downforce_rear_N": 1910.2,
-            "balance_front_pct": 58.6,
-            "cop_x_m": 1.387,
-            "cl_total": 1.627,
+            "downforce_total_N": 4581.3,
+            "downforce_front_N": 2695.3,
+            "downforce_rear_N": 1886.0,
+            "balance_front_pct": 58.8,
+            "cop_x_m": 1.379,
+            "cl_total": 1.616,
             "cd_total": 1.001,
-            "efficiency": 1.62,
-            "lap_time_delta_s": 0.0749,
+            "efficiency": 1.61,
+            "lap_time_delta_s": 0.0773,
         },
     },
     "monza_low_drag": {
@@ -84,15 +89,15 @@ GOLDEN_TARGETS = {
         ),
         "expected": {
             "drag_N": 2343.9,
-            "downforce_total_N": 897.3,
-            "downforce_front_N": 453.7,
-            "downforce_rear_N": 443.7,
-            "balance_front_pct": 50.6,
-            "cop_x_m": 1.656,
-            "cl_total": 0.316,
+            "downforce_total_N": 864.8,
+            "downforce_front_N": 446.6,
+            "downforce_rear_N": 418.3,
+            "balance_front_pct": 51.6,
+            "cop_x_m": 1.62,
+            "cl_total": 0.305,
             "cd_total": 0.827,
-            "efficiency": 0.38,
-            "lap_time_delta_s": 0.3226,
+            "efficiency": 0.37,
+            "lap_time_delta_s": 0.3252,
         },
     },
 }

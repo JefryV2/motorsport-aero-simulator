@@ -8,11 +8,14 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 5. Dynamic pressure and non-dimensional coefficient consistency
 6. Schema boundary validation on speed
 7. The API pressure map and streamlines follow the same config state as the forces
+8. The diffuser throat the model prices is one the car can actually draw
 """
 
 from __future__ import annotations
 
 import math
+import re
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,7 +23,12 @@ from pydantic import ValidationError
 
 from backend.models.aero_config import FormulaAeroConfig
 from backend.simulation import analytical
-from backend.simulation.analytical import WHEELBASE_M, simulate
+from backend.simulation.analytical import (
+    WHEELBASE_M,
+    diffuser_throat_height_m,
+    floor_height_at_m,
+    simulate,
+)
 from backend.visualization import aero_field
 from backend.visualization.aero_field import compute_cp_field, generate_streamlines
 
@@ -161,9 +169,7 @@ def _rear_flap(angle_deg: float) -> dict:
     return {"angle_deg": angle_deg, "span_m": 0.85, "chord_m": 0.05}
 
 
-def _pinned_cp(
-    monkeypatch, field: str, value_mm: float, probe: list[list[float]]
-) -> float:
+def _pinned_cp(monkeypatch, overrides: dict, probe: list[list[float]]) -> float:
     """One probe point with the map's force scale pinned to exactly 1.0.
 
     cl_total = 3.0 and cd_total = 1.2 are the divisors `compute_cp_field` uses,
@@ -182,7 +188,7 @@ def _pinned_cp(
             return {}
 
     monkeypatch.setattr(aero_field, "simulate_panel", lambda _cfg: _PinnedSim())
-    config = FormulaAeroConfig(**{field: value_mm})
+    config = FormulaAeroConfig(**overrides)
     return float(np.mean(aero_field.compute_cp_field(probe, None, config, BOUNDS)["cp"]))
 
 
@@ -264,7 +270,7 @@ class TestFieldConsumersShareSolverState:
         """
         stations = (10.0, 25.0, 200.0)
         cp = {
-            v: _pinned_cp(monkeypatch, "ride_height_front_mm", v, PROBE_FRONT_WING)
+            v: _pinned_cp(monkeypatch, {"ride_height_front_mm": v}, PROBE_FRONT_WING)
             for v in stations
         }
         ge = {v: math.exp(-v / 1000.0 / analytical.GE_DECAY_FRONT_M) for v in stations}
@@ -276,10 +282,20 @@ class TestFieldConsumersShareSolverState:
 
         `diffuser_ride_height_mm` moved the solver's diffuser Cl and nothing on
         the screen; the throat height now drives the same decay the solver uses.
+        Both ride heights are pinned at 10 mm so the floor line stays under the
+        whole sweep - a throat below it is raised to it, as it is on the car.
         """
         stations = (10.0, 30.0, 60.0)
         cp = {
-            v: _pinned_cp(monkeypatch, "diffuser_ride_height_mm", v, PROBE_DIFFUSER)
+            v: _pinned_cp(
+                monkeypatch,
+                {
+                    "ride_height_front_mm": 10.0,
+                    "ride_height_rear_mm": 10.0,
+                    "diffuser_ride_height_mm": v,
+                },
+                PROBE_DIFFUSER,
+            )
             for v in stations
         }
         ge = {v: math.exp(-v / 1000.0 / analytical.GE_DECAY_DIFFUSER_M) for v in stations}
@@ -288,3 +304,71 @@ class TestFieldConsumersShareSolverState:
             "diffuser throat height does not reach the pressure map"
         )
         assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-3)
+
+
+class TestDiffuserThroatMustBeBuildable:
+    """The solver prices the throat the car can draw, not the number on the slider.
+
+    A diffuser starts where the flat floor ends, so a throat below the floor line
+    at that station is not a shape the model has. `carSpec.js` already raised the
+    drawn throat to the line; the forces now apply the same rule.
+    """
+
+    THROAT_STATION_M = analytical.FLOOR_X_END_M - analytical.DIFFUSER_LENGTH_M
+
+    def test_floor_line_passes_through_both_ride_heights(self):
+        cfg = FormulaAeroConfig(ride_height_front_mm=25.0, ride_height_rear_mm=45.0)
+        assert floor_height_at_m(cfg, analytical.FRONT_AXLE_M) == pytest.approx(
+            0.025, abs=1e-9
+        )
+        assert floor_height_at_m(cfg, analytical.REAR_AXLE_M) == pytest.approx(
+            0.045, abs=1e-9
+        )
+
+    def test_throat_below_the_floor_line_is_raised_to_it(self):
+        cfg = FormulaAeroConfig(diffuser_ride_height_mm=10.0)
+        line = floor_height_at_m(cfg, self.THROAT_STATION_M)
+        assert diffuser_throat_height_m(cfg) == pytest.approx(line, abs=1e-12)
+        assert line * 1000.0 > cfg.diffuser_ride_height_mm
+
+    def test_throats_under_the_floor_line_price_identically(self):
+        """Below the line the slider cannot move the car, so it must not move the forces."""
+        base = FormulaAeroConfig()
+        ten = simulate(base.model_copy(update={"diffuser_ride_height_mm": 10.0})).forces
+        thirty = simulate(base.model_copy(update={"diffuser_ride_height_mm": 30.0})).forces
+        assert ten.downforce_total_N == thirty.downforce_total_N
+
+        # A throat above the line is still a live parameter.
+        sixty = simulate(base.model_copy(update={"diffuser_ride_height_mm": 60.0})).forces
+        assert sixty.downforce_total_N < thirty.downforce_total_N
+
+    def test_pressure_map_prices_the_same_throat(self, monkeypatch):
+        """The map must not reward a shape the forces refuse to charge."""
+        low = _pinned_cp(monkeypatch, {"diffuser_ride_height_mm": 10.0}, PROBE_DIFFUSER)
+        mid = _pinned_cp(monkeypatch, {"diffuser_ride_height_mm": 30.0}, PROBE_DIFFUSER)
+        high = _pinned_cp(monkeypatch, {"diffuser_ride_height_mm": 60.0}, PROBE_DIFFUSER)
+
+        assert low == pytest.approx(mid, abs=1e-9)
+        assert high - mid > 0.02
+
+    def test_solver_and_viewer_agree_on_the_stations(self):
+        """carSpec.js draws from these same numbers; a one-sided edit must fail here."""
+        js_path = (
+            Path(__file__).resolve().parents[1] / "frontend" / "js" / "carSpec.js"
+        )
+        js = js_path.read_text(encoding="utf-8")
+        shared = {
+            "wheelbaseM": analytical.WHEELBASE_M,
+            "refAreaM2": analytical.REF_AREA,
+            "frontAxleM": analytical.FRONT_AXLE_M,
+            "rearAxleM": analytical.REAR_AXLE_M,
+            "floorXStartM": analytical.FLOOR_X_START_M,
+            "floorXEndM": analytical.FLOOR_X_END_M,
+            "diffuserLengthM": analytical.DIFFUSER_LENGTH_M,
+        }
+        for name, value in shared.items():
+            match = re.search(rf"^\s*{name}:\s*([0-9.]+),", js, re.MULTILINE)
+            assert match, f"carSpec.js no longer declares {name}"
+            assert float(match.group(1)) == pytest.approx(value), (
+                f"{name}: viewer draws {match.group(1)}, solver prices {value}"
+            )
