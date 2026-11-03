@@ -980,3 +980,95 @@ class TestTheDrawnWakeIsTheComputedWake:
         assert re.search(r"this\.flow = \{ \.\.\.this\.flow, \.\.\.flow \};", self._text("frontend", "js", "viewer3d.js")), (
             "setFlowSettings no longer merges over the live flow object"
         )
+
+
+class TestTheSliceLegendNamesWhatTheSliceIsPaintedWith:
+    """The slice plane's colour map switches quantity; the legend never did.
+
+    `#cpRange` was written from `viewMode` - how the *car skin* is shaded - and
+    `sliceMode` only ever reached the vertex colours, so a slice on "Velocity
+    magnitude" was still reported as Cp on the -2 to +1 scale. The picture and
+    the sentence about it have to come from the same branch.
+    """
+
+    def _text(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_slice_reports_the_quantity_it_coloured(self):
+        viewer = self._text("frontend", "js", "viewer3d.js")
+        body = re.search(r"_updateSlicePlane\(\) \{(.*?)\n  \}", viewer, re.DOTALL)
+        assert body, "the slice builder is gone"
+        code = body.group(1)
+        assert "this._sliceRangeText" in code, "the slice no longer reports a range of its own"
+        # The last assignment is the legend line; the first is the hidden-slice reset.
+        reported = code.rsplit("this._sliceRangeText", 1)[1]
+        assert "this.sliceMode === 'pressure'" in reported, (
+            "the slice line no longer depends on the colour map it used"
+        )
+        assert "Cp" in reported and "km/h" in reported, (
+            "one of the two slice units is missing from the line"
+        )
+        assert "CP_MIN" in reported and "CP_MAX" in reported, (
+            "the Cp line no longer says what scale the picture was clipped to"
+        )
+        assert re.search(r"this\.slicePos\.toFixed\(2\)\} m", code), (
+            "the station is no longer printed in metres"
+        )
+        assert "${station}" in reported, (
+            "the line no longer says where the slice is cut"
+        )
+        loop = code.split("for (let i = 0; i < count; i++)", 1)
+        assert len(loop) == 2, "the slice no longer colours a vertex grid"
+        grid = loop[1].split("geo.setAttribute", 1)[0]
+        assert "lo = painted" in grid and "hi = painted" in grid, (
+            "the extremes are no longer sampled from the vertices, so the legend "
+            "would quote a range the picture was not built from"
+        )
+        assert "cpToColor(Math.max(CP_MIN, Math.min(CP_MAX, painted)))" in grid, (
+            "the Cp colour and the Cp number have split into two quantities"
+        )
+        assert "speedToColor(painted," in grid, (
+            "the speed colour and the speed number have split into two quantities"
+        )
+
+    def test_a_hidden_slice_stops_claiming_a_range(self):
+        viewer = self._text("frontend", "js", "viewer3d.js")
+        head = re.search(r"_updateSlicePlane\(\) \{(.*?)\n    \}", viewer, re.DOTALL)
+        assert head and "this._sliceRangeText = null;" in head.group(1), (
+            "hiding the slice leaves its numbers in the legend"
+        )
+
+    def test_the_slice_station_is_a_position_the_slider_can_reach(self):
+        app = self._text("frontend", "js", "app.js")
+        helper = re.search(r"function setSliderRange\(.*?\n\}", app, re.DOTALL)
+        assert helper, "the position sliders are no longer aligned to their own step"
+        body = helper.group(0)
+        assert "Math.floor(min / step)" in body and "Math.ceil(max / step)" in body, (
+            "the grid is not anchored on a multiple of the step, so 0.00 m and "
+            "the other printed values stay unreachable"
+        )
+        assert app.count("setSliderRange(") == 4, "a position slider bypasses the helper"
+        for raw in ("slicePosSlider.min = ", "wandYSlider.min = ", "wandZSlider.min = "):
+            assert raw not in app, f"{raw}restates the bounds without the grid"
+
+    def test_the_colour_map_says_which_field_it_reads(self):
+        html = self._text("frontend", "index.html")
+        tip = re.search(r'id="slice_mode"[^>]*title="([^"]+)"', html)
+        assert tip, "the colour-map selector stopped explaining itself"
+        title = tip.group(1)
+        assert "inviscid" in title and "advected" in title, (
+            "the two options read different fields and the tooltip no longer says so"
+        )
+        assert "saturat" in title, "the tooltip hides that both colour scales are fixed"
+
+    def test_the_legend_is_written_in_exactly_one_place(self):
+        viewer = self._text("frontend", "js", "viewer3d.js")
+        assert viewer.count("getElementById('cpRange')") == 1, (
+            "the legend has a second writer, so skin and slice lines can disagree"
+        )
+        composer = re.search(r"_writeRangeReadout\(\) \{(.*?)\n  \}", viewer, re.DOTALL)
+        assert composer, "the legend no longer composes its lines in one place"
+        for name in ("_skinRangeText", "_sliceRangeText"):
+            assert name in composer.group(1), f"{name} is not part of the legend"

@@ -1183,6 +1183,17 @@ function setupEngineeringTools() {
   });
 }
 
+/**
+ * A range input only ever lands on `min + k * step`, so raw float bounds make
+ * the values the readouts print unreachable: with min = -1.103 the closest the
+ * slice can get to the centreline is -0.003 m, which reads as "-0.00 m".
+ */
+function setSliderRange(slider, min, max, step) {
+  slider.min = (Math.floor(min / step) * step).toFixed(2);
+  slider.max = (Math.ceil(max / step) * step).toFixed(2);
+  slider.step = step;
+}
+
 function updateSliderRanges() {
   if (!viewer) return;
   const bounds = viewer.bounds;
@@ -1204,9 +1215,7 @@ function updateSliderRanges() {
     step = 0.02;
   }
   
-  slicePosSlider.min = minVal;
-  slicePosSlider.max = maxVal;
-  slicePosSlider.step = step;
+  setSliderRange(slicePosSlider, minVal, maxVal, step);
   
   const curVal = +slicePosSlider.value;
   if (curVal < minVal || curVal > maxVal) {
@@ -1214,17 +1223,9 @@ function updateSliderRanges() {
   }
   
   const wandYSlider = document.getElementById('wand_y');
-  if (wandYSlider) {
-    wandYSlider.min = bounds.min[1] - 0.05;
-    wandYSlider.max = bounds.max[1] + 0.3;
-    wandYSlider.step = 0.01;
-  }
+  if (wandYSlider) setSliderRange(wandYSlider, bounds.min[1] - 0.05, bounds.max[1] + 0.3, 0.01);
   const wandZSlider = document.getElementById('wand_z');
-  if (wandZSlider) {
-    wandZSlider.min = bounds.min[2] - 0.1;
-    wandZSlider.max = bounds.max[2] + 0.1;
-    wandZSlider.step = 0.01;
-  }
+  if (wandZSlider) setSliderRange(wandZSlider, bounds.min[2] - 0.1, bounds.max[2] + 0.1, 0.01);
 }
 
 function updateUIState() {

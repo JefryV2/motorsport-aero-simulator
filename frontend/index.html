@@ -1268,7 +1268,7 @@
             <input type="range" id="slice_pos" min="-0.5" max="0.5" value="0.00" step="0.01" />
           </div>
           <label for="slice_mode">Color map</label>
-          <select id="slice_mode">
+          <select id="slice_mode" title="Pressure (Cp) reads the inviscid part of the field, the same one the car skin is shaded with, so slice and skin agree. Velocity magnitude reads the field the smoke is advected by - wake deficit, floor boundary layer and the air/car interaction included - so it is not potential flow. Both scales are fixed (Cp -2 to +1, speed 0 to 1.4 U), so the picture saturates outside them; the legend line reports the range the grid actually measured.">
             <option value="pressure" selected>Pressure (Cp)</option>
             <option value="velocity">Velocity magnitude</option>
           </select>
@@ -1443,7 +1443,7 @@
         <div class="legend-scale">
           <span>&minus;2</span><span>0</span><span>+1</span>
         </div>
-        <div class="legend-sub">Air speed (particles &amp; streamlines)</div>
+        <div class="legend-sub">Air speed (particles, streamlines &amp; slice)</div>
         <div class="legend-bar"></div>
         <div class="legend-scale">
           <span>slow</span><span>fast</span>

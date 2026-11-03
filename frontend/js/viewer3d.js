@@ -1018,15 +1018,25 @@ export class AeroViewer {
     this._updateSlicePlane();
     this._updateWandMarker();
 
-    const el = document.getElementById('cpRange');
-    if (el) {
-      if (this.viewMode === 'velocity') {
-        el.textContent = `Speed ${(range.min * 3.6).toFixed(0)}–${(range.max * 3.6).toFixed(0)} km/h on surface · warm=slow · cool=fast`;
-      } else {
-        el.textContent = `Cp ${CP_MIN.toFixed(1)} (blue suction) → ${CP_MAX.toFixed(1)} (red stagnation) · car ${range.min.toFixed(2)} to ${range.max.toFixed(2)} · ${this.cpLoadsApplied ? 'field + element load jump' : 'field only (uploaded model has no solved elements)'}`;
-      }
+    if (this.viewMode === 'velocity') {
+      this._skinRangeText = `Skin speed ${(range.min * 3.6).toFixed(0)}–${(range.max * 3.6).toFixed(0)} km/h · warm=slow · cool=fast`;
+    } else {
+      this._skinRangeText = `Skin Cp ${CP_MIN.toFixed(1)} (blue suction) → ${CP_MAX.toFixed(1)} (red stagnation) · car ${range.min.toFixed(2)} to ${range.max.toFixed(2)} · ${this.cpLoadsApplied ? 'field + element load jump' : 'field only (uploaded model has no solved elements)'}`;
     }
+    this._writeRangeReadout();
     this._updateFlowHud();
+  }
+
+  /**
+   * The legend has to name the units of what is actually painted. The car skin
+   * and the slice plane are coloured independently, so one Cp line would
+   * mislabel a slice switched to the speed map.
+   */
+  _writeRangeReadout() {
+    const el = document.getElementById('cpRange');
+    if (!el) return;
+    const parts = [this._skinRangeText, this._sliceRangeText].filter(Boolean);
+    el.textContent = parts.length ? parts.join('  ·  ') : 'Adjust sliders to update';
   }
 
   _activeConfig() {
@@ -1192,7 +1202,11 @@ export class AeroViewer {
 
   _updateSlicePlane() {
     this.sliceGroup.clear();
-    if (!this.showSlice) return;
+    if (!this.showSlice) {
+      this._sliceRangeText = null;
+      this._writeRangeReadout();
+      return;
+    }
 
     const min = this.bounds.min;
     const max = this.bounds.max;
@@ -1244,6 +1258,8 @@ export class AeroViewer {
     const ref = (this.flow.windSpeedKmh || 200) / 3.6;
 
     const tempV = new THREE.Vector3();
+    let lo = Infinity;
+    let hi = -Infinity;
     for (let i = 0; i < count; i++) {
       tempV.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
       tempV.applyMatrix4(mesh.matrixWorld);
@@ -1255,13 +1271,17 @@ export class AeroViewer {
         : this._velocityAt(tempV.x, tempV.y, tempV.z, cfg);
       const speedMs = Math.sqrt(vx * vx + vy * vy + vz * vz);
 
+      let painted;
       let color;
       if (this.sliceMode === 'pressure') {
-        const cp = cpFromSpeed(speedMs, ref);
-        color = cpToColor(Math.max(CP_MIN, Math.min(CP_MAX, cp)));
+        painted = cpFromSpeed(speedMs, ref);
+        color = cpToColor(Math.max(CP_MIN, Math.min(CP_MAX, painted)));
       } else {
-        color = speedToColor(speedMs, ref, 0, ref * 1.4);
+        painted = speedMs;
+        color = speedToColor(painted, ref, 0, ref * 1.4);
       }
+      if (painted < lo) lo = painted;
+      if (painted > hi) hi = painted;
 
       colors[i * 3] = color.r;
       colors[i * 3 + 1] = color.g;
@@ -1270,6 +1290,14 @@ export class AeroViewer {
 
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     this.sliceGroup.add(mesh);
+
+    const station = `${this.sliceAxis.toUpperCase()} at ${this.slicePos.toFixed(2)} m`;
+    this._sliceRangeText = !Number.isFinite(lo) || !Number.isFinite(hi)
+      ? null
+      : this.sliceMode === 'pressure'
+        ? `Slice ${station} Cp ${lo.toFixed(2)} to ${hi.toFixed(2)} (painted ${CP_MIN.toFixed(1)} to ${CP_MAX.toFixed(1)})`
+        : `Slice ${station} ${(lo * 3.6).toFixed(0)} to ${(hi * 3.6).toFixed(0)} km/h (painted 0 to ${(ref * 1.4 * 3.6).toFixed(0)} km/h)`;
+    this._writeRangeReadout();
   }
 
   _updateWandMarker() {
