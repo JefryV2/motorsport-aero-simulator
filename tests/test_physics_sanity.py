@@ -9,6 +9,8 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 6. Schema boundary validation on speed
 7. The API pressure map and streamlines follow the same config state as the forces
 8. The diffuser throat the model prices is one the car can actually draw
+9. The pressure map's surface regions sit on the solver's stations, not on
+   fractions of the bounding box that arrived with the mesh
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.models.aero_config import FormulaAeroConfig
-from backend.simulation import analytical
+from backend.simulation import analytical, panel_method
 from backend.simulation.analytical import (
     WHEELBASE_M,
     diffuser_throat_height_m,
@@ -159,10 +161,24 @@ class TestPhysicsSanity:
             FormulaAeroConfig(speed_kmh=351.0)
 
 
-BOUNDS = {"min": [0.0, -0.9, 0.0], "max": [4.2, 0.9, 0.9]}
-# Single points inside the map's own front-wing and diffuser masks
-PROBE_FRONT_WING = [[0.0, 0.0, 0.0]]
-PROBE_DIFFUSER = [[4.2, 0.0, 0.0]]
+# The map reads a mesh box as a formula car of these extents (aero_field
+# `SurfaceRegions`), so the probes and clouds below are stated in the same
+# metres the solver uses instead of fractions of an arbitrary box.
+BOUNDS = {
+    "min": [0.0, -analytical.CAR_HALF_WIDTH_M, 0.0],
+    "max": [analytical.CAR_LENGTH_M, analytical.CAR_HALF_WIDTH_M, analytical.CAR_HEIGHT_M],
+}
+WING_STATIONS = {s.name: s for s in analytical.wing_stations(FormulaAeroConfig())}
+DIFFUSER_X0_M = analytical.FLOOR_X_END_M - analytical.DIFFUSER_LENGTH_M
+# One point on each ground-effect surface. The front-wing probe sits a quarter of
+# the way along the wing band: the floor region fades in 0.24 m ahead of
+# FLOOR_X_START_M and its height moves with the front ride height this file
+# sweeps, so a probe further aft would not isolate a single term.
+PROBE_FRONT_WING_X_M = WING_STATIONS["front_wing_main"].x_le_m + 0.25 * (
+    WING_STATIONS["front_wing_flap"].x_te_m - WING_STATIONS["front_wing_main"].x_le_m
+)
+PROBE_FRONT_WING = [[PROBE_FRONT_WING_X_M, 0.0, 0.03]]
+PROBE_DIFFUSER = [[0.5 * (DIFFUSER_X0_M + analytical.FLOOR_X_END_M), 0.0, 0.05]]
 
 
 def _rear_flap(angle_deg: float) -> dict:
@@ -213,9 +229,16 @@ class TestFieldConsumersShareSolverState:
     """
 
     REGIONS = {
-        # station window, height window in metres
-        "rear_wing": ((3.4, 4.2), (0.58, 0.88)),
-        "front_wing": ((0.05, 0.60), (0.05, 0.28)),
+        # station window, height window in metres: the solved wing planform and
+        # the drawn endplate box the map builds its regions from
+        "rear_wing": (
+            (WING_STATIONS["rear_wing_main"].x_le_m, WING_STATIONS["rear_wing_flap"].x_te_m),
+            (analytical.REAR_WING_BOTTOM_M, analytical.REAR_WING_TOP_M),
+        ),
+        "front_wing": (
+            (WING_STATIONS["front_wing_main"].x_le_m, WING_STATIONS["front_wing_flap"].x_te_m),
+            (0.0, WING_STATIONS["front_wing_flap"].height_m),
+        ),
     }
 
     def _cloud(self, region: str) -> list[list[float]]:
@@ -240,9 +263,10 @@ class TestFieldConsumersShareSolverState:
 
         shift = self._mean_cp(opened, "rear_wing") - self._mean_cp(sealed, "rear_wing")
 
-        # Measured shift is ~0.061 Cp; ignoring the flap angle leaves ~0.002,
-        # which comes only from the force scale, so 0.04 needs the real flap.
-        assert shift > 0.04, f"DRS barely moved the rear wing pressure ({shift:+.4f})"
+        # Measured over the solved wing box: +0.143 Cp. Ignoring the flap angle
+        # leaves +0.0052, which comes only from the force scale, so 0.10 needs
+        # the real effective incidence.
+        assert shift > 0.10, f"DRS barely moved the rear wing pressure ({shift:+.4f})"
 
     def test_wake_strength_responds_to_drs(self):
         """The drawn wake must weaken with the effective flap, not the sealed one."""
@@ -260,6 +284,10 @@ class TestFieldConsumersShareSolverState:
         low = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=10.0), "front_wing")
         high = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=60.0), "front_wing")
 
+        # Measured gap over the solved wing box is 0.108 Cp, but 0.072 of it still
+        # survives with the map's decay length frozen, because the force scale
+        # moves with the ride height too. This only proves the surface responds;
+        # the decay *law* is pinned by the ratio test below.
         assert low < high - 0.02, f"front wing ignored ride height ({low:+.4f} vs {high:+.4f})"
 
     def test_front_wing_suction_uses_the_solver_decay_length(self, monkeypatch):
@@ -365,10 +393,153 @@ class TestDiffuserThroatMustBeBuildable:
             "floorXStartM": analytical.FLOOR_X_START_M,
             "floorXEndM": analytical.FLOOR_X_END_M,
             "diffuserLengthM": analytical.DIFFUSER_LENGTH_M,
+            "diffuserExitMaxM": analytical.DIFFUSER_EXIT_MAX_M,
+            "fwLeadingEdgeM": analytical.WING_LE_X_M,
+            "fwFlapStationFrac": analytical.WING_FLAP_STATION_FRAC,
+            "rwFlapStationFrac": analytical.WING_FLAP_STATION_FRAC,
+            "fwFlapGapM": analytical.FW_FLAP_STEP_UP_M,
+            "rwFlapRiseM": analytical.RW_FLAP_STEP_UP_M,
+            "rwMainHeightM": analytical.REAR_WING_MAIN_HEIGHT_M,
+            "rwEndplateHeightM": analytical.RW_ENDPLATE_HEIGHT_M,
+            "rwEndplateDropM": analytical.RW_ENDPLATE_DROP_M,
+            "trackM": analytical.TRACK_M,
+            "floorHalfWidthM": analytical.FLOOR_HALF_WIDTH_M,
+            "wheelRadiusFrontM": analytical.WHEEL_RADIUS_FRONT_M,
+            "wheelRadiusRearM": analytical.WHEEL_RADIUS_REAR_M,
+            "wheelWidthFrontM": analytical.WHEEL_WIDTH_FRONT_M,
+            "wheelWidthRearM": analytical.WHEEL_WIDTH_REAR_M,
         }
         for name, value in shared.items():
             match = re.search(rf"^\s*{name}:\s*([0-9.]+),", js, re.MULTILINE)
             assert match, f"carSpec.js no longer declares {name}"
             assert float(match.group(1)) == pytest.approx(value), (
                 f"{name}: viewer draws {match.group(1)}, solver prices {value}"
+            )
+
+
+class TestPressureMapRegionsAreStations:
+    """The map must shade the surfaces the model has, not fractions of a box.
+
+    `aero_field` used to write its region edges as literals of the normalised
+    coordinate (`1 - x / 0.18`, `(x - 0.62) / 0.38`), so it called the first 18 %
+    of any mesh a front wing and the last 38 % a diffuser whatever the setup said:
+    on the reference car that shaded 2.6-4.2 m as a diffuser whose throat starts at
+    3.02 m, and gave the whole nose cone front-wing suction.
+    """
+
+    def _regions(self, config: FormulaAeroConfig) -> aero_field.SurfaceRegions:
+        return aero_field.SurfaceRegions.from_config(config)
+
+    def test_front_wing_region_is_the_solved_planform(self):
+        main = WING_STATIONS["front_wing_main"]
+        flap = WING_STATIONS["front_wing_flap"]
+        mid_x = 0.5 * (main.x_le_m + flap.x_te_m)
+
+        on_wing = self._regions(FormulaAeroConfig()).weights(mid_x, 0.0, main.height_m)
+        assert on_wing["front_wing"] == pytest.approx(1.0)
+
+        # Ahead of the leading edge is the nose, aft of the trailing edge is the
+        # floor; neither may carry the front-wing pressure.
+        ahead = self._regions(FormulaAeroConfig()).weights(main.x_le_m - 0.12, 0.0, main.height_m)
+        behind = self._regions(FormulaAeroConfig()).weights(flap.x_te_m + 0.12, 0.0, main.height_m)
+        assert ahead["front_wing"] == 0.0
+        assert behind["front_wing"] == 0.0
+
+    def test_rear_wing_region_covers_the_flap_at_the_endplate_crown(self):
+        main = WING_STATIONS["rear_wing_main"]
+        flap = WING_STATIONS["rear_wing_flap"]
+        cfg = FormulaAeroConfig()
+
+        # The flap plane sits 1 cm under the crown, which is the top of the box:
+        # a mask that faded across its own window used to lose the loaded element.
+        crown = self._regions(cfg).weights(0.5 * (main.x_le_m + flap.x_te_m), 0.0, flap.height_m)
+        assert crown["rear_wing"] == pytest.approx(1.0)
+
+        # Ahead of the main plane is beam and bodywork, not a lifting surface.
+        forward = self._regions(cfg).weights(main.x_le_m - 0.20, 0.0, main.height_m)
+        assert forward["rear_wing"] == 0.0
+
+    def test_floor_and_diffuser_regions_meet_at_the_throat_station(self):
+        cfg = FormulaAeroConfig()
+        regions = self._regions(cfg)
+        floor_mid = 0.5 * (analytical.FLOOR_X_START_M + DIFFUSER_X0_M)
+
+        on_floor = regions.weights(floor_mid, 0.0, floor_height_at_m(cfg, floor_mid))
+        assert on_floor["underbody"] == pytest.approx(1.0)
+        assert on_floor["diffuser"] == 0.0
+
+        on_ramp = regions.weights(0.5 * (DIFFUSER_X0_M + analytical.FLOOR_X_END_M), 0.0, 0.05)
+        assert on_ramp["diffuser"] == pytest.approx(1.0)
+        assert on_ramp["underbody"] == 0.0
+
+        # Past the floor's real end the tail is nothing the model charges.
+        behind = regions.weights(analytical.FLOOR_X_END_M + 0.25, 0.0, 0.05)
+        assert behind["diffuser"] == 0.0
+        assert behind["underbody"] == 0.0
+
+    def test_wing_region_edge_moves_with_the_chord_not_the_mesh(self):
+        """A longer main plane means a longer region; a bigger box does not."""
+        cfg = FormulaAeroConfig()
+        short = self._regions(cfg)
+        longer = cfg.model_copy(
+            update={
+                "rear_wing_main": cfg.rear_wing_main.model_copy(update={"chord_m": 0.45})
+            }
+        )
+        long_regions = self._regions(longer)
+
+        # The flap hangs 0.75 of the main chord aft, so only that share of the
+        # extra chord reaches the assembly's trailing edge.
+        shift = 0.05 * analytical.WING_FLAP_STATION_FRAC
+        assert long_regions.rear_wing_x[1] - short.rear_wing_x[1] == pytest.approx(shift)
+        edge = short.rear_wing_x[1] + 0.06
+        assert short.weights(edge, 0.0, 0.85)["rear_wing"] == 0.0
+        assert long_regions.weights(edge, 0.0, 0.85)["rear_wing"] > 0.0
+
+    def test_the_map_does_not_reposition_itself_when_the_mesh_is_rescaled(self):
+        """The same car in metres or twice-metres must shade the same surfaces."""
+        point = PROBE_DIFFUSER[0]
+        scaled_bounds = {
+            "min": [2.0 * v for v in BOUNDS["min"]],
+            "max": [2.0 * v for v in BOUNDS["max"]],
+        }
+        cfg = FormulaAeroConfig()
+
+        base = compute_cp_field([point], None, cfg, BOUNDS)["cp"]
+        scaled = compute_cp_field([[2.0 * v for v in point]], None, cfg, scaled_bounds)["cp"]
+
+        assert base == scaled
+
+    def test_the_solved_surfaces_and_the_map_share_one_wing_geometry(self, monkeypatch):
+        """simulate_panel must not keep its own copy of where the wings are."""
+        captured: list = []
+
+        class _Section:
+            downforce_N = 0.0
+
+        class _Solution:
+            sections = {}
+            total_drag_N = 0.0
+
+        def _capture(surfaces, **_kwargs):
+            captured.extend(surfaces)
+            solution = _Solution()
+            solution.sections = {s.name: _Section() for s in surfaces}
+            return solution
+
+        monkeypatch.setattr(panel_method, "solve_vlm", _capture)
+        cfg = FormulaAeroConfig()
+        panel_method.simulate_panel(cfg)
+
+        origins = {s.name: s for s in captured}
+        assert len(origins) == 4, "simulate_panel no longer builds four named surfaces"
+        for station in analytical.wing_stations(cfg):
+            solved = origins[station.name]
+            assert solved.origin == pytest.approx(
+                (station.x_le_m, 0.0, station.height_m), abs=1e-12
+            )
+            assert (solved.chord, solved.span, solved.angle_deg) == (
+                station.chord_m,
+                station.span_m,
+                station.angle_deg,
             )

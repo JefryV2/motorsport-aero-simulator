@@ -8,6 +8,7 @@ against published formula car aero data (order-of-magnitude accurate).
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from backend.models.aero_config import (
     AeroForces,
@@ -37,6 +38,37 @@ REAR_AXLE_M = 3.9
 FLOOR_X_START_M = 0.62
 FLOOR_X_END_M = 3.62
 DIFFUSER_LENGTH_M = 0.6
+# The drawn exit plane is capped here (carSpec.js `diffuserGeometry`). The force
+# model has no exit-plane term, so this only bounds the display geometry.
+DIFFUSER_EXIT_MAX_M = 0.32
+
+# Wing mounting stations. `panel_method.simulate_panel` places its four VLM
+# surfaces here and `visualization/aero_field.py` shades the same windows, so the
+# solved wing, the drawn wing and the pressure map are one geometry. The
+# car-height/endplate and tyre numbers below are the drawn envelope: the aero
+# model has no chassis, so they exist to put a region edge on a real surface.
+WING_LE_X_M = 0.20  # front wing main plane leading edge
+REAR_WING_LE_X_M = WHEELBASE_M + WING_LE_X_M
+WING_FLAP_STATION_FRAC = 0.75  # flap leading edge = main chord * this
+FW_FLAP_STEP_UP_M = 0.035  # flap plane above the main plane
+FW_GROUND_CLEARANCE_M = 0.005  # keep the pitched plate off the floor
+REAR_WING_MAIN_HEIGHT_M = 0.85
+RW_FLAP_STEP_UP_M = 0.05
+RW_ENDPLATE_HEIGHT_M = 0.36
+RW_ENDPLATE_DROP_M = 0.12  # plate centre below the main plane
+REAR_WING_TOP_M = REAR_WING_MAIN_HEIGHT_M - RW_ENDPLATE_DROP_M + RW_ENDPLATE_HEIGHT_M / 2
+REAR_WING_BOTTOM_M = REAR_WING_MAIN_HEIGHT_M - RW_ENDPLATE_DROP_M - RW_ENDPLATE_HEIGHT_M / 2
+
+WHEEL_RADIUS_FRONT_M = 0.33
+WHEEL_RADIUS_REAR_M = 0.35
+WHEEL_WIDTH_FRONT_M = 0.30
+WHEEL_WIDTH_REAR_M = 0.40
+TRACK_M = 1.60
+FLOOR_HALF_WIDTH_M = 0.70
+# Nose to tail and ground to endplate crown: the box the reference car fills.
+CAR_LENGTH_M = REAR_AXLE_M + WHEEL_RADIUS_REAR_M
+CAR_HEIGHT_M = REAR_WING_TOP_M
+CAR_HALF_WIDTH_M = 0.90  # max(front wing span, track) / 2 at the default setup
 
 
 def geometric_rake_deg(config: FormulaAeroConfig) -> float:
@@ -71,6 +103,100 @@ def diffuser_throat_height_m(config: FormulaAeroConfig) -> float:
     """
     x_start = FLOOR_X_END_M - DIFFUSER_LENGTH_M
     return max(config.diffuser_ride_height_mm / 1000.0, floor_height_at_m(config, x_start))
+
+
+def diffuser_exit_height_m(config: FormulaAeroConfig) -> float:
+    """Top of the drawn diffuser ramp at its exit station.
+
+    The angle only enters the forces through sin(angle), so the shape the model
+    rewards is this ramp over `DIFFUSER_LENGTH_M`: the throat in front, the exit
+    plane behind. `visualization/aero_field.py` ends the diffuser region here.
+    """
+    throat = diffuser_throat_height_m(config)
+    rise = DIFFUSER_LENGTH_M * math.tan(math.radians(config.diffuser_angle_deg))
+    return min(throat + rise, DIFFUSER_EXIT_MAX_M)
+
+
+@dataclass(frozen=True)
+class WingStation:
+    """One lifting surface: where it sits and how big it is, in car metres."""
+
+    name: str
+    x_le_m: float  # leading edge station, nose at x = 0
+    x_te_m: float  # trailing edge, measured along the chord line
+    height_m: float  # leading edge height above the ground plane
+    span_m: float
+    chord_m: float
+    angle_deg: float
+
+
+def wing_stations(config: FormulaAeroConfig) -> tuple[WingStation, ...]:
+    """The four lifting surfaces as the solver places them.
+
+    `panel_method.simulate_panel` builds its VLM surfaces straight from these, so
+    the wing that is solved, the wing the viewer draws and the wing the API
+    pressure map shades cannot be given three different geometries. The front
+    wing rides on the front ride height and pitches its trailing edge down with
+    incidence; the rear wing is hung at a fixed height above the reference plane.
+    """
+    fw_main = config.front_wing_main
+    fw_flap = config.front_wing_flap
+    rw_main = config.rear_wing_main
+    rw_flap = effective_rear_flap(config)
+
+    # simulate_panel: clear the plate by its own trailing-edge drop so a highly
+    # incident front wing cannot sink through the ground plane.
+    z_fw_main = (
+        config.ride_height_front_mm / 1000.0
+        + fw_main.chord_m * max(0.0, math.sin(math.radians(fw_main.angle_deg)))
+        + FW_GROUND_CLEARANCE_M
+    )
+    z_fw_flap = (
+        z_fw_main
+        + FW_FLAP_STEP_UP_M
+        + fw_flap.chord_m * max(0.0, math.sin(math.radians(fw_flap.angle_deg)))
+    )
+    x_fw_flap = WING_LE_X_M + fw_main.chord_m * WING_FLAP_STATION_FRAC
+    x_rw_flap = REAR_WING_LE_X_M + rw_main.chord_m * WING_FLAP_STATION_FRAC
+
+    return (
+        WingStation(
+            "front_wing_main",
+            WING_LE_X_M,
+            WING_LE_X_M + fw_main.chord_m,
+            z_fw_main,
+            fw_main.span_m,
+            fw_main.chord_m,
+            fw_main.angle_deg,
+        ),
+        WingStation(
+            "front_wing_flap",
+            x_fw_flap,
+            x_fw_flap + fw_flap.chord_m,
+            z_fw_flap,
+            fw_flap.span_m,
+            fw_flap.chord_m,
+            fw_flap.angle_deg,
+        ),
+        WingStation(
+            "rear_wing_main",
+            REAR_WING_LE_X_M,
+            REAR_WING_LE_X_M + rw_main.chord_m,
+            REAR_WING_MAIN_HEIGHT_M,
+            rw_main.span_m,
+            rw_main.chord_m,
+            rw_main.angle_deg,
+        ),
+        WingStation(
+            "rear_wing_flap",
+            x_rw_flap,
+            x_rw_flap + rw_flap.chord_m,
+            REAR_WING_MAIN_HEIGHT_M + RW_FLAP_STEP_UP_M,
+            rw_flap.span_m,
+            rw_flap.chord_m,
+            rw_flap.angle_deg,
+        ),
+    )
 
 
 def effective_rear_flap(config: FormulaAeroConfig) -> WingElement:

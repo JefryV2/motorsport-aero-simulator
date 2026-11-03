@@ -3,18 +3,38 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from backend.models.aero_config import FormulaAeroConfig
 from backend.simulation.analytical import (
+    CAR_HALF_WIDTH_M,
+    CAR_HEIGHT_M,
+    CAR_LENGTH_M,
+    DIFFUSER_LENGTH_M,
+    FLOOR_HALF_WIDTH_M,
+    FLOOR_X_END_M,
+    FLOOR_X_START_M,
+    FRONT_AXLE_M,
     GE_DECAY_DIFFUSER_M,
     GE_DECAY_FRONT_M,
     GE_DECAY_REAR_M,
     RAKE_COEF_PER_DEG,
+    REAR_AXLE_M,
+    REAR_WING_BOTTOM_M,
+    REAR_WING_TOP_M,
+    TRACK_M,
+    WHEEL_RADIUS_FRONT_M,
+    WHEEL_RADIUS_REAR_M,
+    WHEEL_WIDTH_FRONT_M,
+    WHEEL_WIDTH_REAR_M,
+    diffuser_exit_height_m,
     diffuser_throat_height_m,
     effective_rear_flap,
+    floor_height_at_m,
+    wing_stations,
 )
 from backend.simulation.panel_method import simulate_panel
 
@@ -37,28 +57,123 @@ def _normalize_coords(
     return norm, bounds
 
 
-def _region_weight(x: float, y: float, z: float) -> dict[str, float]:
-    """Soft region masks for formula car surfaces."""
-    front_wing = max(0.0, 1.0 - x / 0.18) * max(0.0, 1.0 - z / 0.35)
-    rear_wing = max(0.0, (x - 0.78) / 0.22) * max(0.0, (z - 0.55) / 0.45)
-    underbody = (
-        max(0.0, 1.0 - z / 0.28) * (1.0 - abs(y - 0.5) * 1.6) * max(0.0, 1.0 - abs(x - 0.5) * 1.2)
-    )
-    diffuser = max(0.0, (x - 0.62) / 0.38) * max(0.0, 1.0 - z / 0.22)
-    body = max(0.0, 1.0 - front_wing - rear_wing * 0.5 - underbody * 0.3)
-    wheels = (
-        max(0.0, 1.0 - abs(y - 0.5) * 3.5)
-        * (1.0 if z < 0.35 else 0.0)
-        * (1.0 if x < 0.25 or x > 0.72 else 0.3)
-    )
-    return {
-        "front_wing": min(1.0, front_wing),
-        "rear_wing": min(1.0, rear_wing),
-        "underbody": min(1.0, underbody),
-        "diffuser": min(1.0, diffuser),
-        "body": min(1.0, max(0.0, body)),
-        "wheels": min(1.0, wheels),
-    }
+def _ramp(v: float, lo: float, hi: float) -> float:
+    """0 at `lo`, 1 at `hi`, linear between, clamped outside."""
+    if hi <= lo:
+        return 1.0 if v >= hi else 0.0
+    return min(1.0, max(0.0, (v - lo) / (hi - lo)))
+
+
+def _band(v: float, lo: float, hi: float) -> float:
+    """Membership of `v` in the window [lo, hi]: full inside, gone just outside.
+
+    The fade is 10 % of the window's own length rather than a fixed distance, so
+    a vertex on a surface that sits at the edge of its station window - the rear
+    flap at the endplate crown, a wing leading edge - keeps its full weight while
+    a coarse mesh still blends across the station instead of stamping a hard seam.
+    """
+    span = hi - lo
+    if span <= 0.0:
+        return 1.0 if lo <= v <= hi else 0.0
+    fade = 0.1 * span
+    return _ramp(v, lo - fade, lo) * _ramp(hi + fade - v, 0.0, fade)
+
+
+def _inside(v: float, edge: float) -> float:
+    """Full near the centre line, 0 by `edge` (a half-width in metres)."""
+    return _ramp(edge - abs(v), 0.0, 0.5 * edge)
+
+
+@dataclass(frozen=True)
+class SurfaceRegions:
+    """Surface windows for the pressure map, in car metres (nose x=0, ground z=0).
+
+    Every edge is a station the solver or the drawn body actually has: the four
+    lifting surfaces come from `analytical.wing_stations`, the floor and diffuser
+    from the shared floor stations and the throat/exit heights, the tyres from the
+    axles. A vertex on the reference car therefore shades the surface it sits on
+    rather than a fraction of whatever bounding box was uploaded with it.
+
+    The caller's mesh is still normalised into 0-1 by its own box first, which is
+    what makes the same layout work for an uploaded model: the box is read as a
+    formula car of `CAR_LENGTH_M` x `CAR_HEIGHT_M` x 2`CAR_HALF_WIDTH_M`.
+    """
+
+    config: FormulaAeroConfig
+    front_wing_x: tuple[float, float]
+    front_wing_top_m: float
+    rear_wing_x: tuple[float, float]
+    floor_x: tuple[float, float]
+    diffuser_x: tuple[float, float]
+    diffuser_throat_m: float
+    diffuser_exit_m: float
+
+    @classmethod
+    def from_config(cls, config: FormulaAeroConfig) -> SurfaceRegions:
+        stations = {s.name: s for s in wing_stations(config)}
+        front = (stations["front_wing_main"], stations["front_wing_flap"])
+        rear = (stations["rear_wing_main"], stations["rear_wing_flap"])
+        diffuser_start = FLOOR_X_END_M - DIFFUSER_LENGTH_M
+        return cls(
+            config=config,
+            front_wing_x=(front[0].x_le_m, front[1].x_te_m),
+            front_wing_top_m=max(s.height_m for s in front),
+            rear_wing_x=(rear[0].x_le_m, rear[1].x_te_m),
+            floor_x=(FLOOR_X_START_M, diffuser_start),
+            diffuser_x=(diffuser_start, FLOOR_X_END_M),
+            diffuser_throat_m=diffuser_throat_height_m(config),
+            diffuser_exit_m=diffuser_exit_height_m(config),
+        )
+
+    def weights(self, x: float, y: float, z: float) -> dict[str, float]:
+        """Soft membership of a car-metres point in each charged surface."""
+        abs_y = abs(y)
+
+        # Ground-effect channel: the floor line at this station, one channel
+        # height above it, and the floor planform's own half width. Each surface
+        # region is full weight up to its own line and gone one line-height
+        # above, so a vertex *on* the surface always reads as that surface.
+        h_floor = floor_height_at_m(self.config, x)
+        ramp_top = self.diffuser_throat_m + (self.diffuser_exit_m - self.diffuser_throat_m) * _ramp(
+            x, self.diffuser_x[0], self.diffuser_x[1]
+        )
+
+        front_wing = _band(x, *self.front_wing_x) * _ramp(
+            2.0 * self.front_wing_top_m - z, 0.0, self.front_wing_top_m
+        )
+        rear_wing = _band(x, *self.rear_wing_x) * _band(z, REAR_WING_BOTTOM_M, REAR_WING_TOP_M)
+        underbody = (
+            _band(x, *self.floor_x) * _ramp(2.0 * h_floor - z, 0.0, h_floor) * _inside(y, FLOOR_HALF_WIDTH_M)
+        )
+        diffuser = (
+            _band(x, *self.diffuser_x) * _ramp(2.0 * ramp_top - z, 0.0, ramp_top) * _inside(y, FLOOR_HALF_WIDTH_M)
+        )
+        wheels = max(
+            self._wheel_weight(FRONT_AXLE_M, WHEEL_RADIUS_FRONT_M, WHEEL_WIDTH_FRONT_M, x, abs_y, z),
+            self._wheel_weight(REAR_AXLE_M, WHEEL_RADIUS_REAR_M, WHEEL_WIDTH_REAR_M, x, abs_y, z),
+        )
+        body = max(0.0, 1.0 - front_wing - rear_wing * 0.5 - underbody * 0.3 - diffuser * 0.3)
+
+        return {
+            "front_wing": min(1.0, front_wing),
+            "rear_wing": min(1.0, rear_wing),
+            "underbody": min(1.0, underbody),
+            "diffuser": min(1.0, diffuser),
+            "body": min(1.0, body),
+            "wheels": min(1.0, wheels),
+        }
+
+    @staticmethod
+    def _wheel_weight(
+        axle_x: float, radius: float, width: float, x: float, abs_y: float, z: float
+    ) -> float:
+        """One tyre: the axle station, the outboard half of the track, tyre height."""
+        top = 2.0 * radius
+        return (
+            _band(x, axle_x - radius, axle_x + radius)
+            * _band(abs_y, TRACK_M / 2.0 - width, TRACK_M / 2.0)
+            * _ramp(top - z, 0.0, 0.5 * top)
+        )
 
 
 def compute_cp_field(
@@ -88,8 +203,14 @@ def compute_cp_field(
     diff_boost = math.sin(math.radians(config.diffuser_angle_deg)) * 0.8
 
     cp_values: list[float] = []
+    regions_frame = SurfaceRegions.from_config(config)
     for i, (x, y, z) in enumerate(norm_verts):
-        regions = _region_weight(float(x), float(y), float(z))
+        # Normalised 0-1 -> car metres on the reference envelope, so the region
+        # edges below are stations and not fractions of this mesh's bounding box.
+        x_m = float(x) * CAR_LENGTH_M
+        y_m = (float(y) - 0.5) * 2.0 * CAR_HALF_WIDTH_M
+        z_m = float(z) * CAR_HEIGHT_M
+        regions = regions_frame.weights(x_m, y_m, z_m)
 
         cp = 0.05 * cd_scale  # base stagnation
 

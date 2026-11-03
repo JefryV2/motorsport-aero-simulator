@@ -61,6 +61,9 @@ export const REFERENCE = {
   // 2.2 m^2 floor area), so this is a display dimension that turns the throat
   // height and expansion angle into an exit plane.
   diffuserLengthM: 0.6,
+  // The drawn exit plane stops here; analytical.DIFFUSER_EXIT_MAX_M is the same
+  // limit and the pressure map ends its diffuser region at that height.
+  diffuserExitMaxM: 0.32,
   // Constants the analytic tunnel field mirrors so it moves with the same
   // setup fields the reported numbers do.
   floorAreaM2: 2.2, // _underbody_forces floor_area: effective underbody area
@@ -166,7 +169,7 @@ function diffuserGeometry(config, floor) {
   const xStart = xEnd - REFERENCE.diffuserLengthM;
   const throat = Math.max(num(config?.diffuser_ride_height_mm, 30) / 1000, floor.heightAt(xStart));
   const angle = Math.min(20, Math.max(5, num(config?.diffuser_angle_deg, 12))) * DEG;
-  const exitHeight = Math.min(throat + REFERENCE.diffuserLengthM * Math.tan(angle), 0.32);
+  const exitHeight = Math.min(throat + REFERENCE.diffuserLengthM * Math.tan(angle), REFERENCE.diffuserExitMaxM);
   return {
     xStart,
     xEnd,

@@ -6,8 +6,6 @@ image ground plane, Trefftz drag) with the underbody ground-effect floor model.
 
 from __future__ import annotations
 
-import math
-
 from backend.models.aero_config import AeroForces, FormulaAeroConfig, SimulationResult
 from backend.simulation.analytical import (
     REF_AREA,
@@ -15,9 +13,17 @@ from backend.simulation.analytical import (
     WHEELBASE_M,
     _body_drag,
     _underbody_forces,
-    effective_rear_flap,
+    wing_stations,
 )
 from backend.simulation.vlm.core import VLMSurface, solve_vlm
+
+# Mean camber height ratio per element (keyed by analytical.wing_stations names).
+_VLM_CAMBER = {
+    "front_wing_main": 0.03,
+    "front_wing_flap": 0.05,
+    "rear_wing_main": 0.04,
+    "rear_wing_flap": 0.06,
+}
 
 
 def simulate_panel(
@@ -30,60 +36,24 @@ def simulate_panel(
     speed_ms = config.speed_kmh / 3.6
     q = 0.5 * RHO * speed_ms**2
 
-    h_front = config.ride_height_front_mm / 1000.0
-
-    # Ensure front wing elements maintain positive ground clearance
-    alpha_main_rad = math.radians(config.front_wing_main.angle_deg)
-    alpha_flap_rad = math.radians(config.front_wing_flap.angle_deg)
-    z_fw_main = h_front + config.front_wing_main.chord_m * max(0.0, math.sin(alpha_main_rad)) + 0.005
-    z_fw_flap = z_fw_main + 0.035 + config.front_wing_flap.chord_m * max(0.0, math.sin(alpha_flap_rad))
-
-    # Build multi-element wing surfaces
-    fw_main = VLMSurface(
-        name="front_wing_main",
-        origin=(0.20, 0.0, z_fw_main),
-        span=config.front_wing_main.span_m,
-        chord=config.front_wing_main.chord_m,
-        angle_deg=config.front_wing_main.angle_deg,
-        camber=0.03,
-        n_span=n_span,
-        n_chord=n_chord,
-    )
-    fw_flap = VLMSurface(
-        name="front_wing_flap",
-        origin=(0.20 + config.front_wing_main.chord_m * 0.75, 0.0, z_fw_flap),
-        span=config.front_wing_flap.span_m,
-        chord=config.front_wing_flap.chord_m,
-        angle_deg=config.front_wing_flap.angle_deg,
-        camber=0.05,
-        n_span=n_span,
-        n_chord=n_chord,
-    )
-    rw_main = VLMSurface(
-        name="rear_wing_main",
-        origin=(WHEELBASE_M + 0.20, 0.0, 0.85),
-        span=config.rear_wing_main.span_m,
-        chord=config.rear_wing_main.chord_m,
-        angle_deg=config.rear_wing_main.angle_deg,
-        camber=0.04,
-        n_span=n_span,
-        n_chord=n_chord,
-    )
-    rw_flap_elem = effective_rear_flap(config)
-    rw_flap = VLMSurface(
-        name="rear_wing_flap",
-        origin=(WHEELBASE_M + 0.20 + config.rear_wing_main.chord_m * 0.75, 0.0, 0.85 + 0.05),
-        span=rw_flap_elem.span_m,
-        chord=rw_flap_elem.chord_m,
-        angle_deg=rw_flap_elem.angle_deg,
-        camber=0.06,
-        n_span=n_span,
-        n_chord=n_chord,
-    )
+    # Build multi-element wing surfaces at the shared mounting stations
+    wings = [
+        VLMSurface(
+            name=station.name,
+            origin=(station.x_le_m, 0.0, station.height_m),
+            span=station.span_m,
+            chord=station.chord_m,
+            angle_deg=station.angle_deg,
+            camber=_VLM_CAMBER[station.name],
+            n_span=n_span,
+            n_chord=n_chord,
+        )
+        for station in wing_stations(config)
+    ]
 
     # Solve coupled 3D VLM with ground plane at z=0.0
     vlm_sol = solve_vlm(
-        [fw_main, fw_flap, rw_main, rw_flap],
+        wings,
         speed_kmh=config.speed_kmh,
         ground_height=0.0,
         use_symmetry=True,
