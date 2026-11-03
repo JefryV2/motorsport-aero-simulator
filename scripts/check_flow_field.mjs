@@ -18,6 +18,8 @@
  *      says, faces the right way, and follows the car when it is yawed.
  *   9. the Reynolds readout: priced on the length the car is drawn at, and
  *      labelled with it.
+ *  10. the inflow tilt: yaw and pitch move the tracers, leave |U| and the
+ *      singularity strengths alone, and pitch up means air arriving from below.
  *
  * Run: node scripts/check_flow_field.mjs
  *
@@ -59,7 +61,7 @@ try {
 
 const {
   velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl,
-  underbodyTerms, atStation, reynoldsNumber, reynoldsLabel,
+  underbodyTerms, atStation, reynoldsNumber, reynoldsLabel, windVector,
 } = mod;
 const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, lapTimeDeltaS, REFERENCE } = spec;
 const { computeCpField } = press;
@@ -741,6 +743,43 @@ check(
   !cadCp.loadsApplied && cadCp.cp.every(Number.isFinite),
   'no geometry, no invented loads',
   `field-only Cp ${cadCp.range.min.toFixed(2)} to ${cadCp.range.max.toFixed(2)}`,
+);
+
+// The tooltips on the two inflow sliders claim the tilt moves the smoke and not
+// the interaction. These three checks are what makes that claim true.
+const windAt = (over) => windVector({ ...carFlow, ...over });
+const speed0 = Math.hypot(...windAt({ yawDeg: 0, pitchDeg: 0 }));
+const speedTilted = Math.hypot(...windAt({ yawDeg: 35, pitchDeg: 15 }));
+check(
+  Math.abs(speed0 - speedTilted) < 1e-9,
+  'inflow tilt leaves |U| alone',
+  `${speed0.toFixed(4)} vs ${speedTilted.toFixed(4)} m/s at yaw 35 / pitch 15 - ` +
+    'so the singularity strengths built on it are identical',
+);
+const wyUp = windAt({ pitchDeg: 15 })[1];
+const wyDown = windAt({ pitchDeg: -15 })[1];
+check(
+  wyUp > 14 && Math.abs(wyUp + wyDown) < 1e-9,
+  'airflow pitch up + means air arriving from below',
+  `+15 deg gives wy = ${wyUp.toFixed(2)} m/s, -15 deg gives ${wyDown.toFixed(2)}`,
+);
+const probe = [0.35, 0.3, 0.2];
+const pertNorm = (over) => {
+  const flow = { ...carFlow, turbulence: 0, ...over };
+  const v = velocityAt(probe[0], probe[1], probe[2], CAR_CONFIG, offBounds, flow);
+  const w = windVector(flow);
+  return Math.hypot(v[0] - w[0], v[1] - w[1], v[2] - w[2]);
+};
+const pert0 = pertNorm({ pitchDeg: 0 });
+const drift = Math.max(
+  Math.abs(pertNorm({ pitchDeg: 15 }) / pert0 - 1),
+  Math.abs(pertNorm({ pitchDeg: -15 }) / pert0 - 1),
+);
+check(
+  drift < 0.2,
+  'the tilt is not an angle of attack',
+  `near-body perturbation moves ${drift.toFixed(3)} at +/-15 deg pitch, ` +
+    `${pert0.toFixed(1)} m/s at 0 - if this grows, the slider tooltips need rewriting`,
 );
 
 // The Re the HUD prints has to be the Re of the car on screen, not of a length

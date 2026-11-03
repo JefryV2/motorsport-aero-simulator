@@ -122,7 +122,10 @@ function downloadBlob(content, filename, mime) {
 
 export function renderEngineerPanel(ctx, delta = null) {
   const lines = [];
-  lines.push(`V∞ ${ctx.windSpeedKmh} km/h (${ctx.windSpeedMs.toFixed(1)} m/s) · yaw ${ctx.yawDeg}° · pitch ${ctx.pitchDeg}°`);
+  lines.push(
+    `V∞ ${ctx.windSpeedKmh} km/h (${ctx.windSpeedMs.toFixed(1)} m/s) · ` +
+      `inflow yaw ${ctx.yawDeg}° · inflow pitch ${ctx.pitchDeg}° (viewer only - the solver gets the speed)`,
+  );
   lines.push(
     `Re ${(ctx.reynolds / 1e6).toFixed(2)}×10⁶ on L ${REFERENCE.carLengthM} m (readout - the analytical and VLM tiers apply no Re scaling) · ` +
       `q ${ctx.dynamicPressureKPa.toFixed(2)} kPa · ρ ${ctx.airDensity} kg/m³`,

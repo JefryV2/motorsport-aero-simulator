@@ -826,3 +826,66 @@ class TestReynoldsReadoutSitsOnTheDrawnCar:
         nu_cfd = signature.parameters["nu"].default
         kinematic = self._ref("muAirPaS") / self._ref("rho")
         assert kinematic == pytest.approx(nu_cfd, rel=0.03)
+
+
+class TestInflowAnglesAreViewerOnly:
+    """Yaw and pitch tilt the smoke; nothing in the model knows they exist.
+
+    Measured on the shipped field: `|wind|` is 55.5556 m/s at yaw 0 / pitch 0 and
+    55.5556 m/s at yaw 35 / pitch 15, so every singularity strength built from it
+    is identical whatever the sliders say - the tilt moves the tracers and the
+    near-body cap, nothing else. At +15 deg the inflow carries +14.38 m/s of
+    vertical velocity: air arriving from below, the flow equivalent of a nose-down
+    car, while the drawn body stays level. The control used to read "Pitch angle",
+    directly above a "Body rake" readout that *is* the car's angle.
+    """
+
+    def _text(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def _payload_keys(self) -> set[str]:
+        js = self._text("frontend", "js", "app.js")
+        start = js.index("function getConfig()")
+        body = js[start : js.index("function getFlowSettings()", start)]
+        block = body[body.index("return {") :]
+        return set(re.findall(r"^\s{4}(\w+):", block, re.MULTILINE))
+
+    def test_every_payload_key_is_a_field_the_solver_reads(self):
+        """An unknown key would be dropped without a word.
+
+        `FormulaAeroConfig` does not set `extra`, so pydantic ignores unrecognised
+        fields - the way `drs_active` was sent and silently discarded from the
+        golden test for months.
+        """
+        fields = set(FormulaAeroConfig.model_fields)
+        keys = self._payload_keys()
+        assert keys, "getConfig() no longer returns an object literal"
+        assert keys <= fields, (
+            f"payload carries {sorted(keys - fields)}, which no solver field reads - "
+            "pydantic would drop it and the UI would still believe in it"
+        )
+        assert "speed_kmh" in keys, "the air speed is the one flow number the solver owns"
+
+    def test_the_inflow_angles_are_not_in_the_payload(self):
+        keys = self._payload_keys()
+        for name in ("yaw_deg", "pitch_deg", "yawDeg", "pitchDeg", "turbulence"):
+            assert name not in keys, f"{name} reached the request: the loads cannot answer to it"
+
+    def test_the_pitch_control_names_the_air_and_not_the_car(self):
+        html = self._text("frontend", "index.html")
+        label = re.search(r'<label for="wind_pitch">([^<]*)', html)
+        assert label, "index.html no longer labels the wind_pitch control"
+        assert "Airflow pitch" in label.group(1), label.group(1)
+        for control in ("wind_pitch", "wind_yaw"):
+            title = re.search(rf'id="{control}"[^>]*title="([^"]+)"', html)
+            assert title, f"{control} lost its explanation"
+            assert "not the car" in title.group(1), title.group(1)
+
+    def test_the_engineer_panel_calls_them_inflow_angles(self):
+        js = self._text("frontend", "js", "engineerTools.js")
+        assert "V∞" in js, "the panel's freestream line is gone"
+        assert re.search(
+            r"inflow yaw[^`]*inflow pitch[^`]*solver gets the speed", js
+        ), "the panel quotes the inflow angles as if the loads answered to them"

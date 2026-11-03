@@ -1178,11 +1178,11 @@
         </div>
         <div class="slider-row">
           <label for="wind_yaw">Yaw angle (crosswind) <span id="wind_yaw_val">0°</span></label>
-          <input type="range" id="wind_yaw" min="-35" max="35" value="0" step="1" />
+          <input type="range" id="wind_yaw" min="-35" max="35" value="0" step="1" title="Tilts the incoming air, not the car. The smoke arrives from that direction; the model's own singularity system is built for flow along the car axis, so its strengths do not change with the angle, and the reported loads do not either - the solver receives the air speed only.">
         </div>
         <div class="slider-row">
-          <label for="wind_pitch">Pitch angle <span id="wind_pitch_val">0°</span></label>
-          <input type="range" id="wind_pitch" min="-15" max="15" value="0" step="1" />
+          <label for="wind_pitch">Airflow pitch (up +) <span id="wind_pitch_val">0°</span></label>
+          <input type="range" id="wind_pitch" min="-15" max="15" value="0" step="1" title="Tilts the incoming air, not the car: at +15 degrees the smoke arrives 15 degrees upward, the flow equivalent of a nose-down attitude, while the drawn body stays level and the loads are unchanged. The car's own angle comes from the two ride heights (Body rake, in Vehicle Setup).">
         </div>
         <label for="flow_source">Flow source</label>
         <select id="flow_source">
