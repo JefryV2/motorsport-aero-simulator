@@ -1,7 +1,7 @@
 /** Main app — vehicle setup + wind tunnel flow controls. */
 
 import { AeroViewer } from './viewer3d.js';
-import { deriveSurfaces, rearFlapAngleDeg, lapTimeDeltaS } from './carSpec.js';
+import { DEFAULT_ELEMENT, deriveSurfaces, rearFlapAngleDeg, lapTimeDeltaS } from './carSpec.js';
 import {
   engineeringContext,
   compareToBaseline,
@@ -315,11 +315,20 @@ function getConfig() {
   const windKmh = +document.getElementById('wind_speed').value;
   document.getElementById('speed').value = windKmh;
 
+  // Chord and span come from carSpec's model defaults - the UI has no control
+  // for them, so the payload must not carry its own copy of those numbers.
+  const wing = (name, angleDeg, gurneyMm = 0) => ({
+    angle_deg: angleDeg,
+    chord_m: DEFAULT_ELEMENT[name].chord_m,
+    span_m: DEFAULT_ELEMENT[name].span_m,
+    gurney_mm: gurneyMm,
+  });
+
   return {
-    front_wing_main: { angle_deg: +document.getElementById('fw_main').value, chord_m: 0.35, span_m: 1.80, gurney_mm: +document.getElementById('fw_gurney').value },
-    front_wing_flap: { angle_deg: +document.getElementById('fw_flap').value, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
-    rear_wing_main: { angle_deg: +document.getElementById('rw_main').value, chord_m: 0.40, span_m: 0.95, gurney_mm: +document.getElementById('rw_gurney').value },
-    rear_wing_flap: { angle_deg: +document.getElementById('rw_flap').value, chord_m: 0.15, span_m: 0.90, gurney_mm: 0 },
+    front_wing_main: wing('front_wing_main', +document.getElementById('fw_main').value, +document.getElementById('fw_gurney').value),
+    front_wing_flap: wing('front_wing_flap', +document.getElementById('fw_flap').value),
+    rear_wing_main: wing('rear_wing_main', +document.getElementById('rw_main').value, +document.getElementById('rw_gurney').value),
+    rear_wing_flap: wing('rear_wing_flap', +document.getElementById('rw_flap').value),
     drs_active: drsActive,
     ride_height_front_mm: +document.getElementById('rh_front').value,
     ride_height_rear_mm: +document.getElementById('rh_rear').value,

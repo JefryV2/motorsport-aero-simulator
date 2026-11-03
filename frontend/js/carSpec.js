@@ -92,8 +92,10 @@ function num(v, fallback) {
 }
 
 /** Element defaults from the FormulaAeroConfig WingElement factories
- * (backend/models/aero_config.py). */
-const DEFAULT_ELEMENT = {
+ * (backend/models/aero_config.py). Exported because `app.js` builds the request
+ * payload from these chord/span values - the UI has no chord or span control, so
+ * restating them there would be a third copy of a number that cannot be set. */
+export const DEFAULT_ELEMENT = {
   front_wing_main: { angle_deg: 2, chord_m: 0.35, span_m: 1.8, gurney_mm: 0 },
   front_wing_flap: { angle_deg: 8, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
   rear_wing_main: { angle_deg: 5, chord_m: 0.4, span_m: 0.95, gurney_mm: 0 },

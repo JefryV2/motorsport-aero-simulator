@@ -682,3 +682,76 @@ class TestWingGroundEffectIsPricedAtItsOwnGap:
 
         assert low > mid > high, f"wing ignored ride height: {low} / {mid} / {high}"
         assert low - high > 30.0, f"only {low - high:.1f} N lost over 140 mm of nose lift"
+
+
+class TestRequestPayloadTakesThePlanformFromTheModel:
+    """The UI has no chord or span control, so it must not own those numbers.
+
+    `getConfig()` used to write all eight planform literals itself - a third copy
+    beside the `FormulaAeroConfig` factories and `carSpec.js`. Editing a model
+    default would keep drawing and solving one car while the request sent another,
+    because the solver re-derives its defaults from the factories, the viewer from
+    `DEFAULT_ELEMENT`, and the payload from whichever copy nobody thought to edit.
+    """
+
+    WING_NAMES = (
+        "front_wing_main",
+        "front_wing_flap",
+        "rear_wing_main",
+        "rear_wing_flap",
+    )
+
+    def _js(self, name: str) -> str:
+        path = Path(__file__).resolve().parents[1] / "frontend" / "js" / name
+        return path.read_text(encoding="utf-8")
+
+    def _config_body(self) -> str:
+        js = self._js("app.js")
+        start = js.index("function getConfig()")
+        return js[start : js.index("function getFlowSettings()", start)]
+
+    def test_car_spec_defaults_match_the_config_factories(self):
+        block = re.search(
+            r"export const DEFAULT_ELEMENT = \{(.*?)\n\};",
+            self._js("carSpec.js"),
+            re.S,
+        )
+        assert block, "carSpec.js no longer exports DEFAULT_ELEMENT"
+        cfg = FormulaAeroConfig()
+        for name in self.WING_NAMES:
+            entry = re.search(name + r": \{([^}]*)\}", block.group(1))
+            assert entry, f"DEFAULT_ELEMENT dropped {name}"
+            fields = {
+                key: float(value)
+                for key, value in re.findall(r"(\w+): ([0-9.]+)", entry.group(1))
+            }
+            element = getattr(cfg, name)
+            assert fields["chord_m"] == pytest.approx(element.chord_m), (
+                f"{name}: viewer has chord {fields['chord_m']}, model has "
+                f"{element.chord_m}"
+            )
+            assert fields["span_m"] == pytest.approx(element.span_m), (
+                f"{name}: viewer has span {fields['span_m']}, model has "
+                f"{element.span_m}"
+            )
+
+    def test_get_config_restates_no_planform_number(self):
+        cfg = FormulaAeroConfig()
+        banned = set()
+        for name in self.WING_NAMES:
+            element = getattr(cfg, name)
+            banned.update({element.chord_m, element.span_m})
+
+        body = self._config_body()
+        assert "DEFAULT_ELEMENT" in body, (
+            "getConfig() no longer reads chord and span from the model defaults"
+        )
+        leaked = sorted(
+            float(token)
+            for token in re.findall(r"(?<![\w.'])(\d+\.\d+)\b", body)
+            if float(token) in banned
+        )
+        assert not leaked, (
+            f"getConfig() hardcodes planform {leaked} again - the payload must "
+            "take chord and span from DEFAULT_ELEMENT"
+        )
