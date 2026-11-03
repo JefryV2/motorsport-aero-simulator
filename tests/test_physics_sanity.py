@@ -1170,12 +1170,18 @@ class TestTheInteractionLayerAnswersToTheFieldBudget:
 
 
 class TestTheChangelogStillRendersAsATable:
-    """GitHub splits a table row on every unescaped `|`, including inside code
-    spans, and only then honours the backslash. Writing `\\|U\\|` in a cell's
-    prose is therefore a column, not a magnitude: four rows had silently grown
-    five and six columns, so everything after the first prose pipe shifted one
-    cell right and the commit hash that closed the row was pushed off the end of
-    the table.
+    """GitHub splits a table row on every unescaped `|`, code spans included, and
+    then truncates the row back to the header's column count - so the prose after
+    the first pipe is dropped, not shifted.
+
+    Measured against `gh api /markdown` on the shipped file: the `Airflow pitch`
+    row put 326 of its 3228 characters on the page and showed the word `wind`
+    where its commit hash belongs, and `Wing ground effect` lost 564 characters
+    to the same split. Both still render as four cells, which is what makes it
+    quiet - a column-count check alone passes, and only reading the cells back
+    shows the tail is gone. Escaping the prose pipes brings both rows back whole
+    (`\\|U\\|` renders as `|U|`, with no visible backslash), and the two checks
+    below keep a new row from reopening it.
     """
 
     SEPARATOR = re.compile(r"(?<!\\)\|")
