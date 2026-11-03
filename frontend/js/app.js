@@ -1041,22 +1041,40 @@ async function sendChatMessage() {
     const config = getConfig();
     const method = document.getElementById('method').value;
     
-    const simRes = lastSim || {
-      config: config,
-      forces: {
-        drag_N: 1200,
-        downforce_total_N: 3500,
-        downforce_front_N: 1500,
-        downforce_rear_N: 2000,
-        balance_front_pct: 42.8,
-        cop_x_m: 1.6,
-        cl_total: 2.3,
-        cd_total: 0.8,
-        efficiency: 2.92
-      },
-      lap_time_delta_s: 0.0,
-      method: method
-    };
+    // The advisor quotes the forces it is handed, so there is no placeholder
+    // result to fall back on: before the first run, a tier has to actually solve
+    // the setup the question is about.
+    let simRes = lastSim;
+    let tierNote = '';
+    if (!simRes) {
+      const askedForCfd = isCfdMethod();
+      const simMethod = askedForCfd ? 'analytical_enhanced' : method;
+      const simResponse = await fetch(`${API}/api/simulate?method=${simMethod}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+      if (!simResponse.ok) {
+        let detail = `HTTP ${simResponse.status}`;
+        try {
+          detail = (await simResponse.json())?.detail || detail;
+        } catch {
+          detail = (await simResponse.text()) || detail;
+        }
+        throw new Error(`no simulation to advise on - ${detail}`);
+      }
+      simRes = await simResponse.json();
+      showResults(simRes);
+      const answeredBy = FIDELITY_META[fidelityFor(simRes)]?.short || simMethod;
+      const runStatus = document.getElementById('status');
+      if (runStatus) {
+        runStatus.textContent = `Advisor ran ${answeredBy} for this setup`;
+        runStatus.className = 'status';
+      }
+      if (askedForCfd) {
+        tierNote = `Answered from ${answeredBy} (Cl ${simRes.forces.cl_total.toFixed(3)}, ${Math.round(simRes.forces.downforce_total_N)} N); the CFD tier selected here had not been run when the question was asked.`;
+      }
+    }
     
     const fullQuestion = `[Active track context: ${track.name} - ${track.description}] User question: ${text}`;
     
@@ -1076,7 +1094,7 @@ async function sendChatMessage() {
     if (!res.ok) throw new Error('Advisor API offline');
     
     const data = await res.json();
-    chatHistory.push({ sender: 'assistant', text: data.advice });
+    chatHistory.push({ sender: 'assistant', text: data.advice + (tierNote ? `\n\n*${tierNote}*` : '') });
   } catch (e) {
     chatHistory.pop();
     chatHistory.push({ sender: 'assistant', text: 'Error contacting advisor: ' + e.message });
