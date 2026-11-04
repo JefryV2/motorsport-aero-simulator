@@ -1,6 +1,6 @@
 /** Wind tunnel flow physics — air/car interaction for any model. */
 
-import { rearFlapAngleDeg, underbodyInputs, REFERENCE } from './carSpec.js';
+import { deriveSurfaces, rearFlapAngleDeg, underbodyInputs, REFERENCE } from './carSpec.js';
 
 export const DEFAULT_FLOW = {
   windSpeedKmh: 200,
@@ -409,6 +409,13 @@ function wakeAxes(wake, ds, length) {
 }
 
 /**
+ * Share of a surface's bound circulation each tip vortex rolls up. 0.6 is the
+ * elliptic-loading value, tuned for looks rather than solved; both filament
+ * tiers use it so a wing of a given Cl draws the same roll-up either way.
+ */
+const TIP_ROLLUP_SHARE = 0.6;
+
+/**
  * The model's singularity distribution: blockage doublets, lifting lines with
  * their tip vortices, the underbody through-flow, and the wake parameters.
  * Built once per geometry or wind change because velocityAt runs per tracer.
@@ -472,15 +479,14 @@ function buildSources(fr, config, wind) {
         });
       }
     }
-    // Each tip rolls up a share of its surface's bound circulation; 0.6 is the
-    // elliptic-loading value, tuned for looks rather than solved.
+    // Each tip rolls up a share of its surface's bound circulation.
     for (const t of tipSites) {
       const core = Math.max(0.015 * fr.scale, 0.16 * t.chord);
       for (const side of [1, -1]) {
         src.filaments.push({
           p: atStation(fr, t.station, t.height, side * t.halfSpan),
           dir: fr.ax,
-          gamma: side * 0.6 * t.gamma,
+          gamma: side * TIP_ROLLUP_SHARE * t.gamma,
           core,
           decayLen: 1.3 * fr.length,
           halfSpan: 0,
@@ -519,14 +525,26 @@ function buildSources(fr, config, wind) {
     src.doublets.push({ p: atStation(fr, fr.length * fs, fr.height * fh, fr.spanZ * (fz - 0.5)), r: fr.height * fr2 });
   }
 
-  const fwAngle = ((config?.front_wing_main?.angle_deg ?? 2) + (config?.front_wing_flap?.angle_deg ?? 8)) / 2;
-  const rwFlapAngle = rearFlapAngleDeg(config);
-  const rwAngle = ((config?.rear_wing_main?.angle_deg ?? 5) + rwFlapAngle) / 2;
-  const frontLoad = Math.min(1.4, 0.35 + ((config?.front_wing_main?.angle_deg ?? 2) + (config?.front_wing_flap?.angle_deg ?? 8)) / 12);
-  const rearLoad = Math.min(1.6, 0.4 + ((config?.rear_wing_main?.angle_deg ?? 5) + rwFlapAngle) / 30);
+  // The setup's own wing elements. An uploaded model has no solved geometry to
+  // place them on, so they still sit at box fractions below, but their strength
+  // is now the same lifting-line law the solved branch uses: Gamma = 1/2 U c Cl
+  // with Cl from wingCl, which is where the section's post-stall loss of
+  // downforce lives. Raw degrees kept buying circulation past the knee the
+  // numbers say the wing is losing it at, and priced none of the other fields
+  // that move the reported lift (gurney height, ground-effect clearance, the
+  // DRS-clamped flap). Chord is stretched by the length uploaded meshes are
+  // normalised to, so a bigger model carries proportionally stronger vortices.
+  const lenScale = fr.length / REFERENCE.carLengthM;
+  const gammaOf = { front: 0, rear: 0, frontMain: 0, rearMain: 0 };
+  for (const w of deriveSurfaces(config).aero.wings) {
+    const end = w.id.startsWith('front_wing') ? 'front' : 'rear';
+    const g = 0.5 * u * w.chordM * lenScale * wingCl(w);
+    gammaOf[end] += g;
+    if (w.id.endsWith('_main')) gammaOf[`${end}Main`] = g;
+  }
   const bound = [
-    [0.04, 0.14, fwAngle * 0.15 * u, 0.475],
-    [0.88, 0.74, rwAngle * 0.18 * u, 0.275],
+    [0.04, 0.14, gammaOf.front, 0.475],
+    [0.88, 0.74, gammaOf.rear, 0.275],
   ];
   for (const [fs, fh, gamma, halfTipFrac] of bound) {
     src.filaments.push({
@@ -538,16 +556,17 @@ function buildSources(fr, config, wind) {
       halfSpan: fr.spanZ * halfTipFrac,
     });
   }
+  // Tips roll up the main element's own bound circulation, as in the solved tier.
   const tips = [
-    [0.06, 0.14, 0.475, 0.045, 1.7, 0.018 * u * frontLoad],
-    [0.9, 0.74, 0.275, 0.06, 1.2, 0.034 * u * rearLoad],
+    [0.06, 0.14, 0.475, 0.045, 1.7, gammaOf.frontMain],
+    [0.9, 0.74, 0.275, 0.06, 1.2, gammaOf.rearMain],
   ];
-  for (const [fs, fh, dz, coreFrac, decayFrac, gammaMag] of tips) {
+  for (const [fs, fh, dz, coreFrac, decayFrac, gammaMain] of tips) {
     for (const side of [1, -1]) {
       src.filaments.push({
         p: atStation(fr, fr.length * fs, fr.height * fh, side * fr.spanZ * dz),
         dir: fr.ax,
-        gamma: side * gammaMag * fr.spanZ,
+        gamma: side * TIP_ROLLUP_SHARE * gammaMain,
         core: fr.height * coreFrac,
         decayLen: fr.length * decayFrac,
         halfSpan: 0,

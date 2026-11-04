@@ -19,8 +19,11 @@
  *      throat the car can build - and every setup knob that moves the body must
  *      move the smoke. The uploaded-CAD tier has no body to move, but it has the
  *      same law to obey: its gap flow has to accelerate on the rear gap the floor
- *      is charged on, leave the front gap alone, and run downstream like the
- *      built-in car's instead of against it.
+ *      is charged on, reach the front gap only through the wings' own ground
+ *      effect, and run downstream like the built-in car's instead of against it;
+ *      and its wing vortices have to be priced from the section's Cl, so they
+ *      bend over at the same stall knee the numbers report and answer to gurney
+ *      height and DRS rather than to a ramp on raw degrees.
  *   8. skin pressure: each drawn element carries the pressure jump its own Cl
  *      says, faces the right way, and follows the car when it is yawed.
  *   9. the Reynolds readout: priced on the length the car is drawn at, and
@@ -659,12 +662,99 @@ function cadRms(a, b) {
   }
   return Math.sqrt(sum / n) / U;
 }
+// The front gap does reach an uploaded model's field now, but only through the
+// wings' own ground-effect gain - the gap jet is still priced on the rear gap
+// the floor is charged on. So the front move has to stay a fraction of the rear
+// one, not the exact zero it was when the jet ignored the nose entirely.
 const cadFront = cadRms(knob({ ride_height_front_mm: 25 }), knob({ ride_height_front_mm: 60 }));
 const cadRear = cadRms(CAR_CONFIG, knob({ ride_height_rear_mm: 20 }));
 check(
-  cadFront === 0 && cadRear > 0.001,
-  'the CAD tier moves only with the gap the floor is charged on',
+  cadFront < 0.5 * cadRear && cadRear > 0.001,
+  'the CAD tier moves with the charged gap, and with the front only through the wings',
   `front 25 -> 60 mm: ${(cadFront * 100).toFixed(2)}% U, rear 45 -> 20 mm: ${(cadRear * 100).toFixed(2)}% U`,
+);
+
+// ---------------------------------------------------------------------------
+// The wing vortices an upload gets are priced, not ramped with the dial.
+// ---------------------------------------------------------------------------
+// This tier used to size its bound filaments straight off the mean of each
+// wing's two element angles - deg * 0.15 * U at the front, deg * 0.18 * U at the
+// rear - with 0.35 + deg/12 and 0.4 + deg/30 ramps (capped at 1.4 and 1.6)
+// feeding the tip pair, and the tip strength multiplied out by the box span on
+// top. A raw-degrees ramp keeps buying circulation well past the stall knee the
+// reported Cl has already dropped through, and cannot see gurney height,
+// ground-effect clearance or the drawn chord at all. Both tiers now price
+// Gamma = 1/2 U c Cl from the same wingCl, so the wash bends over where the
+// section does.
+//
+// Probed 0.8 L along and 0.75 h above the floor at mid-span - ahead of, and a
+// little under, the tier's own rear bound line (0.88 L, 0.74 h). Directly at the
+// line the box's own blockage doublets dominate, which is a separate finding;
+// here the wing is what changes, and the cap is not in the way.
+function cadWing(flapDeg, extra = {}) {
+  const cfg = knob({
+    rear_wing_flap: { ...CAR_CONFIG.rear_wing_flap, angle_deg: flapDeg },
+    ...extra,
+  });
+  const flow = { ...baseFlow, turbulence: 0 };
+  const fr = flowFrame(flow, CAD_BOX);
+  const p = atStation(fr, fr.length * 0.8, 0.75, 0);
+  const inv = potentialVelocityAt(p[0], p[1], p[2], cfg, CAD_BOX, flow);
+  const d = Math.hypot(inv[0] - U, inv[1], inv[2]);
+  return { d, headroom: PERTURBATION_BUDGET * U - d };
+}
+// The solved tier reads its strengths from the geometry payload, so each config
+// has to be re-solved rather than just re-passed.
+function carWing(flapDeg) {
+  const cfg = knob({ rear_wing_flap: { ...CAR_CONFIG.rear_wing_flap, angle_deg: flapDeg } });
+  const geo = geoFor(cfg);
+  const flow = { ...baseFlow, geo, turbulence: 0 };
+  const fr = flowFrame(flow, offBounds);
+  const line = geo.lines.find((l) => l.id === 'rear_wing_main');
+  const p = atStation(fr, line.station, line.height + 0.2, 0);
+  const inv = potentialVelocityAt(p[0], p[1], p[2], cfg, offBounds, flow);
+  const d = Math.hypot(inv[0] - U, inv[1], inv[2]);
+  return { d, headroom: PERTURBATION_BUDGET * U - d };
+}
+const w5 = cadWing(5);
+const w20 = cadWing(20);
+const w45 = cadWing(45);
+const c5 = carWing(5);
+const c20 = carWing(20);
+const c45 = carWing(45);
+check(
+  w5.headroom > 3 && w20.headroom > 3 && w45.headroom > 3 && c20.headroom > 3,
+  'the wing probes measure the field, not the cap',
+  `headroom ${w5.headroom.toFixed(1)} / ${w20.headroom.toFixed(1)} / ${w45.headroom.toFixed(1)} m/s (CAD) and ${c20.headroom.toFixed(1)} m/s (built-in)`,
+);
+check(
+  w20.d > w5.d + 0.3 && w45.d < w20.d - 0.3,
+  'the CAD tier bends its rear wing over at the stall knee',
+  `|dv| ${w5.d.toFixed(2)} m/s at 5 deg, ${w20.d.toFixed(2)} at 20 deg (the section's own Cl peak), ${w45.d.toFixed(2)} at 45 deg`,
+);
+check(
+  c20.d > c5.d + 0.3 && c45.d < c20.d - 0.3,
+  'the built-in car bends over the same way',
+  `|dv| ${c5.d.toFixed(2)} at 5 deg, ${c20.d.toFixed(2)} at 20 deg, ${c45.d.toFixed(2)} at 45 deg, 0.2 m above its own line`,
+);
+check(
+  Math.sign(w45.d - w20.d) === Math.sign(c45.d - c20.d),
+  'both tiers put the rear-wing peak on the same side of the knee',
+  `past the peak the wash falls ${(w45.d - w20.d).toFixed(2)} m/s on an upload and ${(c45.d - c20.d).toFixed(2)} m/s on the built-in car`,
+);
+const wDefault = cadWing(15);
+const wGurney = cadWing(15, { rear_wing_main: { ...CAR_CONFIG.rear_wing_main, gurney_mm: 10 } });
+check(
+  wGurney.d > wDefault.d + 0.05,
+  'a gurney flap reaches the upload vortex',
+  `10 mm on the rear main plane: ${(wDefault.d * 100 / U).toFixed(2)}% U -> ${(wGurney.d * 100 / U).toFixed(2)}% U of perturbation`,
+);
+const wDrs = cadWing(30, { drs_active: true });
+const wNoDrs = cadWing(30);
+check(
+  wDrs.d < wNoDrs.d,
+  'opening DRS weakens the drawn rear vortex',
+  `flap 30 deg: ${wNoDrs.d.toFixed(2)} m/s clamped to ${REFERENCE.drsFlapAngleDeg} deg gives ${wDrs.d.toFixed(2)} m/s`,
 );
 
 // Downforce means the air left the car moving upwards: momentum gives the wake

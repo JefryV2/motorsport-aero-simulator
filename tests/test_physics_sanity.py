@@ -34,6 +34,9 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 19. The tunnel's uploaded-CAD tier sizes its ground-effect jet with that same law
     and the same source/sink expression as the solved tier, so the drawn gap flow
     follows the gap the floor is charged on instead of a decay length it repeated
+20. That tier prices its wing vortices from the Cl of the setup's own elements
+    rather than ramps on raw degrees, so an upload's drawn wash bends over at the
+    same stall knee the reported numbers fall through
 """
 
 from __future__ import annotations
@@ -2223,3 +2226,58 @@ class TestTheTunnelUnderbodyIsTheSolverUnderbody:
         assert engine.count("underbodyJetQ(") == 3, (
             "the delta-u identity should be defined once and called by both tiers"
         )
+
+    def test_the_cad_tier_prices_its_wings_with_the_sections_cl(self):
+        """The uploaded-CAD wing vortices answer to the Cl the numbers report.
+
+        The same branch sized its lifting lines off the raw dials: `fwAngle * 0.15
+        * u` and `rwAngle * 0.18 * u` for the bound filaments, with `0.35 + deg/12`
+        and `0.4 + deg/30` ramps capped at 1.4 and 1.6 feeding `0.018 * u` and
+        `0.034 * u` tip amplitudes that were then multiplied by the box span -
+        which is not even circulation. Averaging the two element angles and scaling
+        the result by degrees means the drawn vortex keeps growing linearly past
+        the 16.4 deg knee the section's Cl peaks at and falls through, and cannot
+        see gurney height, ground-effect clearance or the drawn chord at all. At
+        the rear wing the gate's probe this branch moved 6.6x more than the same
+        setup moves the built-in car's priced circulation (28.3 m/s of perturbation
+        against 4.3 m/s, pinned on the field's own cap for every flap past 30 deg).
+        Both tiers now price Gamma = 1/2 U c Cl on the same elements.
+        """
+        engine = self._text("frontend", "js", "flowEngine.js")
+        branch = re.search(
+            r"(// --- Uploaded CAD has no solved geometry.*?\n  return src;\n\})",
+            engine,
+            re.DOTALL,
+        )
+        assert branch, "the uploaded-CAD branch of buildSources is gone"
+        text = branch.group(1)
+        assert "deriveSurfaces(config).aero.wings" in text, (
+            "the CAD tier is back to inventing wing strengths from the dials "
+            "instead of reading the setup's own elements"
+        )
+        assert re.search(r"0\.5 \* u \* w\.chordM \* \w+ \* wingCl\(w\)", text), (
+            "the bound vortex is no longer the lifting-line circulation the "
+            "solved branch uses (1/2 U c Cl from wingCl)"
+        )
+        assert re.search(r"fr\.length / REFERENCE\.carLengthM", text), (
+            "the drawn chord is no longer stretched by the length uploads are "
+            "normalised to, so a bigger model would draw the same vortex"
+        )
+        assert re.search(r"side \* TIP_ROLLUP_SHARE \* gammaMain", text), (
+            "the tip pair no longer rolls up the main element's own bound "
+            "circulation with the shared elliptic share"
+        )
+        for shape, name in (
+            (r"0\.15 \* u", "the front bound ramp on raw degrees"),
+            (r"0\.18 \* u", "the rear bound ramp on raw degrees"),
+            (r"frontLoad|rearLoad", "a load ramp of its own"),
+            (r"0\.018 \* u|0\.034 \* u", "a tip amplitude of its own"),
+            (r"Math\.min\(1\.4|Math\.min\(1\.6", "a ceiling on a load factor"),
+            (r"/ 12\)|/ 30\)", "a slope of degrees per unit"),
+            (r"fwAngle|rwAngle", "an average of the two element angles"),
+            (r"gammaMag \* fr\.spanZ", "circulation multiplied out by the box span"),
+        ):
+            assert re.search(shape, text) is None, (
+                f"the CAD branch has gone back to {name}: {shape}"
+            )
+        assert engine.count("TIP_ROLLUP_SHARE") == 3, engine.count("TIP_ROLLUP_SHARE")
