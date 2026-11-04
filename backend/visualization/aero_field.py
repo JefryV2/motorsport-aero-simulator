@@ -50,11 +50,24 @@ WAKE_DEFLECT_PER_CL = 0.655
 # The pressure map's own paint limits. It is a shading of the loads the model
 # prices, not a solved pressure distribution, and what it produces stays well
 # inside these: measured over 3,600 points on the reference envelope the whole
-# field spans -0.0883 to +0.5212 Cp on the default car and -0.2914 to +0.6400 on
-# a stalled one, with no vertex reaching either limit. The legend therefore
+# field spans -0.0883 to +0.5212 Cp on the default car and -0.1452 to +0.5212 on
+# a fully stalled one, with no vertex reaching either limit. The legend therefore
 # reports the field's own extremes and names these separately.
 CP_PAINT_MIN = -3.0
 CP_PAINT_MAX = 1.5
+
+# Shading gains for the terms below. The map used to take them from the car it was
+# handed - `cl_scale = sim.forces.cl_total / 3.0`, `cd_scale = cd_total / 1.2` - so
+# every surface repainted when a *different* surface moved. Over a cloud 1 mm above
+# the solved floor, whose priced floor force is byte-identical at 221.213973 N in
+# every one of these cases, HEAD's picture brightened 17.59 % when the rear wing
+# stalled (its own cl_total 0.692 -> 1.143), darkened 4.23 % when the front wing went
+# to 20 deg (0.692 -> 1.232), and moved 0.90 % for DRS and 0.85 % for unloading the
+# rear wing. Each term is already the Cl or drag that surface was charged with, so the
+# two gains are fixed numbers, frozen at what the shipped default car gave (cl_total
+# 0.692, cd_total 0.834) so that car keeps painting exactly the picture it had.
+CL_PAINT_GAIN = 0.23066666666666666
+CD_PAINT_GAIN = 0.695
 
 
 def _normalize_coords(
@@ -245,8 +258,6 @@ def compute_cp_field(
     norm_verts, bounds = _normalize_coords(verts, bounds)
 
     sim = simulate_panel(config)
-    cl_scale = sim.forces.cl_total / 3.0
-    cd_scale = sim.forces.cd_total / 1.2
 
     # Suction on a wing surface is the lift the solver charges for it. The map used
     # to ramp its own ceiling with the summed incidence, so it kept growing straight
@@ -269,19 +280,19 @@ def compute_cp_field(
         z_m = float(z) * CAR_HEIGHT_M
         regions = regions_frame.weights(x_m, y_m, z_m)
 
-        cp = 0.05 * cd_scale  # base stagnation
+        cp = 0.05 * CD_PAINT_GAIN  # base stagnation
 
         if norms is not None and i < len(norms):
             nx, ny, nz = norms[i]
-            cp += -0.15 * nz * cl_scale
-            cp += 0.08 * nx * cd_scale
+            cp += -0.15 * nz * CL_PAINT_GAIN
+            cp += 0.08 * nx * CD_PAINT_GAIN
 
-        cp -= regions["front_wing"] * fw_cl * cl_scale
-        cp -= regions["rear_wing"] * rw_cl * cl_scale
-        cp -= regions["underbody"] * ge_rear * rake * 1.2 * cl_scale
-        cp -= regions["diffuser"] * diff_boost * ge_diffuser * rake * cl_scale
-        cp += regions["body"] * 0.25 * cd_scale
-        cp += regions["wheels"] * 0.45 * cd_scale
+        cp -= regions["front_wing"] * fw_cl * CL_PAINT_GAIN
+        cp -= regions["rear_wing"] * rw_cl * CL_PAINT_GAIN
+        cp -= regions["underbody"] * ge_rear * rake * 1.2 * CL_PAINT_GAIN
+        cp -= regions["diffuser"] * diff_boost * ge_diffuser * rake * CL_PAINT_GAIN
+        cp += regions["body"] * 0.25 * CD_PAINT_GAIN
+        cp += regions["wheels"] * 0.45 * CD_PAINT_GAIN
 
         cp = max(CP_PAINT_MIN, min(cp, CP_PAINT_MAX))
         cp_values.append(round(cp, 4))

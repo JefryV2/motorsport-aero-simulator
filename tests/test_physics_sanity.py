@@ -21,6 +21,8 @@ Verifies essential aerodynamic principles on the analytical baseline model:
     still prices exactly as the attached line alone
 14. The pressure map's legend reports the extremes of the field it returned and
     names its own paint limits, instead of a range no vertex ever reached
+15. The pressure map's shading gains belong to each surface alone, so moving one
+    surface cannot repaint another
 """
 
 from __future__ import annotations
@@ -193,31 +195,49 @@ def _rear_flap(angle_deg: float) -> dict:
     return {"angle_deg": angle_deg, "span_m": 0.85, "chord_m": 0.05}
 
 
+def _rear_main(angle_deg: float) -> dict:
+    return {"angle_deg": angle_deg, "span_m": 0.95, "chord_m": 0.4}
+
+
 def _front_main(gurney_mm: float) -> dict:
     return {"angle_deg": 2.0, "span_m": 1.8, "chord_m": 0.35, "gurney_mm": gurney_mm}
 
 
-def _pinned_cp(monkeypatch, overrides: dict, probe: list[list[float]]) -> float:
-    """One probe point with the map's force scale pinned to exactly 1.0.
+def _floor_cloud() -> list[list[float]]:
+    """A millimetre above the tunnel floor plane, across the whole track.
 
-    cl_total = 3.0 and cd_total = 1.2 are the divisors `compute_cp_field` uses,
-    so every term but the one under test becomes a constant across the configs.
+    On the default car these points average underbody 0.5899, diffuser 0.1595, body
+    0.7744 and wheels 0.0674 weight, and 0.0008 of front wing - which is what makes
+    this the cloud on which a wing move has to show nothing.
     """
+    return [
+        [float(x), y, 0.001]
+        for x in np.linspace(analytical.FLOOR_X_START_M, analytical.FLOOR_X_END_M, 25)
+        for y in (-0.6, -0.3, 0.0, 0.3, 0.6)
+    ]
 
-    class _Forces:
-        cl_total = 3.0
-        cd_total = 1.2
 
-    class _PinnedSim:
-        forces = _Forces()
+def _cloud_cp(overrides: dict, probe: list[list[float]]) -> float:
+    """Mean Cp over a probe cloud for one setup.
 
-        @staticmethod
-        def model_dump() -> dict:
-            return {}
-
-    monkeypatch.setattr(aero_field, "simulate_panel", lambda _cfg: _PinnedSim())
+    The picture's shading scale is a fixed paint gain now, so nothing has to be
+    pinned to compare two setups: every term carries only its own surface's Cl, and
+    a setup that does not move a surface cannot move that surface's shading.
+    """
     config = FormulaAeroConfig(**overrides)
     return float(np.mean(aero_field.compute_cp_field(probe, None, config, BOUNDS)["cp"]))
+
+
+def _mean_weights(config: FormulaAeroConfig, probe: list[list[float]]) -> dict[str, float]:
+    """How much of each surface region the map assigns to a probe cloud.
+
+    `compute_cp_field` normalises its vertices onto `BOUNDS` and maps them back to
+    metres on the same envelope, which over these bounds is the identity, so the
+    masks can be read straight off the probe coordinates.
+    """
+    frame = aero_field.SurfaceRegions.from_config(config)
+    taken = [frame.weights(x, y, z) for x, y, z in probe]
+    return {k: sum(w.get(k, 0.0) for w in taken) / len(taken) for k in taken[0]}
 
 
 def _spread(values: tuple[float, ...], factors: dict[float, float]) -> float:
@@ -309,26 +329,26 @@ class TestFieldConsumersShareSolverState:
             np.mean(compute_cp_field(self._cloud(region), None, config, BOUNDS)["cp"])
         )
 
-    def test_rear_wing_pressure_responds_to_drs(self, monkeypatch):
+    def test_rear_wing_pressure_responds_to_drs(self):
         """Opening DRS must relieve the rear wing in the map, not only in the forces."""
         sealed = FormulaAeroConfig(rear_wing_flap=_rear_flap(20.0))
         opened = sealed.model_copy(update={"drs_active": True})
 
         shift = self._mean_cp(opened, "rear_wing") - self._mean_cp(sealed, "rear_wing")
         cloud = self._cloud("rear_wing")
-        pinned_shift = _pinned_cp(
-            monkeypatch,
-            {"rear_wing_flap": _rear_flap(20.0), "drs_active": True},
-            cloud,
-        ) - _pinned_cp(monkeypatch, {"rear_wing_flap": _rear_flap(20.0)}, cloud)
+        unpinned_shift = _cloud_cp(
+            {"rear_wing_flap": _rear_flap(20.0), "drs_active": True}, cloud
+        ) - _cloud_cp({"rear_wing_flap": _rear_flap(20.0)}, cloud)
 
-        # Measured over the solved wing box. The whole-car force scale is no longer
-        # a constant here: opening DRS drops the car's Cl, so it shrinks every term
-        # in the picture and the real shift (+0.0229, once +0.143) is smaller than
-        # the flap's own contribution. With the scale pinned to 1.0 the seal is
-        # worth +0.1013, so the wing moves for its own sake and not by the scale.
+        # Measured over the solved wing box: +0.055683 sealed -> +0.080819 open, worth
+        # +0.025136 Cp. It used to read +0.143 because the map multiplied every term by
+        # the whole car's Cl, and opening DRS shrinks that too - the flap's own relief
+        # is the smaller number, and the two paths now agree exactly because the scale
+        # is a constant.
         assert shift > 0.02, f"DRS barely moved the rear wing pressure ({shift:+.4f})"
-        assert pinned_shift > 0.09, f"the sealed flap did not reach the wing term ({pinned_shift:+.4f})"
+        assert unpinned_shift == pytest.approx(shift, abs=1e-9), (
+            f"the picture still answers to the car's total Cl: {unpinned_shift} vs {shift}"
+        )
 
     def test_wake_strength_responds_to_drs(self):
         """The drawn wake must weaken with the effective flap, not the sealed one."""
@@ -364,17 +384,50 @@ class TestFieldConsumersShareSolverState:
         assert tail.index(min(tail)) == 2, f"the wake does not bottom out at the knee: {tail}"
         assert tail[-1] - min(tail) > 0.005, f"the stall only lifted the wake {tail[-1] - min(tail):.5f}"
 
-    def test_front_wing_suction_follows_ride_height(self):
-        """Lower front ride height must read as more suction on the map's front wing."""
-        low = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=10.0), "front_wing")
-        high = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=60.0), "front_wing")
+    def test_a_surface_is_only_isolable_at_fixed_geometry(self):
+        """The wing box is not a fixed set of surface points, so ride height cannot read off it.
 
-        # Measured gap over the solved wing box is 0.0342 Cp. It was 0.108 while the
-        # map multiplied the wing by the floor's exp(-h / 0.015 m) law, which spans
-        # 0.5134 -> 0.0183 across these two heights; the solver's own wing gain only
-        # moves 1.1455 -> 1.1018 on the main plane, so the surface still answers to
-        # ride height and no longer collapses with it.
-        assert low < high - 0.02, f"front wing ignored ride height ({low:+.4f} vs {high:+.4f})"
+        The old version of this test compared a 10 mm nose with a 60 mm one over the
+        solved wing box and took the drop for front-wing suction. With the paint scale
+        fixed, the same comparison shows what was really moving: those probes change
+        mask between the two setups - front-wing weight 0.9525 -> 1.0000, underbody
+        0.0469 -> 0.1591, body 0.0475 -> 0.0 - so the mean reads +0.146678 -> +0.133303
+        (more relief) while the priced planform Cl goes the other way, 0.422245 ->
+        0.408477. The ride-height physics is owned by `wing_planform_cl` itself, which
+        `test_front_wing_lift_falls_as_the_nose_rises` pins; what the picture owes is
+        that it shades that Cl linearly, and that is testable only where the geometry -
+        and therefore the masks - do not move.
+        """
+        cloud = self._cloud("front_wing")
+        default_w = _mean_weights(FormulaAeroConfig(), cloud)
+        w_low = _mean_weights(FormulaAeroConfig(ride_height_front_mm=10.0), cloud)
+        w_high = _mean_weights(FormulaAeroConfig(ride_height_front_mm=60.0), cloud)
+        assert w_high["front_wing"] > w_low["front_wing"] + 0.02, (
+            f"the wing box mask no longer moves with the nose: {w_low} -> {w_high}"
+        )
+        assert w_low["underbody"] < w_high["underbody"], (
+            f"the floor mask did not grow with the nose: {w_low} -> {w_high}"
+        )
+        assert default_w["front_wing"] > 0.99, f"the setups below no longer share a mask: {default_w}"
+
+        setups = {
+            "clean": {"front_wing_main": _front_main(0.0)},
+            "tab": {"front_wing_main": _front_main(15.0)},
+            "angle": {"front_wing_main": {**_front_main(0.0), "angle_deg": 6.0}},
+        }
+        cl = {k: aero_field.wing_planform_cl(FormulaAeroConfig(**v))[0] for k, v in setups.items()}
+        cp = {k: _cloud_cp(v, cloud) for k, v in setups.items()}
+        tab_rate = (cp["tab"] - cp["clean"]) / (cl["tab"] - cl["clean"])
+        angle_rate = (cp["angle"] - cp["clean"]) / (cl["angle"] - cl["clean"])
+
+        # Measured: -0.23054940 per Cl from the tab, -0.23066415 from the incidence,
+        # against -CL_PAINT_GAIN x the cloud's own mean wing weight = -0.23055.
+        assert tab_rate == pytest.approx(angle_rate, rel=2e-3), (
+            f"the surface shades two rates for one Cl: tab {tab_rate} vs angle {angle_rate}"
+        )
+        assert tab_rate == pytest.approx(
+            -aero_field.CL_PAINT_GAIN * default_w["front_wing"], rel=0.02
+        ), f"the wing term carries a gain that is not the picture's own: {tab_rate}"
 
     def test_the_map_shades_the_priced_section_not_its_own_ramp(self):
         """The map's two wing lines were `(degrees / 15) * 1.8` and `(degrees / 20) * 1.6`.
@@ -417,42 +470,41 @@ class TestFieldConsumersShareSolverState:
             f"the planform is not area-weighted: main {main_delta:+.5f} vs flap {flap_delta:+.5f}"
         )
 
-    def test_rear_wing_suction_peaks_at_the_solver_knee_and_falls_past_it(self, monkeypatch):
+    def test_rear_wing_suction_peaks_at_the_solver_knee_and_falls_past_it(self):
         """A stalled wing was the most heavily loaded surface on the screen.
 
-        Measured over the solved rear wing box with the force scale pinned to 1.0:
-        the old ramp drew -0.2232 Cp at 5 deg and -1.2752 at 35 deg, growing without
+        The old ramp drew -0.2232 Cp at 5 deg and -1.2752 at 35 deg, growing without
         a ceiling while the forces were already unloading that wing. The map now
-        peaks at the solver's own knee and gives the suction back: -0.1271 at 5 deg,
-        -0.2145 at the knee, -0.1760 at 35 deg.
+        peaks at the solver's own knee and gives the suction back: +0.074933 at 5 deg
+        down to +0.053206 at the knee (16.4140 deg) and back up to +0.062756 at 35.
+        The numbers sit positive because the envelope cloud this test probes is mostly
+        body and floor, not wing - the shape of the polar is what is under test here.
         """
         onset = math.degrees(analytical.SECTION_CL_MAX / (2 * math.pi))
         angles = (5.0, 10.0, 14.0, onset, 18.0, 20.0, 25.0, 35.0)
         cloud = self._cloud("rear_wing")
-        cp = [
-            _pinned_cp(monkeypatch, {"rear_wing_flap": _rear_flap(a)}, cloud) for a in angles
-        ]
+        cp = [_cloud_cp({"rear_wing_flap": _rear_flap(a)}, cloud) for a in angles]
 
         assert all(b < a for a, b in zip(cp[:4], cp[1:4], strict=False)), (
             f"the front of the polar is not attached-linear: {cp[:4]}"
         )
         assert cp.index(min(cp)) == 3, f"the peak suction is not at the knee: {cp}"
         assert all(b > cp[3] for b in cp[4:]), f"past the knee the wing keeps loading: {cp[4:]}"
-        assert cp[-1] - cp[3] > 0.03, f"the stall only cost {cp[-1] - cp[3]:.4f} Cp"
+        assert cp[-1] - cp[3] > 0.005, f"the stall only cost {cp[-1] - cp[3]:.4f} Cp"
 
-    def test_a_gurney_tab_reaches_the_pressure_map(self, monkeypatch):
+    def test_a_gurney_tab_reaches_the_pressure_map(self):
         """15 mm of tab on the front wing main plane moved the picture by 0.00000.
 
         The ramp had no term for it while `_wing_cl` charges 0.08 Cl per 10 mm: the
-        screen showed a tabbed wing and a clean one identically. Measured at the
-        pinned force scale over the solved front wing box, the tab is now worth
-        -0.37877 -> -0.48025 Cp.
+        screen showed a tabbed wing and a clean one identically. Over the solved
+        front wing box the tab is now worth +0.133725 -> +0.110262 Cp, -0.023462,
+        for the 0.417587 -> 0.519355 planform Cl it buys.
         """
         cloud = self._cloud("front_wing")
-        clean = _pinned_cp(monkeypatch, {"front_wing_main": _front_main(0.0)}, cloud)
-        tabbed = _pinned_cp(monkeypatch, {"front_wing_main": _front_main(15.0)}, cloud)
+        clean = _cloud_cp({"front_wing_main": _front_main(0.0)}, cloud)
+        tabbed = _cloud_cp({"front_wing_main": _front_main(15.0)}, cloud)
 
-        assert tabbed < clean - 0.05, f"a Gurney tab barely shows on the map ({tabbed - clean:+.5f})"
+        assert tabbed < clean - 0.015, f"a Gurney tab barely shows on the map ({tabbed - clean:+.5f})"
 
     def test_the_drawn_air_bends_with_the_priced_cl(self):
         """The streamlines took the raw flap degrees over an invented ceiling twice.
@@ -485,18 +537,26 @@ class TestFieldConsumersShareSolverState:
             f"the drawn wake still deepens past the knee ({knee_z:.5f} -> {stalled_z:.5f})"
         )
 
-    def test_diffuser_suction_follows_throat_height(self, monkeypatch):
+    def test_diffuser_suction_follows_throat_height(self):
         """The map used to price the diffuser with the rear ride height only.
 
         `diffuser_ride_height_mm` moved the solver's diffuser Cl and nothing on
         the screen; the throat height now drives the same decay the solver uses.
         Both ride heights are pinned at 10 mm so the floor line stays under the
         whole sweep - a throat below it is raised to it, as it is on the car.
+
+        Measured at the frozen paint gain, throat 10 -> 30 -> 60 mm gives +0.127600
+        -> +0.143400 -> +0.152500 Cp, and the ratio of those two legs against the
+        60 mm station is 2.7362637 where the solver's own exp(-h / 0.025) decay gives
+        2.7537647 - a 0.64 % deviation. It is not the law drifting: the map rounds
+        every vertex to four decimals, and the differenced leg spans only 0.0091 Cp,
+        so the rounding on its own is worth 0.55 % of it. The old scale was 4.3x
+        larger, which made the same rounding invisible and the same lock look tighter
+        than the picture can be.
         """
         stations = (10.0, 30.0, 60.0)
         cp = {
-            v: _pinned_cp(
-                monkeypatch,
+            v: _cloud_cp(
                 {
                     "ride_height_front_mm": 10.0,
                     "ride_height_rear_mm": 10.0,
@@ -511,7 +571,65 @@ class TestFieldConsumersShareSolverState:
         assert cp[stations[2]] - cp[stations[0]] > 0.02, (
             "diffuser throat height does not reach the pressure map"
         )
-        assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-3)
+        assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-2)
+
+
+class TestEachSurfaceCarriesOnlyItsOwnLoad:
+    """One surface's shading must not answer to another surface's Cl.
+
+    `compute_cp_field` took its scale from the car it was handed - `cl_scale =
+    sim.forces.cl_total / 3.0`, `cd_scale = cd_total / 1.2` - and multiplied *every*
+    term by it, so the picture of the floor was a function of the wings. Over the
+    cloud below, whose priced floor force is byte-identical at 221.213973 N in every
+    one of these setups, the committed picture moved +17.59 % on a rear-wing stall,
+    +0.85 % on unloading it, +0.90 % on DRS and -4.23 % on a 20 deg front wing. Both
+    gains are now fixed constants frozen at the shipped default car, which keeps that
+    car byte-identical (0 of 3,600 envelope vertices) and leaves each surface answering
+    only to the load it was charged with.
+    """
+
+    def test_a_wing_move_leaves_the_floor_alone(self):
+        """The floor cloud is now the same number whatever the wings do."""
+        floor = _floor_cloud()
+        base = _cloud_cp({}, floor)
+        flap20 = {"angle_deg": 20.0, "span_m": 0.85, "chord_m": 0.05}
+        wing_only = {
+            "rear wing stalled": {"rear_wing_main": _rear_main(35.0)},
+            "rear wing unloaded": {"rear_wing_main": _rear_main(0.0)},
+            "rear flap sealed": {"rear_wing_flap": flap20},
+            "DRS open": {"rear_wing_flap": flap20, "drs_active": True},
+            "speed 350": {"speed_kmh": 350.0},
+        }
+        for name, overrides in wing_only.items():
+            moved = _cloud_cp(overrides, floor)
+            assert moved == pytest.approx(base, abs=1e-12), (
+                f"{name} repainted the floor: {base:+.6f} -> {moved:+.6f}"
+            )
+
+    def test_the_map_takes_its_gain_from_nothing_but_its_own_constants(self):
+        """No term may read the summed coefficients again."""
+        src = inspect.getsource(aero_field.compute_cp_field)
+        for summed in ("cl_total", "cd_total", "/ 3.0", "/ 1.2"):
+            assert summed not in src, f"the map still scales itself by the car's {summed}"
+        for name in ("CL_PAINT_GAIN", "CD_PAINT_GAIN"):
+            assert name in src, f"the map no longer states its own {name}"
+
+    def test_the_floor_still_answers_to_the_floor(self):
+        """Freezing the gain must not have deadened the surface it was meant to free.
+
+        Measured on the same cloud, against the default floor's +0.169646: rake 0 -> 3
+        deg gives +1.30 % / -1.30 %, rear ride height 20 mm and 90 mm give -28.70 % and
+        +10.76 %, and an 18 deg diffuser -0.40 %. The rear wing and DRS moves above are
+        the ones that went silent on this cloud, and they should have.
+        """
+        floor = _floor_cloud()
+        base = _cloud_cp({}, floor)
+
+        assert _cloud_cp({"rake_deg": 3.0}, floor) < base - 0.002
+        assert _cloud_cp({"rake_deg": 0.0}, floor) > base + 0.002
+        assert _cloud_cp({"ride_height_rear_mm": 20.0}, floor) < base - 0.03
+        assert _cloud_cp({"ride_height_rear_mm": 90.0}, floor) > base + 0.01
+        assert _cloud_cp({"diffuser_angle_deg": 18.0}, floor) < base - 0.0005
 
 
 class TestTheLegendReportsTheFieldItReturned:
@@ -519,11 +637,11 @@ class TestTheLegendReportsTheFieldItReturned:
 
     `compute_cp_field` returned `"legend": {"min": -2.5, "max": 1.0}` whatever it had
     just computed. Measured over the 3,600-point envelope cloud below, the default
-    car's field spans -0.0883 to +0.5212 Cp, a stalled one -0.2914 to +0.6400, and no
-    vertex reached either end of the declared range - or the picture's own clamp, which
-    the same sweep never touched either. A consumer painting against that legend saw the
-    default field occupy 17.4 % of its ramp (26.6 % fully stalled), so the wing suction
-    the solver had just been priced at came back as near-flat grey.
+    car's field spans -0.0883 to +0.5212 Cp, a fully stalled one -0.1452 to +0.5212, and
+    no vertex reached either end of the declared range - or the picture's own clamp,
+    which the same sweep never touched either. A consumer painting against that legend
+    saw the default field occupy 17.4 % of its ramp (19.0 % fully stalled), so the wing
+    suction the solver had just been priced at came back as near-flat grey.
     """
 
     CONFIGS = {
@@ -611,14 +729,18 @@ class TestDiffuserThroatMustBeBuildable:
         sixty = simulate(base.model_copy(update={"diffuser_ride_height_mm": 60.0})).forces
         assert sixty.downforce_total_N < thirty.downforce_total_N
 
-    def test_pressure_map_prices_the_same_throat(self, monkeypatch):
+    def test_pressure_map_prices_the_same_throat(self):
         """The map must not reward a shape the forces refuse to charge."""
-        low = _pinned_cp(monkeypatch, {"diffuser_ride_height_mm": 10.0}, PROBE_DIFFUSER)
-        mid = _pinned_cp(monkeypatch, {"diffuser_ride_height_mm": 30.0}, PROBE_DIFFUSER)
-        high = _pinned_cp(monkeypatch, {"diffuser_ride_height_mm": 60.0}, PROBE_DIFFUSER)
+        low = _cloud_cp({"diffuser_ride_height_mm": 10.0}, PROBE_DIFFUSER)
+        mid = _cloud_cp({"diffuser_ride_height_mm": 30.0}, PROBE_DIFFUSER)
+        high = _cloud_cp({"diffuser_ride_height_mm": 60.0}, PROBE_DIFFUSER)
 
+        # Both requests sit under the floor line at the diffuser start, so the car
+        # draws 39.7463 mm for each: byte-identical shading is the point of the test.
         assert low == pytest.approx(mid, abs=1e-9)
-        assert high - mid > 0.02
+        # A throat that clears the line is worth +0.147600 -> +0.152500 Cp at the
+        # picture's fixed gain - 49 of its own four-decimal rounding steps.
+        assert high - mid > 0.002, f"a buildable throat is invisible on the map ({high - mid:+.5f})"
 
     def test_solver_and_viewer_agree_on_the_stations(self):
         """carSpec.js draws from these same numbers; a one-sided edit must fail here."""
