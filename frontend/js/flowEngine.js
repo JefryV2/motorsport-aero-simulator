@@ -1,6 +1,6 @@
 /** Wind tunnel flow physics — air/car interaction for any model. */
 
-import { rearFlapAngleDeg, REFERENCE } from './carSpec.js';
+import { rearFlapAngleDeg, underbodyInputs, REFERENCE } from './carSpec.js';
 
 export const DEFAULT_FLOW = {
   windSpeedKmh: 200,
@@ -208,9 +208,10 @@ export function wingCdFactor(w) {
 /**
  * Underbody and diffuser terms (_underbody_forces), from the same REFERENCE keys
  * the cross-language test pins to the solver. The diffuser decays on
- * `aero.diffuserThroatM` - the drawn throat, which carSpec already raises to the
- * floor line exactly as `analytical.diffuser_throat_height_m` does - not on the
- * raw slider, which the force model has ignored below that line since.
+ * `aero.diffuserThroatM`, which carSpec's `underbodyInputs` supplies - the built-in
+ * car hands over the drawn throat, already raised to the floor line exactly as
+ * `analytical.diffuser_throat_height_m` does, rather than the raw slider the
+ * force model has ignored below that line since.
  */
 export function underbodyTerms(aero) {
   const geFront = Math.exp(-aero.frontRideHeightM / REFERENCE.geDecayFrontM);
@@ -227,6 +228,16 @@ export function underbodyTerms(aero) {
       + REFERENCE.cdFloorGapCoef * (1 - geRear)
       + REFERENCE.cdDiffuserBase,
   };
+}
+
+/**
+ * The gap's through-flow, in m³/s. Δp = ρU·Δu together with Δp = Cl·q gives
+ * Δu = Cl·U/2, and a source/sink pair D apart induces ≈ 4Q/(πD²) between them,
+ * so Q = Δu·πD²/4. Every tier of buildSources prices it here and pushes the pair
+ * inlet-first, so the flow runs along the gap rather than against it.
+ */
+function underbodyJetQ(u, clUnder, sepM) {
+  return (0.5 * u * clUnder) * Math.PI * sepM * sepM / 4;
 }
 
 /** Σ Cd·A in m²: body and wheels, every wing element, the underbody. */
@@ -483,9 +494,7 @@ function buildSources(fr, config, wind) {
     const pIn = atStation(fr, g.floor.start, g.floor.heightStart, 0);
     const pOut = atStation(fr, g.diffuser.end, (g.diffuser.throat + g.diffuser.exit) / 2, 0);
     const sep = Math.hypot(pOut[0] - pIn[0], pOut[1] - pIn[1], pOut[2] - pIn[2]);
-    // Δp = ρU·Δu together with Δp = Cl·q gives Δu = Cl·U/2, and a source/sink
-    // pair D apart induces ≈ 4Q/(πD²) between them, so Q = Δu·πD²/4.
-    const Q = (0.5 * u * ub.clUnder) * Math.PI * sep * sep / 4;
+    const Q = underbodyJetQ(u, ub.clUnder, sep);
     src.jets.push({ p: pIn, Q }, { p: pOut, Q: -Q });
 
     // Near-wake area ≈ the car's blockage rectangle. Momentum balance then turns
@@ -546,13 +555,17 @@ function buildSources(fr, config, wind) {
     }
   }
 
-  const frh = config?.ride_height_front_mm ?? 25;
-  const geStrength = Math.exp(-frh / 1000 / 0.015) * 0.45 * u;
-  const Q = geStrength * fr.length * fr.spanZ * 0.85;
-  src.jets.push(
-    { p: atStation(fr, fr.length * 0.45, 0, 0), Q: -Q },
-    { p: atStation(fr, fr.length * 0.82, fr.height * 0.15, 0), Q },
-  );
+  // Underbody through-flow, priced by the same law as the solved tier: the
+  // sliders that move the charged floor move this gap flow, and it runs front to
+  // rear. `underbodyInputs(config, null)` because an uploaded model has no floor
+  // line to clamp the throat against, so `diffuser_ride_height_mm` stands on its
+  // own here; only the built-in car gets carSpec's floor-raised throat.
+  const ub = underbodyTerms(underbodyInputs(config, null));
+  const pIn = atStation(fr, fr.length * 0.45, 0, 0);
+  const pOut = atStation(fr, fr.length * 0.82, fr.height * 0.15, 0);
+  const sep = Math.hypot(pOut[0] - pIn[0], pOut[1] - pIn[1], pOut[2] - pIn[2]);
+  const Q = underbodyJetQ(u, ub.clUnder, sep);
+  src.jets.push({ p: pIn, Q }, { p: pOut, Q: -Q });
   return src;
 }
 

@@ -16,8 +16,11 @@
  *      branch, where the section keeps losing lift and buying drag past the knee
  *      instead of pinning at the top of its own line, and the underbody law, which
  *      has to move when a shared constant moves and decay the diffuser on the
- *      throat the car can build - and every setup knob
- *      that moves the body must move the smoke.
+ *      throat the car can build - and every setup knob that moves the body must
+ *      move the smoke. The uploaded-CAD tier has no body to move, but it has the
+ *      same law to obey: its gap flow has to accelerate on the rear gap the floor
+ *      is charged on, leave the front gap alone, and run downstream like the
+ *      built-in car's instead of against it.
  *   8. skin pressure: each drawn element carries the pressure jump its own Cl
  *      says, faces the right way, and follows the car when it is yawed.
  *   9. the Reynolds readout: priced on the length the car is drawn at, and
@@ -594,6 +597,74 @@ check(
   gapLow > gapHigh + 0.5,
   'underbody gap flow responds to ground effect',
   `u = ${gapLow.toFixed(1)} m/s at 20 mm vs ${gapHigh.toFixed(1)} m/s at 80 mm (U = ${U.toFixed(1)})`,
+);
+
+// The other tier: uploaded CAD has no solved floor, so buildSources places the
+// whole distribution from the bounding box. It used to carry a ground-effect law
+// of its own - exp(-front gap / 0.015) times two picture constants, with the pair
+// pushed sink-first, so the gap flow ran upstream and only the slider the priced
+// floor ignores moved it.
+//
+// Probed on a 4.5 x 1.0 x 1.2 m upload, 20 mm above its floor line at
+// mid-length. The box matters: this tier sizes its doublets from the box's own
+// span, and in the short, squat 3.5 x 0.6 x 1.0 m box above every floor-gap point
+// sits on the perturbation cap, where the field reports the ceiling rather than
+// the flow. Here the jet still has 20+ m/s of headroom to move in.
+const CAD_BOX = { min: [-2.25, 0, -0.6], max: [2.25, 1.0, 0.6] };
+function cadGap(rearMm) {
+  const cfg = { ...CAR_CONFIG, ride_height_rear_mm: rearMm };
+  const flow = { ...baseFlow, turbulence: 0 };
+  const fr = flowFrame(flow, CAD_BOX);
+  const p = atStation(fr, fr.length * 0.5, 0.02, 0);
+  // The budget caps the inviscid interaction part; the boundary layer the tracer
+  // also feels is added after it, so headroom is read on the half that is capped.
+  const inv = potentialVelocityAt(p[0], p[1], p[2], cfg, CAD_BOX, flow);
+  const v = velocityAt(p[0], p[1], p[2], cfg, CAD_BOX, flow);
+  return { u: v[0], headroom: PERTURBATION_BUDGET * U - Math.hypot(inv[0] - U, inv[1], inv[2]) };
+}
+const cadLow = cadGap(20);
+const cadHigh = cadGap(80);
+check(
+  cadLow.headroom > 1 && cadHigh.headroom > 1,
+  'the CAD-tier gap probe measures the field, not the cap',
+  `headroom ${cadLow.headroom.toFixed(1)} and ${cadHigh.headroom.toFixed(1)} m/s at 20 / 80 mm`,
+);
+check(
+  cadLow.u > cadHigh.u + 0.5,
+  'the CAD tier accelerates its gap flow on the charged rear gap',
+  `u = ${cadLow.u.toFixed(1)} m/s at 20 mm vs ${cadHigh.u.toFixed(1)} m/s at 80 mm`,
+);
+check(
+  Math.sign(cadLow.u - cadHigh.u) === Math.sign(gapLow - gapHigh),
+  'both tiers run the gap the same way',
+  `shallower rear gap: built-in +${(gapLow - gapHigh).toFixed(1)} m/s, CAD +${(cadLow.u - cadHigh.u).toFixed(1)} m/s`,
+);
+
+function cadRms(a, b) {
+  const flowA = { ...baseFlow, turbulence: 0 };
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i <= 12; i++) {
+    for (let j = 0; j <= 6; j++) {
+      for (let k = 0; k <= 6; k++) {
+        const x = CAD_BOX.min[0] + ((CAD_BOX.max[0] - CAD_BOX.min[0]) * i) / 12;
+        const y = 0.02 + ((CAD_BOX.max[1] - 0.02) * j) / 6;
+        const z = CAD_BOX.min[2] + ((CAD_BOX.max[2] - CAD_BOX.min[2]) * k) / 6;
+        const p = velocityAt(x, y, z, a, CAD_BOX, flowA);
+        const q = velocityAt(x, y, z, b, CAD_BOX, flowA);
+        sum += (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
+        n++;
+      }
+    }
+  }
+  return Math.sqrt(sum / n) / U;
+}
+const cadFront = cadRms(knob({ ride_height_front_mm: 25 }), knob({ ride_height_front_mm: 60 }));
+const cadRear = cadRms(CAR_CONFIG, knob({ ride_height_rear_mm: 20 }));
+check(
+  cadFront === 0 && cadRear > 0.001,
+  'the CAD tier moves only with the gap the floor is charged on',
+  `front 25 -> 60 mm: ${(cadFront * 100).toFixed(2)}% U, rear 45 -> 20 mm: ${(cadRear * 100).toFixed(2)}% U`,
 );
 
 // Downforce means the air left the car moving upwards: momentum gives the wake

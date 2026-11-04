@@ -31,6 +31,9 @@ Verifies essential aerodynamic principles on the analytical baseline model:
     the cross-language test pins, and decays the diffuser on the throat the car
     can actually build, instead of restating the law with its own literals and
     the raw slider
+19. The tunnel's uploaded-CAD tier sizes its ground-effect jet with that same law
+    and the same source/sink expression as the solved tier, so the drawn gap flow
+    follows the gap the floor is charged on instead of a decay length it repeated
 """
 
 from __future__ import annotations
@@ -2114,13 +2117,33 @@ class TestTheTunnelUnderbodyIsTheSolverUnderbody:
 
     def test_the_mirror_gets_the_drawn_throat_not_the_slider(self):
         spec = self._text("frontend", "js", "carSpec.js")
-        assert "diffuserThroatM: diffuser.throatHeight," in spec, (
+        assert "...underbodyInputs(config, diffuser.throatHeight)," in spec, (
             "the aero block no longer hands the field the drawn throat, so the "
             "picture is back to a gap the forces do not charge"
         )
         assert "diffuserRideHeightM" not in spec, (
             "the raw diffuser_ride_height_mm slider is published to the field again"
         )
+        # One helper owns the slider -> law mapping, so a tier with no solved
+        # geometry cannot drift onto different defaults.
+        inputs = re.search(
+            r"export function underbodyInputs\(config, throatM = null\) \{(.*?)\n\}",
+            spec,
+            re.DOTALL,
+        )
+        assert inputs, "the shared ground-effect inputs are gone from carSpec.js"
+        text = inputs.group(1)
+        for field in (
+            "ride_height_front_mm",
+            "ride_height_rear_mm",
+            "diffuser_ride_height_mm",
+            "diffuser_angle_deg",
+            "rake_deg",
+        ):
+            assert field in text, f"underbodyInputs no longer reads {field}"
+        for key in ("frontRideHeightM", "rearRideHeightM", "diffuserThroatM"):
+            assert text.count(f"{key}:") == 1, f"{key} is built in two places again"
+            assert spec.count(f"{key}:") == 1, f"{key} has a second copy in carSpec.js"
         # The drawn throat has to be raised to the floor line by the same rule and
         # at the same station analytical.diffuser_throat_height_m uses.
         throat = re.search(
@@ -2145,4 +2168,58 @@ class TestTheTunnelUnderbodyIsTheSolverUnderbody:
         field = self._text("frontend", "js", "aeroField.js")
         assert "underbodyTerms(geo.aero).clUnder" in field, (
             "the pressure field's floor amplitude no longer comes from the shared law"
+        )
+
+    def test_the_cad_tier_runs_its_gap_with_the_priced_law(self):
+        """The tier with no solved geometry still has one underbody law to obey.
+
+        `buildSources`' uploaded-CAD branch used to invent its own: it decayed on
+        `ride_height_front_mm` over a hand-written 0.015 (the front decay length the
+        cross-language test pins, but invisible to that test because it sat outside
+        `underbodyTerms`), scaled the result by two picture constants, 0.45 and
+        0.85, and pushed the sink at the inlet station with the source behind it -
+        so the pair drove the gap flow upstream, against the freestream, at up to
+        0.69 U of difference over the box. The floor is charged on the rear gap and
+        the throat, so that is what this branch now decays on, through the same
+        expression the solved branch uses.
+        """
+        engine = self._text("frontend", "js", "flowEngine.js")
+        branch = re.search(
+            r"(// --- Uploaded CAD has no solved geometry.*?\n  return src;\n\})",
+            engine,
+            re.DOTALL,
+        )
+        assert branch, "the uploaded-CAD branch of buildSources is gone"
+        text = branch.group(1)
+        assert "underbodyTerms(underbodyInputs(config, null))" in text, (
+            "the CAD tier no longer asks the shared law for its gap flow - it is "
+            "back to a ground-effect decay of its own"
+        )
+        assert "underbodyJetQ(" in text, (
+            "the CAD tier sizes its jet by hand again instead of the delta-u identity"
+        )
+        for shape, name in (
+            (r"/ 1000 / 0\.015", "a ground-effect decay over the front gap"),
+            (r"0\.45 \* u", "the 0.45 display gain"),
+            (r"\* 0\.85", "the box-area volume scale"),
+            (r"Math\.exp\(", "an exponential decay of its own"),
+            (r"geStrength", "a velocity-strength jet of its own"),
+        ):
+            assert re.search(shape, text) is None, (
+                f"the CAD branch has gone back to {name}: {shape}"
+            )
+        assert "ride_height_front_mm" not in text, (
+            "the gap flow is priced on the front gap again; the floor the solver "
+            "charges decays on the rear gap and the throat"
+        )
+        # Both tiers push the inlet source first: that order is what makes the
+        # pair drag air along the gap rather than against it.
+        pushes = re.findall(r"src\.jets\.push\((.*?)\);", engine, re.DOTALL)
+        assert len(pushes) == 2, pushes
+        for pair in pushes:
+            assert re.search(r"\{ p: pIn, Q \}, \{ p: pOut, Q: -Q \}", pair), (
+                f"a jet pair is drawn sink-first, so the gap flow runs upstream: {pair}"
+            )
+        assert engine.count("underbodyJetQ(") == 3, (
+            "the delta-u identity should be defined once and called by both tiers"
         )

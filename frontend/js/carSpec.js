@@ -243,6 +243,27 @@ function diffuserGeometry(config, floor) {
 }
 
 /**
+ * The five numbers `flowEngine.underbodyTerms` reads, straight from the setup
+ * sliders and already in TRUE metres. One place owns the defaults and the mm ->
+ * m conversion, so a tier that has no solved geometry still answers the sliders
+ * with the same law as one that has.
+ *
+ * `throatM` is the diffuser throat: the built-in car passes `diffuserGeometry`'s
+ * height, which has already been raised to the floor line exactly as
+ * `analytical.diffuser_throat_height_m` does. A caller with no floor line (the
+ * uploaded-CAD tier) passes null, and the slider stands on its own.
+ */
+export function underbodyInputs(config, throatM = null) {
+  return {
+    frontRideHeightM: num(config?.ride_height_front_mm, 25) / 1000,
+    rearRideHeightM: num(config?.ride_height_rear_mm, 45) / 1000,
+    diffuserThroatM: throatM === null ? num(config?.diffuser_ride_height_mm, 30) / 1000 : throatM,
+    diffuserAngleDeg: num(config?.diffuser_angle_deg, 12),
+    rakeDeg: num(config?.rake_deg, 1.5),
+  };
+}
+
+/**
  * Singularity stations for the analytic tunnel field, in car-local metres.
  * Kept as plain numbers so it can cross into flowEngine without importing
  * Three.js.
@@ -317,11 +338,7 @@ export function deriveSurfaces(config) {
       profileCd: REFERENCE.profileCd,
       trackM: REFERENCE.trackM,
       rwHeightM: REFERENCE.rwMainHeightM,
-      frontRideHeightM: num(config?.ride_height_front_mm, 25) / 1000,
-      rearRideHeightM: num(config?.ride_height_rear_mm, 45) / 1000,
-      diffuserThroatM: diffuser.throatHeight,
-      diffuserAngleDeg: num(config?.diffuser_angle_deg, 12),
-      rakeDeg: num(config?.rake_deg, 1.5),
+      ...underbodyInputs(config, diffuser.throatHeight),
     },
     rakeTubeHeightsM: [0.03, 0.08, 0.16, 0.32, 0.62],
     extents: {
