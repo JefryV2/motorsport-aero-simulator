@@ -37,6 +37,17 @@ RAKE_COEF_PER_DEG = 0.08
 CL_FLOOR_MAX = 0.35
 CL_DIFFUSER_MAX = 0.25
 
+# The underbody's area and its own drag. `cd_floor` grows as the rear ride height
+# rises - the ground effect that buys the Cl buys separation drag back at the same
+# exponential - and `CD_DIFFUSER` is a flat leakage term beside it. The tunnel field
+# has to add the same three numbers to the same `ge_rear`, so they are named rather
+# than written twice: `frontend/js/carSpec.js` mirrors them as `floorAreaM2`,
+# `cdFloorBase`, `cdFloorGapCoef` and `cdDiffuserBase`.
+FLOOR_AREA_M2 = 2.2
+CD_FLOOR_BASE = 0.015
+CD_FLOOR_GAP_COEF = 0.02
+CD_DIFFUSER = 0.008
+
 # One lump for everything that is not a wing or the underbody: wheels, suspension,
 # cockpit. The model charges it as `q * REF_AREA * CD_BODY` and never splits it, so
 # any consumer that wants two surfaces has to state its own share of this number -
@@ -422,16 +433,15 @@ def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float
     ge_front = math.exp(-h_front / GE_DECAY_FRONT_M)
     ge_rear = math.exp(-h_rear / GE_DECAY_REAR_M)
 
-    floor_area = 2.2  # m² effective underbody
     cl_floor, cl_diff = underbody_cl(config)
-    cd_floor = 0.015 + 0.02 * (1.0 - ge_rear)
-    cd_diff = 0.008
+    cd_floor = CD_FLOOR_BASE + CD_FLOOR_GAP_COEF * (1.0 - ge_rear)
+    cd_diff = CD_DIFFUSER
 
     cl_total = cl_floor + cl_diff
     cd_total = cd_floor + cd_diff
 
-    downforce = q * floor_area * cl_total
-    drag = q * floor_area * cd_total
+    downforce = q * FLOOR_AREA_M2 * cl_total
+    drag = q * FLOOR_AREA_M2 * cd_total
 
     # Split front/rear based on ride height distribution
     front_share = 0.35 * ge_front / (ge_front + ge_rear)

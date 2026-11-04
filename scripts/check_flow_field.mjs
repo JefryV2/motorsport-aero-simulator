@@ -14,7 +14,9 @@
  *   7. the parametric built-in car: solved stations drive the singularities,
  *      the low-order lift terms still match the backend - including the post-stall
  *      branch, where the section keeps losing lift and buying drag past the knee
- *      instead of pinning at the top of its own line - and every setup knob
+ *      instead of pinning at the top of its own line, and the underbody law, which
+ *      has to move when a shared constant moves and decay the diffuser on the
+ *      throat the car can build - and every setup knob
  *      that moves the body must move the smoke.
  *   8. skin pressure: each drawn element carries the pressure jump its own Cl
  *      says, faces the right way, and follows the car when it is yawed.
@@ -370,11 +372,76 @@ check(
   'front wing lift falls as the nose rises',
   `main plane Cl = ${riseCl[0].toFixed(5)} at 60 mm, ${riseCl[1].toFixed(5)} at 100 mm (25 mm gives 0.24410)`,
 );
+// The nine constants this mirror used to write by hand are now the REFERENCE keys
+// tests/test_physics_sanity.py pins to analytical.py, so the pair below is
+// analytical.underbody_cl() and _underbody_forces() at CAR_CONFIG, read out of the
+// solver on 2026-11-04. The check used to compare the mirror against
+// 0.05885059942994359 and call the match "mirrors analytical.py" - but that number
+// was the mirror's own, and the solver charges 0.05318985328515984 for the same
+// car, so a 1.106x over-charge of the underbody sat behind a green PASS.
 check(
-  Math.abs(ub.clUnder - 0.05885059942994359) < 1e-12
+  Math.abs(ub.clUnder - 0.05318985328515984) < 1e-12
     && Math.abs(ub.cdUnder - 0.04089201550876271) < 1e-12,
   'underbody terms mirror analytical.py',
-  `Cl = ${ub.clUnder.toFixed(9)}, Cd = ${ub.cdUnder.toFixed(9)}`,
+  `Cl = ${ub.clUnder.toFixed(9)}, Cd = ${ub.cdUnder.toFixed(9)} (the solver's pair at this setup)`,
+);
+
+// Reading the keys is the point, so each one has to be load-bearing: edit a pinned
+// constant and the drawn law moves with it. A mirror holding its own copy would
+// shrug this off. Restored on the same line, so every later check sees the car as
+// shipped. Every key here enters as a gain, including the three decay lengths -
+// a longer exp(-h / L) length is a weaker decay, so more of the suction survives.
+const stale = [];
+for (const [key, field] of [
+  ['clFloorMax', 'clUnder'],
+  ['clDiffuserMax', 'clUnder'],
+  ['geDecayRearM', 'clUnder'],
+  ['geDecayDiffuserM', 'clUnder'],
+  ['rakeCoefPerDeg', 'clUnder'],
+  ['geDecayFrontM', 'geFront'],
+  ['cdFloorBase', 'cdUnder'],
+  ['cdFloorGapCoef', 'cdUnder'],
+  ['cdDiffuserBase', 'cdUnder'],
+]) {
+  const hold = REFERENCE[key];
+  const before = underbodyTerms(carGeo.aero)[field];
+  REFERENCE[key] = hold + 0.01;
+  const after = underbodyTerms(carGeo.aero)[field];
+  REFERENCE[key] = hold;
+  if (!(after > before)) {
+    stale.push(`${key}: +0.01 changes ${field} by ${(after - before).toExponential(2)}`);
+  }
+}
+check(stale.length === 0, 'the underbody mirror is pinned to the shared keys', stale.join('; ') || 'all nine keys move the drawn law');
+
+// The diffuser decays on the throat the car can build, not on the slider: below the
+// floor line at its station (39.7463 mm on this car) the forces do not move at all,
+// and the picture must not either. The 60 mm literals are underbody_cl's sum at
+// that throat, read from the solver.
+const throatCl = [10, 30, 39, 60].map(
+  (mm) => underbodyTerms(geoFor({ ...CAR_CONFIG, diffuser_ride_height_mm: mm }).aero).clUnder,
+);
+check(
+  Math.abs(throatCl[0] - throatCl[1]) < 1e-12
+    && Math.abs(throatCl[1] - throatCl[2]) < 1e-12
+    && Math.abs(throatCl[3] - 0.046597666483910734) < 1e-12,
+  'the drawn diffuser decays on the buildable throat',
+  `Cl = ${throatCl[0].toFixed(9)} at 10, 30 and 39 mm, ${throatCl[3].toFixed(9)} at 60 mm (the solver prices the same two)`,
+);
+
+// Raising the nose lifts the floor line and with it the priced throat, so it moves
+// the underbody even though nothing in the diffuser slider changed. On the raw
+// slider this mirror read the same 0.058851 at every nose height. The literals are
+// analytical:underbody_cl sums at 60 and 100 mm front ride height.
+const noseCl = [60, 100].map(
+  (mm) => underbodyTerms(geoFor({ ...CAR_CONFIG, ride_height_front_mm: mm }).aero).clUnder,
+);
+check(
+  Math.abs(noseCl[0] - 0.04953621327327762) < 1e-12
+    && Math.abs(noseCl[1] - 0.04671562318355365) < 1e-12
+    && noseCl[1] < noseCl[0] - 1e-9 && noseCl[0] < ub.clUnder - 1e-9,
+  'underbody suction falls as the nose rises',
+  `Cl = ${noseCl[0].toFixed(9)} at 60 mm, ${noseCl[1].toFixed(9)} at 100 mm against ${ub.clUnder.toFixed(9)} at 25 mm`,
 );
 
 // analytical._wing_cl no longer stops at the top of the thin-airfoil line: past its

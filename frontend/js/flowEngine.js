@@ -205,19 +205,27 @@ export function wingCdFactor(w) {
   return (cl * cl) / (Math.PI * ar * OSWALD_E) + blend * plateCd;
 }
 
-/** Underbody and diffuser terms (_underbody_forces). */
+/**
+ * Underbody and diffuser terms (_underbody_forces), from the same REFERENCE keys
+ * the cross-language test pins to the solver. The diffuser decays on
+ * `aero.diffuserThroatM` - the drawn throat, which carSpec already raises to the
+ * floor line exactly as `analytical.diffuser_throat_height_m` does - not on the
+ * raw slider, which the force model has ignored below that line since.
+ */
 export function underbodyTerms(aero) {
-  const geFront = Math.exp(-aero.frontRideHeightM / 0.015);
-  const geRear = Math.exp(-aero.rearRideHeightM / 0.020);
-  const rakeBoost = 1 + aero.rakeDeg * 0.08;
-  const clFloor = 0.35 * geRear * rakeBoost;
-  const clDiff = 0.25 * Math.sin(aero.diffuserAngleDeg * DEG)
-    * Math.exp(-aero.diffuserRideHeightM / 0.025) * rakeBoost;
+  const geFront = Math.exp(-aero.frontRideHeightM / REFERENCE.geDecayFrontM);
+  const geRear = Math.exp(-aero.rearRideHeightM / REFERENCE.geDecayRearM);
+  const rakeBoost = 1 + aero.rakeDeg * REFERENCE.rakeCoefPerDeg;
+  const clFloor = REFERENCE.clFloorMax * geRear * rakeBoost;
+  const clDiff = REFERENCE.clDiffuserMax * Math.sin(aero.diffuserAngleDeg * DEG)
+    * Math.exp(-aero.diffuserThroatM / REFERENCE.geDecayDiffuserM) * rakeBoost;
   return {
     geFront,
     geRear,
     clUnder: clFloor + clDiff,
-    cdUnder: 0.015 + 0.02 * (1 - geRear) + 0.008,
+    cdUnder: REFERENCE.cdFloorBase
+      + REFERENCE.cdFloorGapCoef * (1 - geRear)
+      + REFERENCE.cdDiffuserBase,
   };
 }
 

@@ -27,6 +27,10 @@ Verifies essential aerodynamic principles on the analytical baseline model:
     map holds no second copy of the ground-effect, rake and throat math
 17. The body and wheels shade the solver's one lumped drag coefficient between
     them instead of the map inventing two amplitudes for it
+18. The analytic tunnel's underbody reads the solver's constants through the keys
+    the cross-language test pins, and decays the diffuser on the throat the car
+    can actually build, instead of restating the law with its own literals and
+    the raw slider
 """
 
 from __future__ import annotations
@@ -990,6 +994,17 @@ class TestDiffuserThroatMustBeBuildable:
             "lapBaselineDfN": analytical.LAP_BASELINE_DF_N,
             "lapSecPerDragN": analytical.LAP_SEC_PER_DRAG_N,
             "lapSecPerDfN": analytical.LAP_SEC_PER_DF_N,
+            # The underbody law the drawn tunnel reproduces (see
+            # TestTheTunnelUnderbodyIsTheSolverUnderbody for who spends these).
+            "geDecayFrontM": analytical.GE_DECAY_FRONT_M,
+            "geDecayRearM": analytical.GE_DECAY_REAR_M,
+            "geDecayDiffuserM": analytical.GE_DECAY_DIFFUSER_M,
+            "rakeCoefPerDeg": analytical.RAKE_COEF_PER_DEG,
+            "clFloorMax": analytical.CL_FLOOR_MAX,
+            "clDiffuserMax": analytical.CL_DIFFUSER_MAX,
+            "cdFloorBase": analytical.CD_FLOOR_BASE,
+            "cdFloorGapCoef": analytical.CD_FLOOR_GAP_COEF,
+            "cdDiffuserBase": analytical.CD_DIFFUSER,
         }
         for name, value in shared.items():
             match = re.search(rf"^\s*{name}:\s*([0-9.]+),", js, re.MULTILINE)
@@ -1955,3 +1970,179 @@ class TestTheStalledSectionIsHandedToThePlate:
             assert literal not in mirror, (
                 f"the mirror states {literal} where it should read REFERENCE"
             )
+
+
+class TestTheTunnelUnderbodyIsTheSolverUnderbody:
+    """`flowEngine.underbodyTerms` used to restate the law with its own numbers.
+
+    It held all nine of the solver's underbody numbers as its own literals - both
+    decay lengths and the front one, the rake coefficient, the floor and diffuser
+    ceilings, the three drag terms - and, worst of the nine, the *raw*
+    `diffuser_ride_height_mm` in place of the throat: on the shipped default car
+    the slider says 30 mm while the floor line at the diffuser station says
+    39.7463 mm, so the picture decayed the diffuser suction over a gap the forces
+    refuse to charge. Measured across
+    the nine setups the gate's probe configs cover, the mirror's total underbody
+    Cl sat 1.000-1.510x the solver's: 0.058851 against 0.053190 on the default
+    car (1.106x), 0.080339 against 0.053190 with the slider at 10 mm (1.510x,
+    where the forces do not move at all), 0.058851 against 0.049536 with the nose
+    at 60 mm (1.188x). Its Cd matched to 1.000x everywhere, because the drag leg
+    had already been reading the same three numbers by hand.
+
+    Nothing in `tests/` runs node, so the lock is in two layers, the same split
+    the wing polar uses: this class pins the *source* - that the mirror reads the
+    keys `test_solver_and_viewer_agree_on_the_stations` pins to the solver, and
+    that the solver really spends them - and `scripts/check_flow_field.mjs`
+    evaluates the mirror against the drawn geometry and the throat clamp.
+    """
+
+    KEY_TO_LITERAL = {
+        "geDecayFrontM": "0.015",
+        "geDecayRearM": "0.02",
+        "geDecayDiffuserM": "0.025",
+        "rakeCoefPerDeg": "0.08",
+        "clFloorMax": "0.35",
+        "clDiffuserMax": "0.25",
+        "cdFloorBase": "0.015",
+        "cdFloorGapCoef": "0.02",
+        "cdDiffuserBase": "0.008",
+    }
+
+    def _text(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_solver_spends_the_constants_it_publishes(self):
+        """A mirrored constant nobody reads is a licence for the picture to drift.
+
+        The viewer's keys are pinned to these names, so the names have to be what
+        the forces actually multiply - rebuilt here from the constants themselves.
+        """
+        cfg = FormulaAeroConfig(
+            ride_height_rear_mm=33.0, rake_deg=2.25, diffuser_angle_deg=14.0,
+            diffuser_ride_height_mm=55.0,
+        )
+        ge_rear = math.exp(-cfg.ride_height_rear_mm / 1000.0 / analytical.GE_DECAY_REAR_M)
+        rake_boost = 1.0 + cfg.rake_deg * analytical.RAKE_COEF_PER_DEG
+        throat = analytical.diffuser_throat_height_m(cfg)
+        assert analytical.underbody_cl(cfg) == (
+            pytest.approx(analytical.CL_FLOOR_MAX * ge_rear * rake_boost),
+            pytest.approx(
+                analytical.CL_DIFFUSER_MAX
+                * math.sin(math.radians(cfg.diffuser_angle_deg))
+                * math.exp(-throat / analytical.GE_DECAY_DIFFUSER_M)
+                * rake_boost
+            ),
+        )
+
+        q = 0.5 * analytical.RHO * 50.0**2
+        downforce, drag, _ = analytical._underbody_forces(cfg, 50.0)
+        assert downforce == pytest.approx(
+            q * analytical.FLOOR_AREA_M2 * sum(analytical.underbody_cl(cfg)), abs=1e-9
+        )
+        assert drag == pytest.approx(
+            q
+            * analytical.FLOOR_AREA_M2
+            * (
+                analytical.CD_FLOOR_BASE
+                + analytical.CD_FLOOR_GAP_COEF * (1.0 - ge_rear)
+                + analytical.CD_DIFFUSER
+            ),
+            abs=1e-9,
+        )
+
+        src = inspect.getsource(analytical.underbody_cl)
+        for name, literal in (
+            ("GE_DECAY_REAR_M", "0.020"),
+            ("GE_DECAY_DIFFUSER_M", "0.025"),
+            ("RAKE_COEF_PER_DEG", "0.08"),
+            ("CL_FLOOR_MAX", "0.35"),
+            ("CL_DIFFUSER_MAX", "0.25"),
+        ):
+            assert name in src, f"underbody_cl no longer reads {name}"
+            assert literal not in src, (
+                f"underbody_cl re-inlines {literal} beside the name the viewer mirrors"
+            )
+
+        # Line-scoped, because front_share carries its own unnamed 0.35 below.
+        forces = inspect.getsource(analytical._underbody_forces).splitlines()
+        spent = [
+            ln
+            for ln in forces
+            if re.match(r"\s*(cd_floor|cd_diff|downforce|drag) =", ln)
+        ]
+        assert len(spent) == 4, spent
+        for line, name, literal in (
+            ("cd_floor", "CD_FLOOR_BASE", "0.015"),
+            ("cd_floor", "CD_FLOOR_GAP_COEF", "0.02"),
+            ("cd_diff", "CD_DIFFUSER", "0.008"),
+            ("downforce", "FLOOR_AREA_M2", "2.2"),
+            ("drag", "FLOOR_AREA_M2", "2.2"),
+        ):
+            row = next(ln for ln in spent if ln.strip().startswith(f"{line} ="))
+            assert name in row, f"_underbody_forces no longer reads {name} in {line}"
+            assert re.search(rf"(?<![\w.]){re.escape(literal)}(?![0-9])", row) is None, (
+                f"_underbody_forces re-inlines {literal} in {line.strip()}, so the "
+                f"viewer would mirror a name nothing spends"
+            )
+
+    def test_the_mirror_reads_the_pinned_keys_not_its_own_numbers(self):
+        engine = self._text("frontend", "js", "flowEngine.js")
+        body = re.search(
+            r"export function underbodyTerms\(aero\) \{(.*?)\n\}", engine, re.DOTALL
+        )
+        assert body, "the tunnel's underbody law is gone from flowEngine.js"
+        text = body.group(1)
+        for key in self.KEY_TO_LITERAL:
+            assert f"REFERENCE.{key}" in text, (
+                f"underbodyTerms no longer reads {key}, the key the cross-language "
+                "test pins to the solver - it has gone back to its own number"
+            )
+        for name, literal in self.KEY_TO_LITERAL.items():
+            assert not re.search(
+                rf"(?<![\w.]){re.escape(literal)}(?![0-9])", text
+            ), (
+                f"underbodyTerms writes {literal} ({name}) where it should read REFERENCE"
+            )
+        assert "aero.diffuserThroatM" in text, (
+            "the diffuser term no longer decays on the throat the car can build"
+        )
+        assert "aero.rearRideHeightM" in text and "REFERENCE.geDecayRearM" in text, (
+            "the floor no longer decays on the rear gap over the solver's length"
+        )
+
+    def test_the_mirror_gets_the_drawn_throat_not_the_slider(self):
+        spec = self._text("frontend", "js", "carSpec.js")
+        assert "diffuserThroatM: diffuser.throatHeight," in spec, (
+            "the aero block no longer hands the field the drawn throat, so the "
+            "picture is back to a gap the forces do not charge"
+        )
+        assert "diffuserRideHeightM" not in spec, (
+            "the raw diffuser_ride_height_mm slider is published to the field again"
+        )
+        # The drawn throat has to be raised to the floor line by the same rule and
+        # at the same station analytical.diffuser_throat_height_m uses.
+        throat = re.search(
+            r"const throat = Math\.max\([^;]*floor\.heightAt\(xStart\)\);", spec
+        )
+        assert throat, "the drawn throat is no longer clamped to the floor line"
+        assert re.search(
+            r"const xStart = xEnd - REFERENCE\.diffuserLengthM;", spec
+        ), "the diffuser station is no longer the pinned floor end minus its length"
+        assert re.search(r"const xEnd = REFERENCE\.floorXEndM;", spec), (
+            "the floor end the diffuser starts from is no longer the solver's station"
+        )
+
+    def test_the_field_has_one_underbody_law(self):
+        """Every underbody number the picture draws has to come from that mirror."""
+        engine = self._text("frontend", "js", "flowEngine.js")
+        for fn in ("dragAreaM2", "downforceAreaM2"):
+            body = re.search(rf"function {fn}\(aero\) \{{(.*?)\n\}}", engine, re.DOTALL)
+            assert body and "underbodyTerms(aero)" in body.group(0), (
+                f"{fn} restates the underbody instead of asking the shared law"
+            )
+        field = self._text("frontend", "js", "aeroField.js")
+        assert "underbodyTerms(geo.aero).clUnder" in field, (
+            "the pressure field's floor amplitude no longer comes from the shared law"
+        )

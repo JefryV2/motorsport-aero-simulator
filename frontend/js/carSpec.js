@@ -57,18 +57,31 @@ export const REFERENCE = {
   floorHalfWidthM: 0.7,
   floorXStartM: 0.62,
   floorXEndM: 3.62,
-  // The aero model has no diffuser length at all (analytical.py uses a fixed
-  // 2.2 m^2 floor area), so this is a display dimension that turns the throat
-  // height and expansion angle into an exit plane.
+  // The aero model has no diffuser length at all (analytical.py prices the
+  // underbody over a fixed FLOOR_AREA_M2), so this is a display dimension that
+  // turns the throat height and expansion angle into an exit plane.
   diffuserLengthM: 0.6,
   // The drawn exit plane stops here; analytical.DIFFUSER_EXIT_MAX_M is the same
   // limit and the pressure map ends its diffuser region at that height.
   diffuserExitMaxM: 0.32,
   // Constants the analytic tunnel field mirrors so it moves with the same
   // setup fields the reported numbers do.
-  floorAreaM2: 2.2, // _underbody_forces floor_area: effective underbody area
+  floorAreaM2: 2.2, // analytical.FLOOR_AREA_M2: effective underbody area
   bodyCd: 0.75, // analytical.CD_BODY: wheels, suspension, cockpit as one lump
   profileCd: 0.008, // _wing_forces profile drag term
+  // The underbody law `flowEngine.underbodyTerms` reproduces, so the drawn wake
+  // answers to the setup the forces charge. `analytical.underbody_cl` is the one
+  // reader of the first six on the Python side; the last three are the drag terms
+  // `_underbody_forces` adds over the same ge_rear.
+  geDecayFrontM: 0.015, // analytical.GE_DECAY_FRONT_M
+  geDecayRearM: 0.02, // analytical.GE_DECAY_REAR_M
+  geDecayDiffuserM: 0.025, // analytical.GE_DECAY_DIFFUSER_M
+  rakeCoefPerDeg: 0.08, // analytical.RAKE_COEF_PER_DEG
+  clFloorMax: 0.35, // analytical.CL_FLOOR_MAX
+  clDiffuserMax: 0.25, // analytical.CL_DIFFUSER_MAX
+  cdFloorBase: 0.015, // analytical.CD_FLOOR_BASE
+  cdFloorGapCoef: 0.02, // analytical.CD_FLOOR_GAP_COEF
+  cdDiffuserBase: 0.008, // analytical.CD_DIFFUSER
   // Wing ground effect: analytical.ground_effect_lift_factor prices the lift
   // gain at each section's trailing-edge clearance, so the front ride height
   // moves the wings as well as the floor. The gain is anchored so the default
@@ -306,7 +319,7 @@ export function deriveSurfaces(config) {
       rwHeightM: REFERENCE.rwMainHeightM,
       frontRideHeightM: num(config?.ride_height_front_mm, 25) / 1000,
       rearRideHeightM: num(config?.ride_height_rear_mm, 45) / 1000,
-      diffuserRideHeightM: num(config?.diffuser_ride_height_mm, 30) / 1000,
+      diffuserThroatM: diffuser.throatHeight,
       diffuserAngleDeg: num(config?.diffuser_angle_deg, 12),
       rakeDeg: num(config?.rake_deg, 1.5),
     },
