@@ -16,6 +16,9 @@ Verifies essential aerodynamic principles on the analytical baseline model:
     so the front ride height moves the wing and not only the floor
 12. The Reynolds readout is taken on the length the viewer actually draws, and
     names that length wherever it is shown
+13. Past the stall knee the section is handed to the flat-plate polar instead of
+    pinned at the top of the thin-airfoil line, and every angle below the knee
+    still prices exactly as the attached line alone
 """
 
 from __future__ import annotations
@@ -420,6 +423,9 @@ class TestDiffuserThroatMustBeBuildable:
             "wheelWidthRearM": analytical.WHEEL_WIDTH_REAR_M,
             "geLiftGainMax": analytical.GE_LIFT_GAIN_MAX,
             "geLiftDecayM": analytical.GE_LIFT_DECAY_M,
+            "sectionClMax": analytical.SECTION_CL_MAX,
+            "stallBlendMaxDeg": analytical.STALL_BLEND_MAX_DEG,
+            "flatPlateCn": analytical.FLAT_PLATE_CN,
             "lapBaselineDragN": analytical.LAP_BASELINE_DRAG_N,
             "lapBaselineDfN": analytical.LAP_BASELINE_DF_N,
             "lapSecPerDragN": analytical.LAP_SEC_PER_DRAG_N,
@@ -1214,3 +1220,178 @@ class TestTheChangelogStillRendersAsATable:
         assert not unnamed, "rows without a date/title/body/hash shape:\n" + "\n".join(
             unnamed
         )
+
+
+class TestTheStalledSectionIsHandedToThePlate:
+    """`_wing_cl` used to clamp the 2D section at Cl 1.8 and stop thinking there.
+
+    Measured on the shipped model: every rear-flap incidence from 17 deg to the
+    config's own 35 deg bound returned the same Cl 1.618203 and the same 0.163435 drag
+    factor, so a car run deep post-stall reported forces indistinguishable from a
+    setup six degrees leaner, and the advisor called one of those no-ops the fastest
+    move. The thin-airfoil line cannot fall over on its own, so past the knee the
+    section is blended onto the flat-plate polar (CN = 2 sin a), which loses lift the
+    way a separated wing does and carries the pressure drag the attached line has no
+    term for. Every angle at or below the knee keeps the blend weight at zero, which
+    is what the frozen oracle below proves.
+    """
+
+    def _attached_only(self, element, clearance_m=None):
+        """The model as it shipped before the branch, frozen as the attached oracle."""
+        cl_2d = max(-0.5, min(2 * math.pi * math.radians(element.angle_deg), 1.8))
+        ar = element.span_m / element.chord_m
+        cl_3d = cl_2d / (1 + cl_2d / (math.pi * ar * 0.85))
+        cl_3d += (element.gurney_mm / 10.0) * 0.08
+        cl_3d *= analytical.ground_effect_lift_factor(clearance_m)
+        return cl_3d, cl_3d**2 / (math.pi * ar * 0.85)
+
+    def _flap(self, angle_deg: float):
+        """The default rear flap (0.90 x 0.15 m, AR 6) at one incidence."""
+        return FormulaAeroConfig().rear_wing_flap.model_copy(
+            update={"angle_deg": angle_deg}
+        )
+
+    def test_every_angle_below_the_knee_prices_exactly_as_before(self):
+        cfg = FormulaAeroConfig()
+        elements = (
+            cfg.front_wing_main,
+            cfg.front_wing_flap,
+            cfg.rear_wing_main,
+            cfg.rear_wing_flap,
+        )
+        worst = 0.0
+        count = 0
+        steps = int(analytical.STALL_ONSET_DEG * 4)
+        for step in range(-20, steps + 1):
+            angle = step / 4.0
+            for proto in elements:
+                element = proto.model_copy(update={"angle_deg": angle})
+                for clearance in (None, 0.03, 0.15):
+                    got = analytical._wing_cl(element, clearance)
+                    want = self._attached_only(element, clearance)
+                    worst = max(worst, abs(got[0] - want[0]), abs(got[1] - want[1]))
+                    count += 1
+        assert worst == 0.0, (
+            f"{count} attached-region samples priced, worst drift {worst:.3e}: the "
+            "post-stall blend reached below its own onset"
+        )
+
+    def test_the_blend_weight_spans_the_knee_and_no_further(self):
+        onset = analytical.STALL_ONSET_DEG
+        # SECTION_CL_MAX / 2 pi in degrees, which is 162 / pi**2.
+        assert onset == pytest.approx(16.414032, abs=1e-5)
+        for angle in (-5.0, 0.0, 8.0, 15.0, 16.0, onset):
+            assert analytical._stall_blend(angle) == 0.0, f"{angle} deg is attached"
+        halfway = onset + (analytical.STALL_BLEND_MAX_DEG - onset) / 2
+        assert analytical._stall_blend(halfway) == pytest.approx(0.5, rel=1e-12)
+        assert analytical._stall_blend(35.0) == pytest.approx(
+            (35.0 - onset) / (45.0 - onset), rel=1e-12
+        )
+        assert analytical._stall_blend(45.0) == 1.0
+        assert analytical._stall_blend(60.0) == 1.0, "the handover stops at the plate"
+
+    def test_past_the_knee_downforce_falls_and_drag_rises(self):
+        angles = (18.0, 20.0, 25.0, 30.0, 35.0)
+        cl = [analytical._wing_cl(self._flap(a))[0] for a in angles]
+        cd = [analytical._wing_cl(self._flap(a))[1] for a in angles]
+        cl_steps = list(zip(cl, cl[1:], strict=False))
+        cd_steps = list(zip(cd, cd[1:], strict=False))
+        assert all(b < a for a, b in cl_steps), f"Cl does not fall: {cl}"
+        assert all(b > a for a, b in cd_steps), f"drag does not rise: {cd}"
+        assert cl[0] - cl[-1] > 0.4, f"only {cl[0] - cl[-1]:.4f} of lift is lost"
+        assert cd[-1] > 3 * cd[0], f"separation drag did not appear: {cd[0]:.4f} -> {cd[-1]:.4f}"
+
+    def test_the_model_now_tells_two_post_stall_setups_apart(self):
+        """The defect in one line: 18 through 35 deg used to return one number."""
+        pairs = [
+            analytical._wing_cl(self._flap(a)) for a in (18.0, 20.0, 25.0, 30.0, 35.0)
+        ]
+        for index, name in ((0, "Cl"), (1, "drag factor")):
+            distinct = {round(pair[index], 6) for pair in pairs}
+            assert len(distinct) == len(pairs), (
+                f"{name} reports the same value for {len(pairs)} incidences: "
+                f"{sorted(distinct)}"
+            )
+
+    def _steepest_slope(self, angle_from: float, angle_to: float, step: float) -> float:
+        """Largest |dCl/ddeg| on the rear flap between two incidences."""
+        previous = analytical._wing_cl(self._flap(angle_from))[0]
+        worst = 0.0
+        for index in range(1, int(round((angle_to - angle_from) / step)) + 1):
+            value = analytical._wing_cl(self._flap(angle_from + index * step))[0]
+            worst = max(worst, abs(value - previous) / step)
+            previous = value
+        return worst
+
+    def test_the_knee_is_a_bend_and_not_a_step(self):
+        onset = analytical.STALL_ONSET_DEG
+        below = analytical._wing_cl(self._flap(onset - 1e-9))[0]
+        above = analytical._wing_cl(self._flap(onset + 1e-9))[0]
+        assert abs(above - below) < 1e-7, f"{below:.9f} -> {above:.9f} across the knee"
+        step = 0.01
+        attached = self._steepest_slope(onset - 2.0, onset, step)
+        handover = self._steepest_slope(onset, onset + 2.0, step)
+        assert handover < attached, (
+            f"the handover moves Cl {handover:.4f} per degree against the attached "
+            f"line's {attached:.4f}: the blend is a cliff, not a bend"
+        )
+        assert handover < 0.05, f"Cl drops {handover:.4f} per degree entering the plate"
+
+    def test_at_the_handover_the_section_is_the_plate(self):
+        element = self._flap(45.0)
+        cl_3d, cd_factor = analytical._wing_cl(element, None)
+        ar = element.span_m / element.chord_m
+        constant = math.pi * ar * 0.85
+        # Undo the Prandtl term to read the section the blend actually handed over.
+        # The inversion amplifies rounding, hence 1e-9 rather than exact.
+        cl_2d = cl_3d / (1 - cl_3d / constant)
+        assert cl_2d == pytest.approx(analytical._flat_plate_forces(45.0)[0], rel=1e-9)
+        assert cd_factor - cl_3d**2 / constant == pytest.approx(
+            analytical._flat_plate_forces(45.0)[1], rel=1e-9
+        )
+
+    def test_the_default_car_never_reaches_the_branch(self):
+        cfg = FormulaAeroConfig()
+        for name in ("front_wing_main", "front_wing_flap", "rear_wing_main", "rear_wing_flap"):
+            angle = getattr(cfg, name).angle_deg
+            assert analytical._stall_blend(angle) == 0.0, f"{name} at {angle} deg is stalled"
+
+    def test_the_viewer_mirror_carries_the_same_branch(self):
+        engine = (
+            Path(__file__).resolve().parents[1] / "frontend" / "js" / "flowEngine.js"
+        ).read_text(encoding="utf-8")
+        assert (
+            "const STALL_ONSET_DEG = (REFERENCE.sectionClMax / (2 * Math.PI)) / DEG;"
+            in engine
+        ), "the mirror's onset is no longer the solver's own SECTION_CL_MAX / 2 pi"
+        assert "REFERENCE.stallBlendMaxDeg - STALL_ONSET_DEG" in engine, (
+            "the mirror blends to something other than the solver's handover angle"
+        )
+        assert "REFERENCE.flatPlateCn * Math.sin(a)" in engine, (
+            "the mirror's separated section is not the solver's CN = 2 sin a plate"
+        )
+        assert re.search(
+            r"return \[cn \* Math\.cos\(a\), cn \* Math\.sin\(a\)\];", engine
+        ), "the plate's lift/drag split is not the solver's normal-force resolution"
+        assert "blend) * REFERENCE.sectionClMax + blend * flatPlateForces" in engine, (
+            "the mirror no longer blends the knee into the plate the way the solver does"
+        )
+        assert re.search(r"export function wingCdFactor\(w\) \{", engine), (
+            "the mirror has no second return for _wing_cl's drag factor, so the "
+            "field cannot see the separation term"
+        )
+        body = re.search(r"function dragAreaM2\(aero\) \{.*?\n\}", engine, re.DOTALL)
+        assert body, "the mirror's Cd*A sum is gone"
+        assert "wingCdFactor(w)" in body.group(0), (
+            "dragAreaM2 rebuilds the induced term by hand and loses the separation drag"
+        )
+        assert "OSWALD_E)" not in body.group(0), (
+            "dragAreaM2 still inlines an induced-drag term beside the shared one"
+        )
+        mirror = engine.split("const STALL_ONSET_DEG")[1].split(
+            "export function underbodyTerms"
+        )[0]
+        for literal in ("1.8", "45.0", "2.0 *"):
+            assert literal not in mirror, (
+                f"the mirror states {literal} where it should read REFERENCE"
+            )

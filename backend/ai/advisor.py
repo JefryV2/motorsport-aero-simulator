@@ -113,9 +113,9 @@ DRAG_CUT_MIN_N = 0.5
 MOVE_EFFECT_MIN_N = 0.5
 
 NO_MOVE_TEXT = (
-    "No one-knob flap move from this setup changes the forces the model reports - "
-    "every wing angle here is either at its bound or already past where the model "
-    "stalls the section."
+    "No one-knob flap move from this setup changes the forces the model reports by "
+    f"more than {MOVE_EFFECT_MIN_N:g} N - every wing here is either at its angle "
+    "bound or carries a planform this speed cannot price."
 )
 
 
@@ -135,10 +135,10 @@ def _wing_moves(
     """Each one-knob flap move that changes the forces, solved rather than estimated.
 
     Every claim the advisor makes about what to change is priced from these, so no
-    section has to fall back on a threshold the model cannot reach. A knob at the
-    stall clamp still accepts an angle and returns forces the model cannot tell apart
-    from the current setup, so those variants are dropped here rather than offered as
-    a fix.
+    section has to fall back on a threshold the model cannot reach. A knob at its
+    angle bound has one direction blocked, and a wing small enough that this speed
+    cannot price it returns the forces the setup already had, so those variants are
+    dropped here rather than offered as a fix.
     """
     current_forces = simulate(c).forces
     moves: list[tuple[str, AeroForces]] = []
@@ -191,8 +191,8 @@ def _scored_moves(
 ) -> list[tuple[float, str, AeroForces]]:
     """Moves that clear `minimum`, as (gain, label, forces) strongest first.
 
-    At the angle bounds the stall clamp leaves a flap that still has an angle to move
-    but changes no force, so moves below `minimum` are dropped rather than offered as
+    A knob at its angle bound only has the other direction left, and that one can
+    still land under `minimum`, so moves below it are dropped rather than offered as
     a correction the setup cannot actually make.
     """
     scored = []
@@ -280,9 +280,9 @@ def _balance_advice(
         verb = "raises" if toward_front else "lowers"
         return [
             f"No one-knob flap move from this setup {verb} the front's share on the "
-            f"analytical tier ({base.balance_front_pct:.1f}% front) - the wings are at "
-            "angles where the model either changes nothing or shifts the load further "
-            "the wrong way."
+            f"analytical tier ({base.balance_front_pct:.1f}% front) - nothing this setup "
+            f"can price moves the split toward the {axle} by at least "
+            f"{BALANCE_SHIFT_MIN_PCT:g} points."
         ]
 
     _, label, shifted = shifters[0]
@@ -364,8 +364,8 @@ def _fallback_advice(request: AdvisorRequest) -> str:
                 lines.append(
                     f"The current setup produces {f.drag_N} N of drag on the {sim.method} "
                     f"tier ({a_base.drag_N:.0f} N on the analytical tier). No one-knob flap "
-                    "move cuts it there - the wings are at angles where the model either "
-                    "changes nothing or adds drag."
+                    f"move cuts it there - nothing this setup can price takes "
+                    f"{DRAG_CUT_MIN_N:g} N off that figure."
                 )
             else:
                 _, label, cut = cuts[0]
@@ -499,9 +499,9 @@ def _fallback_advice(request: AdvisorRequest) -> str:
         )
     elif needed:
         lines.append(
-            f"- No one-knob flap move on the analytical tier shifts this setup toward the "
-            f"objective's {target}% target; the wings available here move the split the "
-            "other way or not at all."
+            f"- No one-knob flap move on the analytical tier covers the {abs(needed):.1f} "
+            f"points that separate its {a_balance:.1f}% front from the objective's "
+            f"{target}% target."
         )
 
     if opt is not None and opt.improvement_pct > 0:

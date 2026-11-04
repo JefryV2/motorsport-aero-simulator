@@ -91,6 +91,14 @@ export const REFERENCE = {
   lapBaselineDfN: 3500.0, // analytical.LAP_BASELINE_DF_N
   lapSecPerDragN: 0.0001, // analytical.LAP_SEC_PER_DRAG_N
   lapSecPerDfN: 0.00008, // analytical.LAP_SEC_PER_DF_N
+  // Post-stall branch of analytical._wing_cl. The thin-airfoil line grows with
+  // angle forever, so past the angle where it reaches sectionClMax the section
+  // is handed over to the flat-plate polar (normal force 2 sin a), and the
+  // handover finishes at stallBlendMaxDeg - the plate's own lift peak. Below it
+  // the blend weight is zero and the element prices exactly as before.
+  sectionClMax: 1.8, // analytical.SECTION_CL_MAX
+  stallBlendMaxDeg: 45.0, // analytical.STALL_BLEND_MAX_DEG
+  flatPlateCn: 2.0, // analytical.FLAT_PLATE_CN, normal-force coefficient of a plate
 };
 
 const DEG = Math.PI / 180;

@@ -136,8 +136,9 @@ force a pass.
   the panel says so beside the controls. `scripts/check_flow_field.mjs` gates
   the field (finiteness, bounded speed, divergence-free turbulence, spatial
   coherence, streamline integration, floor profile, wake deficit, inflow
-  seeding coverage); it passes 16/16 on Node 24 and costs ~1 ms/frame for 400
-  tracers. Inlet tracers are seeded from an R2 low-discrepancy sequence so the
+  seeding coverage); it prints one PASS/FAIL line per check and the count that
+  passed with it is stamped in the change-log rows below, and it costs
+  ~1 ms/frame for 400 tracers. Inlet tracers are seeded from an R2 low-discrepancy sequence so the
   curtain tiles the inflow plane instead of clumping; the rake feeds 45 tubes
   (5 heights x 9 lateral) and the Surround source feeds all four faces. The
   default look is a smoke-rake photograph: 56-point streak tubes (~3.9 m of
@@ -216,6 +217,19 @@ force a pass.
   pinned by both `test_solver_and_viewer_agree_on_the_stations` and the flow gate.
   It is a linear sensitivity of one car between two setups - not a predicted lap
   time, and it has no track, no corners and no throttle map in it.
+- **Analytical wing sections ride a thin-airfoil line, not a converged polar.**
+  `analytical._wing_cl` prices each element as `2 pi alpha` with a Prandtl tip-loss
+  term, a Gurney increment and the ground-effect gain below - no Reynolds, no
+  thickness, no camber. Past the knee where that line reaches `SECTION_CL_MAX`
+  (16.41 deg), `_stall_blend` hands the section over to the flat-plate polar
+  `CN = 2 sin a`, the handover finishing at `STALL_BLEND_MAX_DEG` (45 deg), so a
+  stalled incidence now costs lift and buys pressure drag instead of returning the
+  forces the leaner setup already gave. That handover is an interpolation between two
+  analytic lines, not a solved separation, and the 1.8 ceiling is still the model's
+  own: it sits 16-24 % above the `Cl_max` band of 1.45-1.55 that
+  `validation/references.md` cites for this section, and its onset angle 0.4-1.9 deg
+  past the 14.5-16.0 deg band cited with it. All three numbers are shared with
+  `carSpec.js` and pinned by the flow gate and the cross-language station test.
 - **Wing ground effect is an empirical gain, not a solved image system.**
   `analytical.ground_effect_lift_factor` multiplies Cl by
   `1 + 0.162 * exp(-clearance / 0.14 m)`, where the clearance is the element's
@@ -226,7 +240,8 @@ force a pass.
   It carries no blockage, no suction-side stall and no chord dependence, and the
   rear wing is priced in the freestream (gain 1.0) because the model never places
   it near a plane. `carSpec.js` / `flowEngine.js` mirror the same two numbers for
-  the tunnel, pinned by the flow gate and by the 27-key cross-language test.
+  the tunnel, pinned by the flow gate and by every key of
+  `test_solver_and_viewer_agree_on_the_stations`.
 - **Dashboard geometry:** at a measured 1000x700 viewport the header is 80 px,
   provenance banner 75 px, viewer 215 px, and bottom panel 320 px (internally
   scrolling); at 1620x1165 the viewer is 727 px. At widths <= 1100 px the bottom

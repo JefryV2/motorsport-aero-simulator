@@ -155,15 +155,54 @@ export function groundEffectLiftFactor(clearanceM) {
   return 1 + REFERENCE.geLiftGainMax * Math.exp(-Math.max(0, clearanceM) / REFERENCE.geLiftDecayM);
 }
 
-/** Downforce-positive lift coefficient (_wing_cl). */
+/** analytical.STALL_ONSET_DEG: where the thin-airfoil line reaches sectionClMax. */
+const STALL_ONSET_DEG = (REFERENCE.sectionClMax / (2 * Math.PI)) / DEG;
+
+/** analytical._stall_blend: 0 while attached, 1 once the section is a plate. */
+export function stallBlend(angleDeg) {
+  const excess = Math.abs(angleDeg) - STALL_ONSET_DEG;
+  if (excess <= 0) return 0;
+  return Math.min(1, excess / (REFERENCE.stallBlendMaxDeg - STALL_ONSET_DEG));
+}
+
+/** analytical._flat_plate_forces: [Cl, Cd] of the fully separated section. */
+function flatPlateForces(angleDeg) {
+  const a = Math.abs(angleDeg) * DEG;
+  const cn = REFERENCE.flatPlateCn * Math.sin(a);
+  return [cn * Math.cos(a), cn * Math.sin(a)];
+}
+
+/**
+ * Downforce-positive lift coefficient (_wing_cl).
+ *
+ * Past the stall onset the section is handed to the flat-plate polar instead of
+ * being pinned at the top of the thin-airfoil line, which is where the solver
+ * keeps its post-stall loss of downforce. Below the onset the blend weight is
+ * zero and the element prices exactly as the attached line alone.
+ */
 export function wingCl(w) {
-  let cl2d = 2 * Math.PI * (w.angleDeg * DEG);
-  cl2d = Math.max(-0.5, Math.min(cl2d, 1.8)); // stall softening
+  const blend = stallBlend(w.angleDeg);
+  let cl2d;
+  if (blend > 0) {
+    const sign = w.angleDeg >= 0 ? 1 : -1;
+    cl2d = sign * ((1 - blend) * REFERENCE.sectionClMax + blend * flatPlateForces(w.angleDeg)[0]);
+  } else {
+    cl2d = Math.max(-0.5, Math.min(2 * Math.PI * (w.angleDeg * DEG), REFERENCE.sectionClMax));
+  }
   const ar = Math.max(0.5, w.spanM / w.chordM);
   let cl = cl2d / (1 + cl2d / (Math.PI * ar * OSWALD_E)); // Prandtl tip loss
   cl += w.gurneyM * 8; // _wing_cl — 0.08 Cl per 10 mm
   cl *= groundEffectLiftFactor(w.clearanceM);
   return cl;
+}
+
+/** _wing_cl's second return: induced drag plus the separation drag of a stalled element. */
+export function wingCdFactor(w) {
+  const ar = Math.max(0.5, w.spanM / w.chordM);
+  const blend = stallBlend(w.angleDeg);
+  const plateCd = blend > 0 ? flatPlateForces(w.angleDeg)[1] : 0;
+  const cl = wingCl(w);
+  return (cl * cl) / (Math.PI * ar * OSWALD_E) + blend * plateCd;
 }
 
 /** Underbody and diffuser terms (_underbody_forces). */
@@ -186,9 +225,7 @@ export function underbodyTerms(aero) {
 function dragAreaM2(aero) {
   let cdArea = aero.refAreaM2 * aero.bodyCd;
   for (const w of aero.wings) {
-    const cl = wingCl(w);
-    const ar = Math.max(0.5, w.spanM / w.chordM);
-    cdArea += w.chordM * w.spanM * (aero.profileCd + (cl * cl) / (Math.PI * ar * OSWALD_E));
+    cdArea += w.chordM * w.spanM * (aero.profileCd + wingCdFactor(w));
   }
   return cdArea + aero.floorAreaM2 * underbodyTerms(aero).cdUnder;
 }

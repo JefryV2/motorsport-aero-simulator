@@ -14,6 +14,15 @@ trailing-edge clearance (`WingStation.min_clearance_m`): the main plane, at 30 m
 keeps almost exactly the augmentation it had, while the flap, stacked 77 mm up,
 loses part of it. Total rear-wing downforce is untouched because the model leaves
 that wing in the freestream.
+
+`monaco_high_df` regenerated again when `_wing_cl` stopped pinning a stalled
+section at the top of its thin-airfoil line and started blending it onto the
+flat-plate polar past the 16.41 deg knee. It is the only block with elements
+there - front flap 18 deg, rear flap 25 deg - and they now cost 177.2 N of
+downforce (4529.8 -> 4352.6) while buying 17.5 N of drag, because a section past
+its knee loses lift instead of holding the ceiling forever. The other three
+blocks came out byte-identical, which is the proof that every angle at or below
+the knee prices exactly as before.
 """
 
 from __future__ import annotations
@@ -66,16 +75,16 @@ GOLDEN_TARGETS = {
             diffuser_angle_deg=16.0,
         ),
         "expected": {
-            "drag_N": 2827.7,
-            "downforce_total_N": 4529.8,
-            "downforce_front_N": 2643.8,
-            "downforce_rear_N": 1886.0,
-            "balance_front_pct": 58.4,
-            "cop_x_m": 1.395,
-            "cl_total": 1.597,
-            "cd_total": 0.997,
-            "efficiency": 1.60,
-            "lap_time_delta_s": 0.0804,
+            "drag_N": 2845.2,
+            "downforce_total_N": 4352.6,
+            "downforce_front_N": 2592.1,
+            "downforce_rear_N": 1760.5,
+            "balance_front_pct": 59.6,
+            "cop_x_m": 1.355,
+            "cl_total": 1.535,
+            "cd_total": 1.003,
+            "efficiency": 1.53,
+            "lap_time_delta_s": 0.0963,
         },
     },
     "monza_low_drag": {

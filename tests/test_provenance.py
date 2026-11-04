@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.ai.advisor import _fallback_advice, _wing_moves
+from backend.ai.advisor import NO_MOVE_TEXT, _fallback_advice, _wing_moves
 from backend.main import app
 from backend.ml.dataset import DEFAULT_DATASET_PATH, load_dataset_parquet
 from backend.models.aero_config import (
@@ -692,19 +692,79 @@ def test_the_prescribed_degree_ranges_are_gone() -> None:
                 assert canned not in advice, f"{canned!r} survived on {question!r}"
 
 
-def test_a_saturated_setup_is_not_offered_a_move_that_changes_nothing() -> None:
-    """Past the stall clamp a flap still takes an angle and returns the same forces.
+def test_a_deep_post_stall_setup_is_not_reported_as_a_leaner_one() -> None:
+    """Past the knee the model used to stop: 35 deg answered with 18 deg's forces.
 
-    Measured at 35/35/35 deg: the model reported every one-knob variant with the same
-    drag and downforce it already had, and the advice still called one of them the
-    fastest move and the one that "moves the split most".
+    Measured on the shipped model in a clean `git archive HEAD` mirror: 18/18/18,
+    30/30/30 and 35/35/35 deg all returned the same 2678.9 N of downforce and 2622.9 N
+    of drag, because its 2D section line pins every incidence past the knee at the
+    angle that reached it first. At 35/35/35 each one-knob variant the advisor tried
+    was therefore one of those duplicates, and the advice still named one of them the
+    fastest move. The section now blends onto the flat-plate polar past its 16.4 deg
+    knee, so incidence keeps costing lift and buying pressure drag - which means a move
+    may be offered here, provided it actually moves.
     """
     cfg = _setup(35.0, 35.0, 35.0)
+    base = simulate(cfg).forces
+    leaner = simulate(_setup(18.0, 18.0, 18.0)).forces
+    assert base.downforce_total_N < leaner.downforce_total_N - 50.0, (
+        f"{base.downforce_total_N:.1f} N at 35 deg against "
+        f"{leaner.downforce_total_N:.1f} N at 18 deg - the plateau survived"
+    )
+    assert base.drag_N > leaner.drag_N + 50.0, (
+        f"{base.drag_N:.1f} N of drag at 35 deg against {leaner.drag_N:.1f} N at "
+        "18 deg: a stalled wing is not charging for its separation"
+    )
+
     questions = HANDLING_QUESTIONS + ("what track setup should I run?",)
     for question in questions:
         advice = _advice(question, _track("Monaco"), cfg)
+        assert NO_MOVE_TEXT not in advice, f"{question!r} still calls this setup saturated"
+        for line in advice.split("\n"):
+            if not MOVE_RE.search(line):
+                continue
+            moved = simulate(_variant(cfg, MOVE_RE.search(line).group(0))).forces
+            assert (
+                abs(moved.drag_N - base.drag_N) >= 0.5
+                or abs(moved.downforce_total_N - base.downforce_total_N) >= 0.5
+            ), f"{line!r} is still a no-op move"
+
+
+def test_a_wing_the_model_cannot_price_is_a_no_move_and_says_so() -> None:
+    """The one saturated case left: planform so small the forces never change.
+
+    With the plateau gone, a flap at its bound still has the other way to turn, so
+    the only setup with nothing to offer is one whose wings the dynamic pressure
+    cannot see. Measured with 10 mm chords and 50 mm spans, every one-knob move lands
+    inside the 0.5 N floor `_wing_moves` drops, and every answer has to say it has
+    nothing to offer instead of ranking flat variants.
+    """
+    cfg = FormulaAeroConfig()
+    for field in ("front_wing_flap", "rear_wing_flap", "rear_wing_main"):
+        element = getattr(cfg, field).model_copy(update={"chord_m": 0.01, "span_m": 0.05})
+        cfg = cfg.model_copy(update={field: element})
+    assert _wing_moves(cfg) == [], "this setup is only useful if it has no priced move"
+
+    for question in HANDLING_QUESTIONS + ("what track setup should I run?",):
+        advice = _advice(question, _track("Monaco"), cfg)
         assert MOVE_RE.search(advice) is None, f"{question!r} prescribed a no-op move"
-        assert "No one-knob flap move" in advice.split("\n---")[0]
+        head = advice.split("\n---")[0]
+        assert "No one-knob flap move" in head, (
+            f"{question!r} answers a setup with nothing to offer without saying so"
+        )
+    assert NO_MOVE_TEXT in _advice("what track setup should I run?", _track("Monaco"), cfg)
+    assert "stall" not in NO_MOVE_TEXT, (
+        f"the no-move sentence still blames the stall clamp: {NO_MOVE_TEXT!r}"
+    )
+
+    advisor_src = (
+        Path(__file__).resolve().parents[1] / "backend" / "ai" / "advisor.py"
+    ).read_text(encoding="utf-8")
+    for blamed in ("at angles where", "move the split the other way or not at all"):
+        assert blamed not in advisor_src, (
+            f"a no-move sentence still claims {blamed!r}, which is more than the "
+            "filters know: they only know nothing cleared their own threshold"
+        )
 
 
 def test_an_unreachable_balance_target_is_not_called_a_correction() -> None:
@@ -734,7 +794,7 @@ def test_an_unreachable_balance_target_is_not_called_a_correction() -> None:
         )
     )
     assert "closes that gap best" not in advice
-    assert "shifts this setup toward the objective's 20.0% target" in advice
+    assert "covers the 30.0 points that separate its 50.0% front" in advice
 
 
 def test_a_priced_move_names_the_tier_its_starting_number_came_from() -> None:

@@ -12,7 +12,9 @@
  *   5. floor boundary layer slower than freestream, wake behind the car slower;
  *   6. source seeding tiles the inflow, not clumps;
  *   7. the parametric built-in car: solved stations drive the singularities,
- *      the low-order lift terms still match the backend, and every setup knob
+ *      the low-order lift terms still match the backend - including the post-stall
+ *      branch, where the section keeps losing lift and buying drag past the knee
+ *      instead of pinning at the top of its own line - and every setup knob
  *      that moves the body must move the smoke.
  *   8. skin pressure: each drawn element carries the pressure jump its own Cl
  *      says, faces the right way, and follows the car when it is yawed.
@@ -73,7 +75,7 @@ try {
 const {
   velocityAt, curlNoise, generateStreamlines, spawnOneParticle, flowFrame, wingCl,
   underbodyTerms, atStation, reynoldsNumber, reynoldsLabel, windVector,
-  wakeShape, potentialVelocityAt, PERTURBATION_BUDGET,
+  wakeShape, potentialVelocityAt, PERTURBATION_BUDGET, stallBlend, wingCdFactor,
 } = mod;
 const { deriveSurfaces, toFlowGeo, summarize, rearFlapAngleDeg, lapTimeDeltaS, REFERENCE } = spec;
 const { computeCpField } = press;
@@ -373,6 +375,49 @@ check(
     && Math.abs(ub.cdUnder - 0.04089201550876271) < 1e-12,
   'underbody terms mirror analytical.py',
   `Cl = ${ub.clUnder.toFixed(9)}, Cd = ${ub.cdUnder.toFixed(9)}`,
+);
+
+// analytical._wing_cl no longer stops at the top of the thin-airfoil line: past its
+// own knee (SECTION_CL_MAX / 2 pi = 16.41 deg) the section is blended onto the
+// flat-plate polar, CN = FLAT_PLATE_CN sin a. Every number below is read through the
+// three constants carSpec.js shares with the solver, so the branch is pinned to the
+// same spec tests/test_physics_sanity.py asserts on the Python side rather than to a
+// literal measured off either implementation.
+const DEG_ONLY = Math.PI / 180;
+const kneeDeg = (REFERENCE.sectionClMax / (2 * Math.PI)) / DEG_ONLY;
+const rearFlapMirror = { ...carGeo.aero.wings.find((x) => x.id === 'rear_wing_flap') };
+const mirrorAt = (deg) => {
+  const w = { ...rearFlapMirror, angleDeg: deg, gurneyM: 0, clearanceM: null };
+  return [wingCl(w), wingCdFactor(w)];
+};
+const past = [18, 25, 35].map(mirrorAt);
+check(
+  kneeDeg > 16.41 && kneeDeg < 16.42
+    && stallBlend(16.0) === 0 && stallBlend(kneeDeg) === 0
+    && Math.abs(
+      stallBlend(kneeDeg + (REFERENCE.stallBlendMaxDeg - kneeDeg) / 2) - 0.5,
+    ) < 1e-12
+    && stallBlend(REFERENCE.stallBlendMaxDeg) === 1 && stallBlend(90) === 1,
+  'the mirror blends on at the solver knee and stops at its handover',
+  `knee = ${kneeDeg.toFixed(4)} deg, weight 0 at/below it, 0.5 at the halfway angle, 1 at ${REFERENCE.stallBlendMaxDeg} deg and held there`,
+);
+check(
+  past[0][0] > past[1][0] && past[1][0] > past[2][0]
+    && past[0][1] < past[1][1] && past[1][1] < past[2][1],
+  'a stalled element loses lift and buys drag in the mirror',
+  `Cl ${past.map((p) => p[0].toFixed(4)).join(' > ')} while the drag factor runs ${past.map((p) => p[1].toFixed(4)).join(' < ')}`,
+);
+check(
+  new Set([18, 20, 25, 30, 35].map((d) => mirrorAt(d)[0].toFixed(6))).size === 5
+    && new Set([18, 20, 25, 30, 35].map((d) => mirrorAt(d)[1].toFixed(6))).size === 5,
+  'the mirror tells two post-stall incidences apart',
+  'every one of 18/20/25/30/35 deg used to price the same Cl 1.618203 and the same 0.163435 drag factor',
+);
+const plateLimit = mirrorAt(90);
+check(
+  Math.abs(plateLimit[0]) < 1e-12 && Math.abs(plateLimit[1] - REFERENCE.flatPlateCn) < 1e-12,
+  'the handover finishes on the plate',
+  `at 90 deg Cl = ${plateLimit[0].toExponential(1)} (a plate has no lift along the wind) and the drag factor = ${plateLimit[1].toFixed(6)} against CN ${REFERENCE.flatPlateCn}`,
 );
 
 // The lap-time proxy is one arithmetic on both sides of the wire: the literals

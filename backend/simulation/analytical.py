@@ -292,19 +292,55 @@ def ground_effect_lift_factor(clearance_m: float | None) -> float:
     return 1.0 + GE_LIFT_GAIN_MAX * math.exp(-max(0.0, clearance_m) / GE_LIFT_DECAY_M)
 
 
+# Post-stall branch. The thin-airfoil line grows with angle forever, so once it
+# reaches its own ceiling the section is handed over to the flat-plate polar: a
+# stalled element has lost its suction, and whatever lift it still makes comes
+# from the normal force of a bluff plate - along with the pressure drag the
+# attached model cannot see at all. `STALL_BLEND_MAX_DEG` is where the handover
+# finishes, at the plate's own 45 deg lift peak. Below `STALL_ONSET_DEG` the
+# blend weight is zero, so every angle the model priced before prices the same.
+SECTION_CL_MAX = 1.8
+STALL_BLEND_MAX_DEG = 45.0
+FLAT_PLATE_CN = 2.0
+STALL_ONSET_DEG = math.degrees(SECTION_CL_MAX / (2 * math.pi))
+
+
+def _flat_plate_forces(alpha_deg: float) -> tuple[float, float]:
+    """Lift and drag of the fully separated section, from its normal force."""
+    a = math.radians(abs(alpha_deg))
+    cn = FLAT_PLATE_CN * math.sin(a)
+    return cn * math.cos(a), cn * math.sin(a)
+
+
+def _stall_blend(alpha_deg: float) -> float:
+    """How far past the knee the section is: 0 while attached, 1 as a plate."""
+    excess = abs(alpha_deg) - STALL_ONSET_DEG
+    if excess <= 0.0:
+        return 0.0
+    return min(1.0, excess / (STALL_BLEND_MAX_DEG - STALL_ONSET_DEG))
+
+
 def _wing_cl(
     element: WingElement, clearance_m: float | None = None
 ) -> tuple[float, float]:
-    """Estimate Cl and induced drag factor for a wing element.
+    """Estimate Cl and the drag factor (induced + separation) for a wing element.
 
     `clearance_m` is the element's trailing-edge gap to the ground plane, from
     `WingStation.min_clearance_m`; the front wing elements get their gain from
     `ground_effect_lift_factor`, the rear wing passes None.
     """
     alpha_rad = math.radians(element.angle_deg)
-    # Thin-airfoil slope with stall softening
-    cl_2d = 2 * math.pi * alpha_rad
-    cl_2d = max(-0.5, min(cl_2d, 1.8))
+    blend = _stall_blend(element.angle_deg)
+    plate_cl, plate_cd = (
+        _flat_plate_forces(element.angle_deg) if blend > 0.0 else (0.0, 0.0)
+    )
+    if blend > 0.0:
+        sign = 1.0 if element.angle_deg >= 0.0 else -1.0
+        cl_2d = sign * ((1.0 - blend) * SECTION_CL_MAX + blend * plate_cl)
+    else:
+        # Thin-airfoil slope. The cap below is exactly where the blend starts,
+        # so it never bites on this branch.
+        cl_2d = max(-0.5, min(2 * math.pi * alpha_rad, SECTION_CL_MAX))
 
     # Aspect ratio correction (Prandtl)
     ar = element.span_m / element.chord_m
@@ -316,19 +352,19 @@ def _wing_cl(
 
     cl_3d *= ground_effect_lift_factor(clearance_m)
 
-    cd_i_factor = cl_3d**2 / (math.pi * ar * e)
-    return cl_3d, cd_i_factor
+    cd_factor = cl_3d**2 / (math.pi * ar * e) + blend * plate_cd
+    return cl_3d, cd_factor
 
 
 def _wing_forces(
     element: WingElement, speed_ms: float, clearance_m: float | None = None
 ) -> tuple[float, float]:
     """Return (downforce_N, drag_N) for a wing element."""
-    cl, cd_i = _wing_cl(element, clearance_m)
+    cl, cd_extra = _wing_cl(element, clearance_m)
     q = 0.5 * RHO * speed_ms**2
     area = element.chord_m * element.span_m
     lift = q * area * cl  # downforce-positive convention for the empirical wing model
-    drag = q * area * (0.008 + cd_i)  # profile + induced drag
+    drag = q * area * (0.008 + cd_extra)  # profile + induced + separated-flow drag
     return lift, drag
 
 
