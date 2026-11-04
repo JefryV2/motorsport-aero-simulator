@@ -37,6 +37,9 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 20. That tier prices its wing vortices from the Cl of the setup's own elements
     rather than ramps on raw degrees, so an upload's drawn wash bends over at the
     same stall knee the reported numbers fall through
+21. And its wake is the same momentum balance: drag and downforce set the deficit
+    and the upwash for both tiers, so no setup leaves the drawn wake fixed at a
+    picture constant
 """
 
 from __future__ import annotations
@@ -2194,7 +2197,16 @@ class TestTheTunnelUnderbodyIsTheSolverUnderbody:
         )
         assert branch, "the uploaded-CAD branch of buildSources is gone"
         text = branch.group(1)
-        assert "underbodyTerms(underbodyInputs(config, null))" in text, (
+        assert re.search(
+            r"const cadAero = \{ \.\.\.deriveSurfaces\(config\)\.aero,"
+            r" \.\.\.underbodyInputs\(config, null\) \};",
+            text,
+        ), (
+            "the CAD tier no longer builds one payload on a null throat: an upload "
+            "has no floor line to clamp the diffuser against, and its forces have "
+            "to be priced the way that tier's own gap flow is priced"
+        )
+        assert "underbodyTerms(cadAero)" in text, (
             "the CAD tier no longer asks the shared law for its gap flow - it is "
             "back to a ground-effect decay of its own"
         )
@@ -2251,7 +2263,7 @@ class TestTheTunnelUnderbodyIsTheSolverUnderbody:
         )
         assert branch, "the uploaded-CAD branch of buildSources is gone"
         text = branch.group(1)
-        assert "deriveSurfaces(config).aero.wings" in text, (
+        assert re.search(r"for \(const w of cadAero\.wings\)", text), (
             "the CAD tier is back to inventing wing strengths from the dials "
             "instead of reading the setup's own elements"
         )
@@ -2281,3 +2293,56 @@ class TestTheTunnelUnderbodyIsTheSolverUnderbody:
                 f"the CAD branch has gone back to {name}: {shape}"
             )
         assert engine.count("TIP_ROLLUP_SHARE") == 3, engine.count("TIP_ROLLUP_SHARE")
+
+    def test_both_tiers_price_their_wake_with_one_momentum_balance(self):
+        """An upload's wake has to answer to the drag and downforce it is charged.
+
+        `buildSources` set the wake deficit and upwash to 0.4 and 0.1 once, for the
+        whole field, and only the solved branch overwrote them from the momentum
+        balance. An uploaded model therefore drew the same wake for every setup:
+        the drag the panel reports could not deepen it, DRS could not shallow it,
+        and the upwash stood at 0.1 where the identical setup prices 0.317 on the
+        built-in car - a third of the deflection the same forces produce. Both
+        tiers now call `wakeBudget`, which spends Cd*A and Cl*A over the blockage
+        rectangle the setup is charged on. Not over the bounding box: an uploaded
+        mesh's width is not a statement about the car the panel is pricing, and a
+        box-sized denominator would let one setup draw two different wakes.
+        """
+        engine = self._text("frontend", "js", "flowEngine.js")
+        budget = re.search(r"function wakeBudget\(aero\) \{(.*?)\n\}", engine, re.DOTALL)
+        assert budget, "the shared wake momentum balance is gone"
+        body = budget.group(1)
+        assert "0.5 * dragAreaM2(aero) / aWake" in body, (
+            "the deficit is no longer the drag the setup is charged on, spread "
+            "over its blockage rectangle"
+        )
+        assert "0.5 * downforceAreaM2(aero) / aWake" in body, (
+            "the upwash is no longer the downforce the setup is charged on"
+        )
+        assert re.search(r"aero\.trackM \* aero\.rwHeightM", body), (
+            "the near-wake area is no longer the blockage rectangle the forces "
+            "are priced against"
+        )
+        assert re.search(r"fr\.spanZ|fr\.height|bounds", body) is None, (
+            "wakeBudget is sizing the near wake from the drawn box again, so an "
+            "upload's mesh dimensions would decide its wake depth"
+        )
+        # One definition, two tiers - the same shape the jet identity is held to.
+        assert engine.count("wakeBudget(") == 3, engine.count("wakeBudget(")
+        assert "Object.assign(src.wake, wakeBudget(g.aero));" in engine, (
+            "the solved branch is back to assigning the wake by hand"
+        )
+        branch = re.search(
+            r"(// --- Uploaded CAD has no solved geometry.*?\n  return src;\n\})",
+            engine,
+            re.DOTALL,
+        )
+        assert branch and "Object.assign(src.wake, wakeBudget(cadAero));" in branch.group(1), (
+            "the CAD tier is leaving the wake at whatever default it started from"
+        )
+        wake = re.search(r"wake: \{(.*?)\n    \},", engine, re.DOTALL)
+        assert wake, "the wake literal is gone from buildSources"
+        assert re.search(r"deficit|upwash", wake.group(1)) is None, (
+            "a fixed deficit or upwash is standing in the shared wake again, which "
+            "is what made an upload's wake unmovable by any setup knob"
+        )

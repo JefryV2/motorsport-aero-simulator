@@ -258,6 +258,25 @@ function downforceAreaM2(aero) {
   return clArea + aero.floorAreaM2 * underbodyTerms(aero).clUnder;
 }
 
+/**
+ * Momentum balance on the control volume: drag leaves a velocity deficit and
+ * downforce an upwash, both spread over the blockage rectangle the setup is
+ * charged on. The 0.15-0.6 and 0.35 bounds are the picture's budget, not solved
+ * limits.
+ *
+ * The rectangle is `track * rear wing height`, the body's own blockage, and NOT
+ * the drawn bounding box: an uploaded mesh's width says nothing about the car
+ * the panel is pricing, so a box-sized denominator would let the same setup
+ * show a different wake than the numbers report.
+ */
+function wakeBudget(aero) {
+  const aWake = Math.max(0.4, aero.trackM * aero.rwHeightM);
+  return {
+    deficit: Math.min(0.6, Math.max(0.15, 0.5 * dragAreaM2(aero) / aWake)),
+    upwash: Math.min(0.35, 0.5 * downforceAreaM2(aero) / aWake),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Field frame: car stations to world points
 // ---------------------------------------------------------------------------
@@ -438,8 +457,6 @@ function buildSources(fr, config, wind) {
       z0: fr.halfZ,
       zGrowth: fr.halfZ * 0.42,
       decayLen: fr.length * 1.1,
-      deficit: 0.4,
-      upwash: 0.1,
     },
   };
 
@@ -503,11 +520,9 @@ function buildSources(fr, config, wind) {
     const Q = underbodyJetQ(u, ub.clUnder, sep);
     src.jets.push({ p: pIn, Q }, { p: pOut, Q: -Q });
 
-    // Near-wake area ≈ the car's blockage rectangle. Momentum balance then turns
-    // drag into the velocity deficit and downforce into the wake upwash.
-    const aWake = Math.max(0.4, g.aero.trackM * g.aero.rwHeightM);
-    src.wake.deficit = Math.min(0.6, Math.max(0.15, 0.5 * dragAreaM2(g.aero) / aWake));
-    src.wake.upwash = Math.min(0.35, 0.5 * downforceAreaM2(g.aero) / aWake);
+    // Momentum balance turns drag into the velocity deficit and downforce into
+    // the wake upwash.
+    Object.assign(src.wake, wakeBudget(g.aero));
     return src;
   }
 
@@ -535,8 +550,13 @@ function buildSources(fr, config, wind) {
   // DRS-clamped flap). Chord is stretched by the length uploaded meshes are
   // normalised to, so a bigger model carries proportionally stronger vortices.
   const lenScale = fr.length / REFERENCE.carLengthM;
+  // One payload for the whole branch: the setup's own surfaces, with the
+  // underbody inputs this tier takes a null throat on (an upload has no floor
+  // line to clamp the diffuser against). `underbodyTerms` reads only those
+  // inputs, so the wings, the gap jet and the wake all price off this object.
+  const cadAero = { ...deriveSurfaces(config).aero, ...underbodyInputs(config, null) };
   const gammaOf = { front: 0, rear: 0, frontMain: 0, rearMain: 0 };
-  for (const w of deriveSurfaces(config).aero.wings) {
+  for (const w of cadAero.wings) {
     const end = w.id.startsWith('front_wing') ? 'front' : 'rear';
     const g = 0.5 * u * w.chordM * lenScale * wingCl(w);
     gammaOf[end] += g;
@@ -576,15 +596,21 @@ function buildSources(fr, config, wind) {
 
   // Underbody through-flow, priced by the same law as the solved tier: the
   // sliders that move the charged floor move this gap flow, and it runs front to
-  // rear. `underbodyInputs(config, null)` because an uploaded model has no floor
-  // line to clamp the throat against, so `diffuser_ride_height_mm` stands on its
-  // own here; only the built-in car gets carSpec's floor-raised throat.
-  const ub = underbodyTerms(underbodyInputs(config, null));
+  // rear. `cadAero` carries a null throat because an uploaded model has no floor
+  // line to clamp it against, so `diffuser_ride_height_mm` stands on its own
+  // here; only the built-in car gets carSpec's floor-raised throat.
+  const ub = underbodyTerms(cadAero);
   const pIn = atStation(fr, fr.length * 0.45, 0, 0);
   const pOut = atStation(fr, fr.length * 0.82, fr.height * 0.15, 0);
   const sep = Math.hypot(pOut[0] - pIn[0], pOut[1] - pIn[1], pOut[2] - pIn[2]);
   const Q = underbodyJetQ(u, ub.clUnder, sep);
   src.jets.push({ p: pIn, Q }, { p: pOut, Q: -Q });
+
+  // The same momentum balance the built-in car gets. This tier used to leave
+  // 0.4 and 0.1 standing for every setup, so an upload's wake was the one part
+  // of the field that no knob could move - and 0.1 of upwash drew a deflection
+  // a third of the size the identical setup prices on the solved branch.
+  Object.assign(src.wake, wakeBudget(cadAero));
   return src;
 }
 

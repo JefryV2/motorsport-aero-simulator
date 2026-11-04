@@ -31,8 +31,9 @@
  *  10. the inflow tilt: yaw and pitch move the tracers, leave |U| and the
  *      singularity strengths alone, and pitch up means air arriving from below.
  *  11. the wake: a deficit with a width, whose drawn envelope is the field's
- *      own profile edge at its own recovery station, cut at the floor and
- *      deepened by drag.
+ *      own profile edge at its own recovery station, cut at the floor, and
+ *      priced from the drag and downforce the setup is charged in either tier -
+ *      an uploaded model has no body to solve, but it has the same numbers.
  *  12. the air/car interaction layer: deflection around the skin may add to the
  *      field, but never past the field's own perturbation budget.
  *  13. every frontend module parses, so a syntax error fails here instead of
@@ -775,6 +776,85 @@ wakeU /= wakeN;
 wakeV /= wakeN;
 check(wakeU < 0.92 * U, 'geo wake deficit', `mean u = ${wakeU.toFixed(1)} m/s (${(wakeU / U).toFixed(2)} U)`);
 check(wakeV > 0.02 * U, 'geo wake upwash (downforce deflects air up)', `mean v = +${wakeV.toFixed(1)} m/s`);
+
+// ---------------------------------------------------------------------------
+// The wake an uploaded model gets is the same momentum balance.
+// ---------------------------------------------------------------------------
+// `buildSources` filled deficit and upwash once, at 0.4 and 0.1, and only the
+// solved branch overwrote them. An upload therefore drew the same wake for every
+// setup on the panel: the drag it was charged could not deepen the deficit, DRS
+// could not shallow it, and the upwash stood at 0.1 where the identical setup
+// prices 0.32 - so the smoke behind a model with 3x the downforce rose no higher
+// than behind one with none. Measured against the previous tree at the probe
+// below: 0.11 U of upwash and 0.708 U of axial velocity for every setup, against
+// 0.27 U and 0.662 U now.
+const CAD_RW30 = { ...CAR_CONFIG, rear_wing_main: { ...CAR_CONFIG.rear_wing_main, angle_deg: 30 } };
+const CAD_DRS = { ...CAD_RW30, drs_active: true };
+const CAD_HIGHDF = {
+  ...CAR_CONFIG,
+  front_wing_main: { ...CAR_CONFIG.front_wing_main, angle_deg: 14 },
+  rear_wing_main: { ...CAR_CONFIG.rear_wing_main, angle_deg: 30 },
+  rear_wing_flap: { ...CAR_CONFIG.rear_wing_flap, angle_deg: 30 },
+};
+const CAD_LOOSE = { ...CAR_CONFIG, ride_height_rear_mm: 80 };
+const cadCalm = { ...baseFlow, turbulence: 0 };
+const cadWakeShape = (cfg) => wakeShape({ ...baseFlow, geo: null, turbulence: 0 }, cfg, CAD_BOX);
+const wkBase = cadWakeShape(CAR_CONFIG);
+const wkRw30 = cadWakeShape(CAD_RW30);
+const wkDrs = cadWakeShape(CAD_DRS);
+const wkHigh = cadWakeShape(CAD_HIGHDF);
+const wkLoose = cadWakeShape(CAD_LOOSE);
+const wkCarBase = wakeShape({ ...cadCalm, geo: carGeo }, CAR_CONFIG, offBounds);
+// The solved branch reads its strengths off the geometry payload, so the
+// high-downforce comparison has to be re-solved, not just re-passed.
+const wkCarHigh = wakeShape({ ...cadCalm, geo: geoFor(CAD_HIGHDF) }, CAD_HIGHDF, offBounds);
+
+check(
+  wkRw30.deficit > wkBase.deficit + 0.02 && wkHigh.deficit < 0.6 - 1e-9,
+  "an upload's wake deepens with the drag the panel charges",
+  `deficit ${(wkBase.deficit * 100).toFixed(1)}% -> ${(wkRw30.deficit * 100).toFixed(1)}% U at rear main 30 deg, `
+    + `${(wkHigh.deficit * 100).toFixed(1)}% at the high-downforce setup (ceiling 60%)`,
+);
+check(
+  wkDrs.deficit < wkRw30.deficit - 1e-9,
+  'opening DRS shallows the drawn wake',
+  `rear main 30 deg: deficit ${(wkRw30.deficit * 100).toFixed(1)}% -> ${(wkDrs.deficit * 100).toFixed(1)}% U`,
+);
+check(
+  wkBase.upwash > wkLoose.upwash + 0.01 && wkBase.upwash < 0.35 - 1e-9,
+  "an upload's upwash follows its own downforce",
+  `upwash ${(wkBase.upwash * 100).toFixed(1)}% U at a 45 mm rear gap, ${(wkLoose.upwash * 100).toFixed(1)}% at 80 mm`,
+);
+check(
+  wkHigh.upwash === 0.35 && wkCarHigh.upwash === 0.35,
+  'the upwash ceiling is load-bearing in both tiers',
+  'the high-downforce setup wants more than 35% U either way and is drawn at 35% on an upload and on the built-in car',
+);
+check(
+  Math.abs(wkBase.deficit - wkCarBase.deficit) < 0.005
+    && Math.abs(wkBase.upwash - wkCarBase.upwash) < 0.01,
+  'the same setup prices the same wake whichever tier draws it',
+  `deficit ${(wkBase.deficit * 100).toFixed(2)}% vs ${(wkCarBase.deficit * 100).toFixed(2)}%, `
+    + `upwash ${(wkBase.upwash * 100).toFixed(2)}% vs ${(wkCarBase.upwash * 100).toFixed(2)}% U `
+    + '(the upload takes a null throat, so its floor Cl is the one difference)',
+);
+
+const wkFr = flowFrame(cadCalm, CAD_BOX);
+const wkProbe = atStation(
+  wkFr, wkBase.startStation + 0.4 * wkFr.length, wkBase.hCenter, 0,
+);
+const wkProbeV = velocityAt(
+  wkProbe[0], wkProbe[1], wkProbe[2], CAR_CONFIG, CAD_BOX, cadCalm,
+);
+const wkHighV = velocityAt(
+  wkProbe[0], wkProbe[1], wkProbe[2], CAD_HIGHDF, CAD_BOX, cadCalm,
+);
+check(
+  wkProbeV[1] > 0.2 * U && wkHighV[1] > wkProbeV[1] + 1 && wkProbeV[0] < 0.7 * U,
+  'the priced wake actually moves the smoke behind the model',
+  `at the drawn centre: v = +${wkProbeV[1].toFixed(1)} m/s (${(wkProbeV[1] / U).toFixed(2)} U) `
+    + `and u = ${wkProbeV[0].toFixed(1)} m/s for the default setup, v = +${wkHighV[1].toFixed(1)} m/s for the high-downforce one`,
+);
 
 // Rake tubes are true metre heights on a solved car, not fractions of a box.
 const tubeH = carGeo.rakeHeightsM;
