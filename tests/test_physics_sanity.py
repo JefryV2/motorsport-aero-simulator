@@ -1975,19 +1975,19 @@ class TestTheStalledSectionIsHandedToThePlate:
 class TestTheTunnelUnderbodyIsTheSolverUnderbody:
     """`flowEngine.underbodyTerms` used to restate the law with its own numbers.
 
-    It held all nine of the solver's underbody numbers as its own literals - both
-    decay lengths and the front one, the rake coefficient, the floor and diffuser
-    ceilings, the three drag terms - and, worst of the nine, the *raw*
+    It held all nine of the solver's underbody numbers as its own literals - the
+    front, rear and diffuser decay lengths, the rake coefficient, the floor and
+    diffuser ceilings, the three drag terms - and, worst of the nine, the *raw*
     `diffuser_ride_height_mm` in place of the throat: on the shipped default car
     the slider says 30 mm while the floor line at the diffuser station says
     39.7463 mm, so the picture decayed the diffuser suction over a gap the forces
-    refuse to charge. Measured across
-    the nine setups the gate's probe configs cover, the mirror's total underbody
-    Cl sat 1.000-1.510x the solver's: 0.058851 against 0.053190 on the default
-    car (1.106x), 0.080339 against 0.053190 with the slider at 10 mm (1.510x,
-    where the forces do not move at all), 0.058851 against 0.049536 with the nose
-    at 60 mm (1.188x). Its Cd matched to 1.000x everywhere, because the drag leg
-    had already been reading the same three numbers by hand.
+    refuse to charge. Measured across the nine setups the gate's probe configs
+    cover, the mirror's total underbody Cl sat 1.000-1.510x the solver's:
+    0.058851 against 0.053190 on the default car (1.106x), 0.080339 against
+    0.053190 with the slider at 10 mm (1.510x, where the forces do not move at
+    all), 0.058851 against 0.049536 with the nose at 60 mm (1.188x). Its Cd
+    matched to 1.000x everywhere, because the drag leg had already been reading
+    the same three numbers by hand.
 
     Nothing in `tests/` runs node, so the lock is in two layers, the same split
     the wing polar uses: this class pins the *source* - that the mirror reads the
