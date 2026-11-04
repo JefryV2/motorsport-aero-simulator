@@ -67,7 +67,7 @@ export const REFERENCE = {
   // Constants the analytic tunnel field mirrors so it moves with the same
   // setup fields the reported numbers do.
   floorAreaM2: 2.2, // _underbody_forces floor_area: effective underbody area
-  bodyCd: 0.75, // _body_drag cd_body: wheels, suspension, cockpit
+  bodyCd: 0.75, // analytical.CD_BODY: wheels, suspension, cockpit as one lump
   profileCd: 0.008, // _wing_forces profile drag term
   // Wing ground effect: analytical.ground_effect_lift_factor prices the lift
   // gain at each section's trailing-edge clearance, so the front ride height

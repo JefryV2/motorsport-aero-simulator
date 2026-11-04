@@ -37,6 +37,12 @@ RAKE_COEF_PER_DEG = 0.08
 CL_FLOOR_MAX = 0.35
 CL_DIFFUSER_MAX = 0.25
 
+# One lump for everything that is not a wing or the underbody: wheels, suspension,
+# cockpit. The model charges it as `q * REF_AREA * CD_BODY` and never splits it, so
+# any consumer that wants two surfaces has to state its own share of this number -
+# `frontend/js/carSpec.js` mirrors it as `bodyCd` and the pressure map divides it.
+CD_BODY = 0.75
+
 # Ground-effect lift gain for a lifting element near the plane, priced from the
 # clearance of that element's own section (see `ground_effect_lift_factor`). The
 # two numbers are anchored: across the default front wing the area-weighted gain
@@ -435,8 +441,7 @@ def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float
 def _body_drag(speed_ms: float) -> float:
     """Baseline body/wheels/drag from open-wheel formula car."""
     q = 0.5 * RHO * speed_ms**2
-    cd_body = 0.75  # wheels, suspension, cockpit
-    return q * REF_AREA * cd_body
+    return q * REF_AREA * CD_BODY
 
 
 def simulate(config: FormulaAeroConfig, method: str = "analytical") -> SimulationResult:

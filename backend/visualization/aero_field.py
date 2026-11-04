@@ -13,6 +13,7 @@ from backend.simulation.analytical import (
     CAR_HALF_WIDTH_M,
     CAR_HEIGHT_M,
     CAR_LENGTH_M,
+    CD_BODY,
     DIFFUSER_LENGTH_M,
     FLOOR_HALF_WIDTH_M,
     FLOOR_X_END_M,
@@ -48,7 +49,7 @@ WAKE_DEFLECT_PER_CL = 0.655
 # The pressure map's own paint limits. It is a shading of the loads the model
 # prices, not a solved pressure distribution, and what it produces stays well
 # inside these: measured over 3,600 points on the reference envelope the whole
-# field spans -0.0883 to +0.5212 Cp on the default car and -0.1452 to +0.5212 on
+# field spans -0.0883 to +0.5560 Cp on the default car and -0.1452 to +0.5560 on
 # a fully stalled one, with no vertex reaching either limit. The legend therefore
 # reports the field's own extremes and names these separately.
 CP_PAINT_MIN = -3.0
@@ -79,6 +80,18 @@ CD_PAINT_GAIN = 0.695
 # 3.4286x it, the diffuser Cl 0.011873 at 3.2000x.
 FLOOR_PAINT_PER_CL = 3.428571428571429
 DIFFUSER_PAINT_PER_CL = 3.2
+
+# The body and wheels are one priced lump - `analytical.CD_BODY`, "wheels,
+# suspension, cockpit" charged as `q * REF_AREA * CD_BODY` - that the model never
+# splits, and the picture shades two surfaces, so the split has to be stated
+# somewhere. It used to be written as two amplitudes with no source, 0.25 and 0.45,
+# which is a third of the lump on the body and 60 % of it on the wheels: the drawn
+# total came to 0.70 of the 0.75 the car is charged with, so 5 % of the drag the map
+# is drawing money from had no surface at all. Both shares are now of `CD_BODY` and
+# add up to it, which leaves the body's shading exactly where it was and lifts only
+# the wheels by 0.05 Cd of drawn amplitude.
+BODY_CD_SHARE = 1.0 / 3.0
+WHEELS_CD_SHARE = 2.0 / 3.0
 
 
 def _normalize_coords(
@@ -299,8 +312,8 @@ def compute_cp_field(
         cp -= regions["rear_wing"] * rw_cl * CL_PAINT_GAIN
         cp -= regions["underbody"] * cl_floor * FLOOR_PAINT_PER_CL * CL_PAINT_GAIN
         cp -= regions["diffuser"] * cl_diffuser * DIFFUSER_PAINT_PER_CL * CL_PAINT_GAIN
-        cp += regions["body"] * 0.25 * CD_PAINT_GAIN
-        cp += regions["wheels"] * 0.45 * CD_PAINT_GAIN
+        cp += regions["body"] * CD_BODY * BODY_CD_SHARE * CD_PAINT_GAIN
+        cp += regions["wheels"] * CD_BODY * WHEELS_CD_SHARE * CD_PAINT_GAIN
 
         cp = max(CP_PAINT_MIN, min(cp, CP_PAINT_MAX))
         cp_values.append(round(cp, 4))

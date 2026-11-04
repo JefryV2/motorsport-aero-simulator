@@ -25,6 +25,8 @@ Verifies essential aerodynamic principles on the analytical baseline model:
     surface cannot repaint another
 16. The floor and diffuser are shaded from the Cl the forces charge them, so the
     map holds no second copy of the ground-effect, rake and throat math
+17. The body and wheels shade the solver's one lumped drag coefficient between
+    them instead of the map inventing two amplitudes for it
 """
 
 from __future__ import annotations
@@ -619,9 +621,9 @@ class TestEachSurfaceCarriesOnlyItsOwnLoad:
     def test_the_floor_still_answers_to_the_floor(self):
         """Freezing the gain must not have deadened the surface it was meant to free.
 
-        Measured on the same cloud, against the default floor's +0.169646: rake 0 -> 3
-        deg gives +1.30 % / -1.30 %, rear ride height 20 mm and 90 mm give -28.70 % and
-        +10.76 %, and an 18 deg diffuser -0.40 %. The rear wing and DRS moves above are
+        Measured on the same cloud, against the default floor's +0.171992: rake 0 -> 3
+        deg gives +1.29 % / -1.29 %, rear ride height 20 mm and 90 mm give -28.31 % and
+        +10.61 %, and an 18 deg diffuser -0.40 %. The rear wing and DRS moves above are
         the ones that went silent on this cloud, and they should have.
         """
         floor = _floor_cloud()
@@ -766,15 +768,86 @@ class TestTheUnderbodyShadesTheClTheSolverChargesIt:
             )
 
 
+class TestTheBodyAndWheelsShadeTheDragTheyAreCharged:
+    """The map divided a drag the solver never divides, and lost 5 % of it.
+
+    `_body_drag` charges wheels, suspension and cockpit as one lump,
+    `q * REF_AREA * 0.75`, with no split of it anywhere in the model - while
+    `compute_cp_field` shaded a body at 0.25 and wheels at 0.45 of that same drag
+    gain. Those two amplitudes had no source: read as shares of the lump they are a
+    third and 60 %, so the picture drew 0.70 of the 0.75 the car is charged with and
+    5 % of the drag it was drawing from had no surface at all. Both terms now come
+    from `CD_BODY` and add up to it, which keeps the body's drawn amplitude exactly
+    0.25 (a third of 0.75) and lifts only the wheels. Measured on the shipped
+    default: 330 of 3,600 envelope vertices moved, none of them anywhere the wheel
+    region has no weight, each by its own wheel weight times 0.05 Cd, so the mean
+    went +0.208306 -> +0.210661 Cp and the 128-point ring on the tyre stations
+    +0.429894 -> +0.454509 (+5.73 %). Every force came back byte-identical.
+    """
+
+    def test_the_two_surfaces_partition_the_priced_lump(self):
+        """The shares add up to the drag, and the body still draws what it drew."""
+        assert aero_field.BODY_CD_SHARE + aero_field.WHEELS_CD_SHARE == pytest.approx(1.0)
+        assert (
+            analytical.CD_BODY * aero_field.BODY_CD_SHARE == pytest.approx(0.25, abs=1e-12)
+        ), "the body's drawn amplitude moved, so this was not a wheels-only fix"
+        assert (
+            analytical.CD_BODY * aero_field.WHEELS_CD_SHARE
+            == pytest.approx(0.45 + 0.05, abs=1e-12)
+        )
+
+    def test_the_map_writes_no_amplitudes_of_its_own(self):
+        src = inspect.getsource(aero_field.compute_cp_field)
+        for invented in ("0.25", "0.45"):
+            assert invented not in src, f"the map still shades a {invented} it made up"
+        for shared in ("CD_BODY", "BODY_CD_SHARE", "WHEELS_CD_SHARE"):
+            assert shared in src, f"the map no longer spends the solver's {shared}"
+
+    def test_the_lump_is_what_the_forces_charge(self):
+        """Naming the constant must not have changed the bill."""
+        speed_ms = 200.0 / 3.6
+        q = 0.5 * analytical.RHO * speed_ms**2
+        assert analytical._body_drag(speed_ms) == pytest.approx(
+            q * analytical.REF_AREA * analytical.CD_BODY, abs=1e-12
+        )
+
+    def test_the_drawn_floor_is_the_sum_of_the_priced_terms(self):
+        """Rebuild the whole cloud mean from the solver's numbers, nothing else.
+
+        Normals are absent and no vertex reaches the picture's clamp on this cloud,
+        so the mean is linear in the region weights and every amplitude in the map
+        shows up in it - the two drag shares, both underbody ratios, both wing Cls.
+        """
+        floor = _floor_cloud()
+        config = FormulaAeroConfig()
+        weights = _mean_weights(config, floor)
+        fw_cl, rw_cl = aero_field.wing_planform_cl(config)
+        cl_floor, cl_diff = analytical.underbody_cl(config)
+        suction = (
+            weights["front_wing"] * fw_cl
+            + weights["rear_wing"] * rw_cl
+            + weights["underbody"] * cl_floor * aero_field.FLOOR_PAINT_PER_CL
+            + weights["diffuser"] * cl_diff * aero_field.DIFFUSER_PAINT_PER_CL
+        ) * aero_field.CL_PAINT_GAIN
+        pressure = (
+            0.05
+            + weights["body"] * analytical.CD_BODY * aero_field.BODY_CD_SHARE
+            + weights["wheels"] * analytical.CD_BODY * aero_field.WHEELS_CD_SHARE
+        ) * aero_field.CD_PAINT_GAIN
+        assert _cloud_cp({}, floor) == pytest.approx(pressure - suction, abs=1e-4), (
+            "the drawn floor is no longer the sum of what the solver charges"
+        )
+
+
 class TestTheLegendReportsTheFieldItReturned:
     """The map declared a range its own numbers never entered.
 
     `compute_cp_field` returned `"legend": {"min": -2.5, "max": 1.0}` whatever it had
     just computed. Measured over the 3,600-point envelope cloud below, the default
-    car's field spans -0.0883 to +0.5212 Cp, a fully stalled one -0.1452 to +0.5212, and
+    car's field spans -0.0883 to +0.5560 Cp, a fully stalled one -0.1452 to +0.5560, and
     no vertex reached either end of the declared range - or the picture's own clamp,
     which the same sweep never touched either. A consumer painting against that legend
-    saw the default field occupy 17.4 % of its ramp (19.0 % fully stalled), so the wing
+    saw the default field occupy 18.4 % of its ramp (20.0 % fully stalled), so the wing
     suction the solver had just been priced at came back as near-flat grey.
     """
 
@@ -885,6 +958,7 @@ class TestDiffuserThroatMustBeBuildable:
         shared = {
             "wheelbaseM": analytical.WHEELBASE_M,
             "refAreaM2": analytical.REF_AREA,
+            "bodyCd": analytical.CD_BODY,
             "rho": analytical.RHO,
             "carLengthM": analytical.CAR_LENGTH_M,
             "frontAxleM": analytical.FRONT_AXLE_M,
