@@ -781,7 +781,7 @@ class TestTheBodyAndWheelsShadeTheDragTheyAreCharged:
     0.25 (a third of 0.75) and lifts only the wheels. Measured on the shipped
     default: 330 of 3,600 envelope vertices moved, none of them anywhere the wheel
     region has no weight, each by its own wheel weight times 0.05 Cd, so the mean
-    went +0.208306 -> +0.210661 Cp and the 128-point ring on the tyre stations
+    went +0.208306 -> +0.210661 Cp and the 64-point ring on the tyre stations
     +0.429894 -> +0.454509 (+5.73 %). Every force came back byte-identical.
     """
 
