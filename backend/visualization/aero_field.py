@@ -50,7 +50,7 @@ WAKE_DEFLECT_PER_CL = 0.655
 # The pressure map's own paint limits. It is a shading of the loads the model
 # prices, not a solved pressure distribution, and what it produces stays well
 # inside these: measured over 3,600 points on the reference envelope the whole
-# field spans -0.0545 to +0.2085 Cp on the default car and -0.2914 to +0.2560 on
+# field spans -0.0883 to +0.5212 Cp on the default car and -0.2914 to +0.6400 on
 # a stalled one, with no vertex reaching either limit. The legend therefore
 # reports the field's own extremes and names these separately.
 CP_PAINT_MIN = -3.0

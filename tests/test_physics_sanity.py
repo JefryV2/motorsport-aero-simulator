@@ -518,12 +518,12 @@ class TestTheLegendReportsTheFieldItReturned:
     """The map declared a range its own numbers never entered.
 
     `compute_cp_field` returned `"legend": {"min": -2.5, "max": 1.0}` whatever it had
-    just computed. Measured over 3,600 points on the reference envelope, the default
-    car's field spans -0.0545 to +0.2085 Cp, a stalled one -0.2914 to +0.2560, and no
+    just computed. Measured over the 3,600-point envelope cloud below, the default
+    car's field spans -0.0883 to +0.5212 Cp, a stalled one -0.2914 to +0.6400, and no
     vertex reached either end of the declared range - or the picture's own clamp, which
-    the same sweep never touched either. A consumer painting against that legend used
-    7.5 % of its ramp, so the wing suction the solver had just been priced at came back
-    as flat grey.
+    the same sweep never touched either. A consumer painting against that legend saw the
+    default field occupy 17.4 % of its ramp (26.6 % fully stalled), so the wing suction
+    the solver had just been priced at came back as near-flat grey.
     """
 
     CONFIGS = {
@@ -559,6 +559,12 @@ class TestTheLegendReportsTheFieldItReturned:
             assert all(
                 aero_field.CP_PAINT_MIN <= cp <= aero_field.CP_PAINT_MAX for cp in out["cp"]
             ), f"{name}: a vertex escaped the picture's own clamp"
+            span = max(out["cp"]) - min(out["cp"])
+            painted = aero_field.CP_PAINT_MAX - aero_field.CP_PAINT_MIN
+            assert span < 0.25 * painted, (
+                f"{name}: the field now covers {span / painted:.1%} of the paint ramp, "
+                "so the comment above the constants needs re-measuring"
+            )
 
     def test_the_map_restates_no_legend_range(self):
         """The extremes are read off the field, and the clamp is named, not retyped."""
