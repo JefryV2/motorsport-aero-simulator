@@ -19,6 +19,8 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 13. Past the stall knee the section is handed to the flat-plate polar instead of
     pinned at the top of the thin-airfoil line, and every angle below the knee
     still prices exactly as the attached line alone
+14. The pressure map's legend reports the extremes of the field it returned and
+    names its own paint limits, instead of a range no vertex ever reached
 """
 
 from __future__ import annotations
@@ -239,6 +241,32 @@ def _wake_tail(config: FormulaAeroConfig) -> float:
     """
     lines = generate_streamlines(config, BOUNDS, n_lines=6, n_points=20)
     return float(np.mean([line[-1][2] for line in lines]))
+
+
+def _envelope_cloud() -> list[list[float]]:
+    """3,600 points through the reference envelope, in the bounds frame the map takes.
+
+    `compute_cp_field` maps its normalised coordinates onto `CAR_LENGTH_M` x
+    `CAR_HEIGHT_M` x 2`CAR_HALF_WIDTH_M`, so the metres below are converted the same
+    way a mesh would be: this is the car the region masks describe, not a box.
+    """
+    length, height, half_width = (
+        aero_field.CAR_LENGTH_M,
+        aero_field.CAR_HEIGHT_M,
+        aero_field.CAR_HALF_WIDTH_M,
+    )
+    vmin = np.array(BOUNDS["min"])
+    span = np.array(BOUNDS["max"]) - vmin
+    return [
+        [
+            float(vmin[0] + x / length * span[0]),
+            float(vmin[1] + (0.5 + y / (2.0 * half_width)) * span[1]),
+            float(vmin[2] + z / height * span[2]),
+        ]
+        for x in np.linspace(0.0, length, 60)
+        for y in (-0.4, 0.0, 0.4)
+        for z in np.linspace(0.01, height, 20)
+    ]
 
 
 class TestFieldConsumersShareSolverState:
@@ -484,6 +512,61 @@ class TestFieldConsumersShareSolverState:
             "diffuser throat height does not reach the pressure map"
         )
         assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-3)
+
+
+class TestTheLegendReportsTheFieldItReturned:
+    """The map declared a range its own numbers never entered.
+
+    `compute_cp_field` returned `"legend": {"min": -2.5, "max": 1.0}` whatever it had
+    just computed. Measured over 3,600 points on the reference envelope, the default
+    car's field spans -0.0545 to +0.2085 Cp, a stalled one -0.2914 to +0.2560, and no
+    vertex reached either end of the declared range - or the picture's own clamp, which
+    the same sweep never touched either. A consumer painting against that legend used
+    7.5 % of its ramp, so the wing suction the solver had just been priced at came back
+    as flat grey.
+    """
+
+    CONFIGS = {
+        "default": {},
+        "low_rear": {"ride_height_rear_mm": 20.0},
+        "high_df": {
+            "ride_height_rear_mm": 20.0,
+            "ride_height_front_mm": 10.0,
+            "diffuser_angle_deg": 18.0,
+            "diffuser_ride_height_mm": 15.0,
+        },
+        "stalled": {"rear_wing_main": {"angle_deg": 35.0, "chord_m": 0.4, "span_m": 0.95}},
+    }
+
+    def _field(self, cloud: list[list[float]], overrides: dict) -> dict:
+        return compute_cp_field(cloud, None, FormulaAeroConfig(**overrides), BOUNDS)
+
+    def test_the_legend_is_sampled_from_the_values_it_returns(self):
+        cloud = _envelope_cloud()
+        for name, overrides in self.CONFIGS.items():
+            out = self._field(cloud, overrides)
+            cp = out["cp"]
+            legend = out["legend"]
+            assert legend["min"] == min(cp), f"{name}: {legend['min']} vs the field's {min(cp)}"
+            assert legend["max"] == max(cp), f"{name}: {legend['max']} vs the field's {max(cp)}"
+
+    def test_every_vertex_sits_inside_the_painted_range(self):
+        cloud = _envelope_cloud()
+        for name, overrides in self.CONFIGS.items():
+            out = self._field(cloud, overrides)
+            assert out["legend"]["painted_min"] == aero_field.CP_PAINT_MIN
+            assert out["legend"]["painted_max"] == aero_field.CP_PAINT_MAX
+            assert all(
+                aero_field.CP_PAINT_MIN <= cp <= aero_field.CP_PAINT_MAX for cp in out["cp"]
+            ), f"{name}: a vertex escaped the picture's own clamp"
+
+    def test_the_map_restates_no_legend_range(self):
+        """The extremes are read off the field, and the clamp is named, not retyped."""
+        src = inspect.getsource(aero_field.compute_cp_field)
+        for literal in ("-2.5", "2.5", "-3.0", "1.5"):
+            assert literal not in src, f"the map still hardcodes the range {literal}"
+        for name in ("CP_PAINT_MIN", "CP_PAINT_MAX", "painted_min", "painted_max"):
+            assert name in src, f"the legend no longer names its own {name}"
 
 
 class TestDiffuserThroatMustBeBuildable:

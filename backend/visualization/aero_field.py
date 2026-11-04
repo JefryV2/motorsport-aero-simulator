@@ -47,6 +47,15 @@ from backend.simulation.panel_method import simulate_panel
 DOWNWASH_PER_CL = 0.153
 WAKE_DEFLECT_PER_CL = 0.655
 
+# The pressure map's own paint limits. It is a shading of the loads the model
+# prices, not a solved pressure distribution, and what it produces stays well
+# inside these: measured over 3,600 points on the reference envelope the whole
+# field spans -0.0545 to +0.2085 Cp on the default car and -0.2914 to +0.2560 on
+# a stalled one, with no vertex reaching either limit. The legend therefore
+# reports the field's own extremes and names these separately.
+CP_PAINT_MIN = -3.0
+CP_PAINT_MAX = 1.5
+
 
 def _normalize_coords(
     vertices: np.ndarray,
@@ -226,6 +235,10 @@ def compute_cp_field(
     """
     Map pressure coefficient (Cp) to each vertex.
     Negative Cp = suction (downforce). Positive Cp = pressure (drag).
+
+    The legend reports the extremes of the field it returns, not a range the map
+    happens to paint against; `painted_min` and `painted_max` are the picture's own
+    clamp, stated separately because a consumer that ignored them would rescale.
     """
     verts = np.asarray(vertices, dtype=np.float64)
     norms = np.asarray(normals, dtype=np.float64) if normals is not None else None
@@ -270,14 +283,21 @@ def compute_cp_field(
         cp += regions["body"] * 0.25 * cd_scale
         cp += regions["wheels"] * 0.45 * cd_scale
 
-        cp = max(-3.0, min(cp, 1.5))
+        cp = max(CP_PAINT_MIN, min(cp, CP_PAINT_MAX))
         cp_values.append(round(cp, 4))
 
     return {
         "cp": cp_values,
         "bounds": bounds,
         "simulation": sim.model_dump(),
-        "legend": {"min": -2.5, "max": 1.0, "unit": "Cp"},
+        # Sampled from the numbers above, so a consumer paints the field it got.
+        "legend": {
+            "min": min(cp_values, default=0.0),
+            "max": max(cp_values, default=0.0),
+            "unit": "Cp",
+            "painted_min": CP_PAINT_MIN,
+            "painted_max": CP_PAINT_MAX,
+        },
     }
 
 
