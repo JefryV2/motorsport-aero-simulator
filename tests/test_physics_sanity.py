@@ -23,6 +23,8 @@ Verifies essential aerodynamic principles on the analytical baseline model:
     names its own paint limits, instead of a range no vertex ever reached
 15. The pressure map's shading gains belong to each surface alone, so moving one
     surface cannot repaint another
+16. The floor and diffuser are shaded from the Cl the forces charge them, so the
+    map holds no second copy of the ground-effect, rake and throat math
 """
 
 from __future__ import annotations
@@ -630,6 +632,138 @@ class TestEachSurfaceCarriesOnlyItsOwnLoad:
         assert _cloud_cp({"ride_height_rear_mm": 20.0}, floor) < base - 0.03
         assert _cloud_cp({"ride_height_rear_mm": 90.0}, floor) > base + 0.01
         assert _cloud_cp({"diffuser_angle_deg": 18.0}, floor) < base - 0.0005
+
+
+class TestTheUnderbodyShadesTheClTheSolverChargesIt:
+    """The floor and diffuser used to carry the solver's formula, written out twice.
+
+    `compute_cp_field` shaded the underbody with `exp(-h_rear / GE_DECAY_REAR_M) *
+    rake * 1.2` and the diffuser with `sin(angle) * 0.8 * exp(-throat /
+    GE_DECAY_DIFFUSER_M) * rake` - the decay lengths, the rake coefficient and the
+    throat geometry each lived in two files, and the ceilings 1.2 and 0.8 hid the
+    priced 0.35 and 0.25 they were divided by. Both surfaces now take
+    `analytical.underbody_cl`, the pair `_underbody_forces` prices the downforce
+    from, times the ratio the picture had already been drawing: the whole field is
+    byte-identical, 0 of 67,050 vertices across 18 setups and two clouds, with the
+    two terms agreeing with the old formula to 1.1e-16 and 2.8e-17.
+    """
+
+    @staticmethod
+    def _painting(config: FormulaAeroConfig) -> dict[str, float]:
+        """Every Cl the map spends on a surface, already scaled by its own amplitude."""
+        fw_cl, rw_cl = aero_field.wing_planform_cl(config)
+        cl_floor, cl_diff = analytical.underbody_cl(config)
+        return {
+            "front_wing": fw_cl,
+            "rear_wing": rw_cl,
+            "underbody": cl_floor * aero_field.FLOOR_PAINT_PER_CL,
+            "diffuser": cl_diff * aero_field.DIFFUSER_PAINT_PER_CL,
+        }
+
+    def test_the_map_holds_no_second_copy_of_the_ground_effect_math(self):
+        src = inspect.getsource(aero_field.compute_cp_field)
+        for restated in (
+            "GE_DECAY",
+            "RAKE_COEF",
+            "math.exp",
+            "math.sin",
+            "ride_height_rear_mm",
+            "diffuser_angle_deg",
+            "diffuser_throat_height_m",
+            "* 1.2",
+            "* 0.8",
+        ):
+            assert restated not in src, f"the map still computes the solver's {restated}"
+        assert "underbody_cl(" in src, "the map no longer asks the solver what it drew"
+        for name in ("FLOOR_PAINT_PER_CL", "DIFFUSER_PAINT_PER_CL"):
+            assert name in src, f"the map no longer states its own {name}"
+
+    def test_the_amplitudes_are_the_ratio_they_replaced(self):
+        """The picture is unchanged because 1.2 / 0.35 and 0.8 / 0.25 are the new numbers.
+
+        Stated this way, a solver-side change to either ceiling moves the drawing
+        with the forces instead of leaving it on the old amplitude.
+        """
+        assert (
+            aero_field.FLOOR_PAINT_PER_CL * analytical.CL_FLOOR_MAX
+            == pytest.approx(1.2, abs=1e-12)
+        )
+        assert (
+            aero_field.DIFFUSER_PAINT_PER_CL * analytical.CL_DIFFUSER_MAX
+            == pytest.approx(0.8, abs=1e-12)
+        )
+
+    def test_the_pair_the_map_shades_is_the_pair_the_forces_charge(self):
+        """Both ends of the extraction: the formula the pair comes from, and who spends it.
+
+        `underbody_cl` must still be the solver's own arithmetic over its named
+        constants, and `_underbody_forces` must still build its downforce from that
+        pair - if either end drifts, the picture is shading a load the car is not
+        charged with while the numbers on the force cards say something else.
+        """
+        config = FormulaAeroConfig(
+            ride_height_rear_mm=20.0, rake_deg=3.0, diffuser_angle_deg=18.0
+        )
+        ge_rear = math.exp(
+            -config.ride_height_rear_mm / 1000.0 / analytical.GE_DECAY_REAR_M)
+        rake_boost = 1.0 + config.rake_deg * analytical.RAKE_COEF_PER_DEG
+        ge_throat = math.exp(
+            -analytical.diffuser_throat_height_m(config) / analytical.GE_DECAY_DIFFUSER_M)
+        expected = (
+            analytical.CL_FLOOR_MAX * ge_rear * rake_boost,
+            analytical.CL_DIFFUSER_MAX
+            * math.sin(math.radians(config.diffuser_angle_deg))
+            * ge_throat
+            * rake_boost,
+        )
+        cl_floor, cl_diff = analytical.underbody_cl(config)
+        assert (cl_floor, cl_diff) == pytest.approx(expected, abs=1e-12), (
+            "the pair the picture spends is no longer the solver's own ground effect"
+        )
+
+        speed_ms = 200.0 / 3.6
+        q = 0.5 * analytical.RHO * speed_ms**2
+        downforce = analytical._underbody_forces(config, speed_ms)[0]
+        assert downforce == pytest.approx(q * 2.2 * (cl_floor + cl_diff), abs=1e-9), (
+            "the forces no longer spend the pair the picture shades"
+        )
+
+    def test_the_floor_paints_the_cl_the_floor_is_charged(self):
+        """On a cloud over the floor, the masks do not move, so the difference is exact.
+
+        Every one of these setups leaves the floor cloud's region weights identical
+        (underbody 0.589881, diffuser 0.159524), which makes the change in the drawn
+        mean fully attributable to the priced Cl. The helper reads the amplitude
+        constants themselves, so this is not a test of their value - that is the
+        ratio lock above - it is a test that the map spends exactly those constants
+        on the pair the solver returns, which a multiplier restated inside the term
+        would break. The tolerance is the map's own 4-decimal rounding band.
+        """
+        floor = _floor_cloud()
+        cases = {
+            "rear ride height 20 -> 90 mm": (
+                {"ride_height_rear_mm": 20.0},
+                {"ride_height_rear_mm": 90.0},
+            ),
+            "rake 0 -> 3 deg": ({"rake_deg": 0.0}, {"rake_deg": 3.0}),
+            "diffuser 5 -> 18 deg": ({"diffuser_angle_deg": 5.0}, {"diffuser_angle_deg": 18.0}),
+        }
+        for name, (a_over, b_over) in cases.items():
+            config_a = FormulaAeroConfig(**a_over)
+            config_b = FormulaAeroConfig(**b_over)
+            weights = _mean_weights(config_a, floor)
+            assert _mean_weights(config_b, floor) == pytest.approx(weights, abs=1e-12), (
+                f"{name} moved the region masks, so this cloud no longer isolates the Cl"
+            )
+            paint_a = self._painting(config_a)
+            paint_b = self._painting(config_b)
+            predicted = -sum(
+                weights[key] * (paint_b[key] - paint_a[key]) for key in paint_a
+            ) * aero_field.CL_PAINT_GAIN
+            measured = _cloud_cp(b_over, floor) - _cloud_cp(a_over, floor)
+            assert measured == pytest.approx(predicted, abs=1e-4), (
+                f"{name}: priced {predicted:+.6f} vs painted {measured:+.6f}"
+            )
 
 
 class TestTheLegendReportsTheFieldItReturned:

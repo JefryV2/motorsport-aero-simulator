@@ -18,9 +18,6 @@ from backend.simulation.analytical import (
     FLOOR_X_END_M,
     FLOOR_X_START_M,
     FRONT_AXLE_M,
-    GE_DECAY_DIFFUSER_M,
-    GE_DECAY_REAR_M,
-    RAKE_COEF_PER_DEG,
     REAR_AXLE_M,
     REAR_WING_BOTTOM_M,
     REAR_WING_TOP_M,
@@ -33,6 +30,7 @@ from backend.simulation.analytical import (
     diffuser_throat_height_m,
     effective_rear_flap,
     floor_height_at_m,
+    underbody_cl,
     wing_section_cl,
     wing_stations,
 )
@@ -68,6 +66,19 @@ CP_PAINT_MAX = 1.5
 # 0.692, cd_total 0.834) so that car keeps painting exactly the picture it had.
 CL_PAINT_GAIN = 0.23066666666666666
 CD_PAINT_GAIN = 0.695
+
+# The two underbody surfaces carry more drawn suction per unit of Cl than a wing
+# does, and that ratio is the only thing the map gets to choose here. It used to
+# restate the solver's own formula instead - the floor as
+# `exp(-h_rear / GE_DECAY_REAR_M) * rake * 1.2`, the diffuser as
+# `sin(angle) * 0.8 * exp(-throat / GE_DECAY_DIFFUSER_M) * rake` - so the decay
+# lengths, the rake coefficient and the throat geometry each lived in two files,
+# and the ceilings 1.2 and 0.8 hid the priced 0.35 and 0.25 they were divided by.
+# Both shapes are now `underbody_cl(config)` times the same ratio it drew before:
+# on the shipped default car the floor is charged Cl 0.041316 and painted at
+# 3.4286x it, the diffuser Cl 0.011873 at 3.2000x.
+FLOOR_PAINT_PER_CL = 3.428571428571429
+DIFFUSER_PAINT_PER_CL = 3.2
 
 
 def _normalize_coords(
@@ -265,10 +276,7 @@ def compute_cp_field(
     # a weight no solver sees, and priced the front wing's ground effect with the
     # floor's decay length instead of the wing's own.
     fw_cl, rw_cl = wing_planform_cl(config)
-    ge_rear = math.exp(-config.ride_height_rear_mm / 1000.0 / GE_DECAY_REAR_M)
-    ge_diffuser = math.exp(-diffuser_throat_height_m(config) / GE_DECAY_DIFFUSER_M)
-    rake = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
-    diff_boost = math.sin(math.radians(config.diffuser_angle_deg)) * 0.8
+    cl_floor, cl_diffuser = underbody_cl(config)
 
     cp_values: list[float] = []
     regions_frame = SurfaceRegions.from_config(config)
@@ -289,8 +297,8 @@ def compute_cp_field(
 
         cp -= regions["front_wing"] * fw_cl * CL_PAINT_GAIN
         cp -= regions["rear_wing"] * rw_cl * CL_PAINT_GAIN
-        cp -= regions["underbody"] * ge_rear * rake * 1.2 * CL_PAINT_GAIN
-        cp -= regions["diffuser"] * diff_boost * ge_diffuser * rake * CL_PAINT_GAIN
+        cp -= regions["underbody"] * cl_floor * FLOOR_PAINT_PER_CL * CL_PAINT_GAIN
+        cp -= regions["diffuser"] * cl_diffuser * DIFFUSER_PAINT_PER_CL * CL_PAINT_GAIN
         cp += regions["body"] * 0.25 * CD_PAINT_GAIN
         cp += regions["wheels"] * 0.45 * CD_PAINT_GAIN
 

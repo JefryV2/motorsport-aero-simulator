@@ -23,12 +23,19 @@ WHEELBASE_M = 3.35  # typical formula car wheelbase
 DRS_FLAP_ANGLE_DEG = 2.0  # rear flap angle once DRS is open
 
 # Suction decay lengths (m) and the rake coefficient below are calibrated
-# lengths, not tuning knobs: backend/visualization/aero_field.py imports them so
-# the pressure map cannot drift away from the forces the solver reports.
+# lengths, not tuning knobs: `underbody_cl` is the only reader in this file and
+# backend/visualization/aero_field.py goes through it, so the pressure map cannot
+# drift away from the forces the solver reports.
 GE_DECAY_FRONT_M = 0.015
 GE_DECAY_REAR_M = 0.020
 GE_DECAY_DIFFUSER_M = 0.025
 RAKE_COEF_PER_DEG = 0.08
+
+# The two underbody ceilings: the Cl each surface carries at zero gap, before its
+# own ground-effect decay. `underbody_cl` is the only reader, and the pressure map
+# goes through it so the picture shades the load the forces actually charge.
+CL_FLOOR_MAX = 0.35
+CL_DIFFUSER_MAX = 0.25
 
 # Ground-effect lift gain for a lifting element near the plane, priced from the
 # clearance of that element's own section (see `ground_effect_lift_factor`). The
@@ -378,6 +385,26 @@ def _wing_forces(
     return lift, drag
 
 
+def underbody_cl(config: FormulaAeroConfig) -> tuple[float, float]:
+    """The (floor, diffuser) Cl the underbody is charged with.
+
+    `_underbody_forces` prices the downforce from these two numbers and
+    `backend/visualization/aero_field.py` shades the same two surfaces from them,
+    so a ride-height or rake move cannot load the floor in the forces and leave the
+    picture on the old number.
+    """
+    ge_rear = math.exp(-config.ride_height_rear_mm / 1000.0 / GE_DECAY_REAR_M)
+    rake_boost = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
+    cl_floor = CL_FLOOR_MAX * ge_rear * rake_boost
+    cl_diff = (
+        CL_DIFFUSER_MAX
+        * math.sin(math.radians(config.diffuser_angle_deg))
+        * math.exp(-diffuser_throat_height_m(config) / GE_DECAY_DIFFUSER_M)
+        * rake_boost
+    )
+    return cl_floor, cl_diff
+
+
 def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float, float, float]:
     """Ground-effect floor and diffuser contribution."""
     q = 0.5 * RHO * speed_ms**2
@@ -385,24 +412,13 @@ def _underbody_forces(config: FormulaAeroConfig, speed_ms: float) -> tuple[float
     # Ride height sensitivity (exponential ground effect)
     h_front = config.ride_height_front_mm / 1000.0
     h_rear = config.ride_height_rear_mm / 1000.0
-    h_diff = diffuser_throat_height_m(config)
 
     ge_front = math.exp(-h_front / GE_DECAY_FRONT_M)
     ge_rear = math.exp(-h_rear / GE_DECAY_REAR_M)
-    rake_boost = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
 
     floor_area = 2.2  # m² effective underbody
-    cl_floor = 0.35 * ge_rear * rake_boost
+    cl_floor, cl_diff = underbody_cl(config)
     cd_floor = 0.015 + 0.02 * (1.0 - ge_rear)
-
-    # Diffuser
-    diff_angle_rad = math.radians(config.diffuser_angle_deg)
-    cl_diff = (
-        0.25
-        * math.sin(diff_angle_rad)
-        * math.exp(-h_diff / GE_DECAY_DIFFUSER_M)
-        * rake_boost
-    )
     cd_diff = 0.008
 
     cl_total = cl_floor + cl_diff
