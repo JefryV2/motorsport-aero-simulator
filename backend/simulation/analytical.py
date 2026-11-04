@@ -356,6 +356,16 @@ def _wing_cl(
     return cl_3d, cd_factor
 
 
+def wing_section_cl(element: WingElement, clearance_m: float | None = None) -> float:
+    """The Cl `simulate` charges this one element, tip loss, Gurney and ground effect in.
+
+    Picture-making consumers (the pressure map) need the same number the forces
+    used, and clearance follows the rule `_wing_forces` passes it: the element's
+    trailing-edge gap for a wing in ground effect, None for one in freestream.
+    """
+    return _wing_cl(element, clearance_m)[0]
+
+
 def _wing_forces(
     element: WingElement, speed_ms: float, clearance_m: float | None = None
 ) -> tuple[float, float]:

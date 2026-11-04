@@ -181,19 +181,18 @@ BOUNDS = {
 }
 WING_STATIONS = {s.name: s for s in analytical.wing_stations(FormulaAeroConfig())}
 DIFFUSER_X0_M = analytical.FLOOR_X_END_M - analytical.DIFFUSER_LENGTH_M
-# One point on each ground-effect surface. The front-wing probe sits a quarter of
-# the way along the wing band: the floor region fades in 0.24 m ahead of
-# FLOOR_X_START_M and its height moves with the front ride height this file
-# sweeps, so a probe further aft would not isolate a single term.
-PROBE_FRONT_WING_X_M = WING_STATIONS["front_wing_main"].x_le_m + 0.25 * (
-    WING_STATIONS["front_wing_flap"].x_te_m - WING_STATIONS["front_wing_main"].x_le_m
-)
-PROBE_FRONT_WING = [[PROBE_FRONT_WING_X_M, 0.0, 0.03]]
+# One point on each ground-effect surface. The diffuser probe sits midway along the
+# throat band, where the throat's own decay is the only term the sweep below finds
+# moving. The wing terms are swept over the solved boxes instead.
 PROBE_DIFFUSER = [[0.5 * (DIFFUSER_X0_M + analytical.FLOOR_X_END_M), 0.0, 0.05]]
 
 
 def _rear_flap(angle_deg: float) -> dict:
     return {"angle_deg": angle_deg, "span_m": 0.85, "chord_m": 0.05}
+
+
+def _front_main(gurney_mm: float) -> dict:
+    return {"angle_deg": 2.0, "span_m": 1.8, "chord_m": 0.35, "gurney_mm": gurney_mm}
 
 
 def _pinned_cp(monkeypatch, overrides: dict, probe: list[list[float]]) -> float:
@@ -230,13 +229,28 @@ def _spread(values: tuple[float, ...], factors: dict[float, float]) -> float:
     return (factors[values[0]] - factors[far]) / (factors[values[1]] - factors[far])
 
 
+def _wake_tail(config: FormulaAeroConfig) -> float:
+    """Where the drawn air leaves the box, averaged over the streamline lines.
+
+    `generate_streamlines` bends the air only aft of its own wake onset, so the
+    end of a line is where that bend is largest and the points ahead of the car
+    are a constant that dilutes it: the same DRS move reads 0.00392 of height at
+    the tail and 0.00055 over every point.
+    """
+    lines = generate_streamlines(config, BOUNDS, n_lines=6, n_points=20)
+    return float(np.mean([line[-1][2] for line in lines]))
+
+
 class TestFieldConsumersShareSolverState:
     """The pressure map and streamlines must follow the same state as the forces.
 
     `compute_cp_field` and `generate_streamlines` are the API's only picture of
     the car, and they read the sealed rear flap, the rear ride height in place of
     the diffuser throat, and their own rake coefficient, so the screen could show
-    loads the solver was not charging.
+    loads the solver was not charging. They also priced a wing's suction and the
+    air it bends from raw degrees over ceilings of the picture's own - `(deg / 15)
+    * 1.8`, `deg / 30` - which kept growing through the stall knee the forces turn
+    back at, so a stalled wing was the most heavily loaded thing on screen.
     """
 
     REGIONS = {
@@ -267,54 +281,181 @@ class TestFieldConsumersShareSolverState:
             np.mean(compute_cp_field(self._cloud(region), None, config, BOUNDS)["cp"])
         )
 
-    def test_rear_wing_pressure_responds_to_drs(self):
+    def test_rear_wing_pressure_responds_to_drs(self, monkeypatch):
         """Opening DRS must relieve the rear wing in the map, not only in the forces."""
         sealed = FormulaAeroConfig(rear_wing_flap=_rear_flap(20.0))
         opened = sealed.model_copy(update={"drs_active": True})
 
         shift = self._mean_cp(opened, "rear_wing") - self._mean_cp(sealed, "rear_wing")
+        cloud = self._cloud("rear_wing")
+        pinned_shift = _pinned_cp(
+            monkeypatch,
+            {"rear_wing_flap": _rear_flap(20.0), "drs_active": True},
+            cloud,
+        ) - _pinned_cp(monkeypatch, {"rear_wing_flap": _rear_flap(20.0)}, cloud)
 
-        # Measured over the solved wing box: +0.143 Cp. Ignoring the flap angle
-        # leaves +0.0052, which comes only from the force scale, so 0.10 needs
-        # the real effective incidence.
-        assert shift > 0.10, f"DRS barely moved the rear wing pressure ({shift:+.4f})"
+        # Measured over the solved wing box. The whole-car force scale is no longer
+        # a constant here: opening DRS drops the car's Cl, so it shrinks every term
+        # in the picture and the real shift (+0.0229, once +0.143) is smaller than
+        # the flap's own contribution. With the scale pinned to 1.0 the seal is
+        # worth +0.1013, so the wing moves for its own sake and not by the scale.
+        assert shift > 0.02, f"DRS barely moved the rear wing pressure ({shift:+.4f})"
+        assert pinned_shift > 0.09, f"the sealed flap did not reach the wing term ({pinned_shift:+.4f})"
 
     def test_wake_strength_responds_to_drs(self):
         """The drawn wake must weaken with the effective flap, not the sealed one."""
         sealed = FormulaAeroConfig(rear_wing_flap=_rear_flap(20.0))
         opened = sealed.model_copy(update={"drs_active": True})
 
-        def mean_height(cfg: FormulaAeroConfig) -> float:
-            lines = generate_streamlines(cfg, BOUNDS, n_lines=6, n_points=20)
-            return float(np.mean([p[2] for line in lines for p in line]))
+        # Measured: the priced rear planform Cl drops 0.614520 -> 0.475869 and the
+        # air leaves the box 0.46261154 -> 0.46653482 higher.
+        assert _wake_tail(opened) > _wake_tail(sealed) + 0.001
 
-        assert mean_height(opened) > mean_height(sealed) + 0.001
+    def test_the_rear_main_plane_reaches_the_drawn_wake(self):
+        """`wake_strength` read the sealed flap's degrees alone: the main plane was invisible.
+
+        Swept at the tail with the flap sealed at 20 deg: 0.46261154 at 5 deg,
+        0.45166109 at 10, the lowest point 0.43977330 at the solver's own knee of
+        16.4140 deg, then back up to 0.44205550 at 20 and 0.44904737 at 35 - the same
+        turn the forces make. The old term drew all five identically, and every degree
+        it was given deepened the wake further.
+        """
+        onset = math.degrees(analytical.SECTION_CL_MAX / (2 * math.pi))
+        angles = (5.0, 10.0, onset, 20.0, 35.0)
+        tail = [
+            _wake_tail(
+                FormulaAeroConfig(
+                    rear_wing_flap=_rear_flap(20.0),
+                    rear_wing_main={"angle_deg": a, "chord_m": 0.4, "span_m": 0.95},
+                )
+            )
+            for a in angles
+        ]
+
+        assert tail[0] > tail[1] > tail[2], f"loading the main plane lifted the wake: {tail[:3]}"
+        assert tail.index(min(tail)) == 2, f"the wake does not bottom out at the knee: {tail}"
+        assert tail[-1] - min(tail) > 0.005, f"the stall only lifted the wake {tail[-1] - min(tail):.5f}"
 
     def test_front_wing_suction_follows_ride_height(self):
         """Lower front ride height must read as more suction on the map's front wing."""
         low = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=10.0), "front_wing")
         high = self._mean_cp(FormulaAeroConfig(ride_height_front_mm=60.0), "front_wing")
 
-        # Measured gap over the solved wing box is 0.108 Cp, but 0.072 of it still
-        # survives with the map's decay length frozen, because the force scale
-        # moves with the ride height too. This only proves the surface responds;
-        # the decay *law* is pinned by the ratio test below.
+        # Measured gap over the solved wing box is 0.0342 Cp. It was 0.108 while the
+        # map multiplied the wing by the floor's exp(-h / 0.015 m) law, which spans
+        # 0.5134 -> 0.0183 across these two heights; the solver's own wing gain only
+        # moves 1.1455 -> 1.1018 on the main plane, so the surface still answers to
+        # ride height and no longer collapses with it.
         assert low < high - 0.02, f"front wing ignored ride height ({low:+.4f} vs {high:+.4f})"
 
-    def test_front_wing_suction_uses_the_solver_decay_length(self, monkeypatch):
-        """With the force scale pinned, the front wing must decay as the solver says.
+    def test_the_map_shades_the_priced_section_not_its_own_ramp(self):
+        """The map's two wing lines were `(degrees / 15) * 1.8` and `(degrees / 20) * 1.6`.
 
-        A 0.030 m decay length instead of the solver's 0.015 m would give 1.65
-        here rather than the measured 2.72.
+        Four literals the solver does not have, a 0.6 weight on the flap degrees no
+        solver applies, and the *floor's* ground-effect decay (`GE_DECAY_FRONT_M`,
+        0.015 m) bolted onto a wing the solver gains 15 % on at its own 0.14 m decay
+        length. All four now come through `analytical.wing_section_cl`, so the only
+        way to shade a wing is to price it.
         """
-        stations = (10.0, 25.0, 200.0)
-        cp = {
-            v: _pinned_cp(monkeypatch, {"ride_height_front_mm": v}, PROBE_FRONT_WING)
-            for v in stations
-        }
-        ge = {v: math.exp(-v / 1000.0 / analytical.GE_DECAY_FRONT_M) for v in stations}
+        src = inspect.getsource(aero_field.compute_cp_field)
+        for restated in ("1.8", "1.6", "/ 15.0", "/ 20.0", "* 0.6", "GE_DECAY_FRONT_M"):
+            assert restated not in src, f"the map still restates {restated} instead of pricing it"
+        assert "wing_planform_cl" in src
+        # The map shades a planform average, so the element-level call sits in the
+        # helper that takes it rather than in `compute_cp_field` itself.
+        assert "wing_section_cl" in inspect.getsource(aero_field._planform_cl)
 
-        assert _spread(stations, cp) == pytest.approx(_spread(stations, ge), rel=1e-3)
+    def test_the_surface_cl_weights_the_area_it_covers(self):
+        """Each element carries the drawn suction in proportion to the area it covers.
+
+        That is how `simulate` sums a planform, and the picture has to follow it: +2 deg
+        on the 0.63 m² main plane moves the drawn front Cl by +0.17574, +2 deg on the
+        0.21 m² flap by +0.05702, the 3.08 ratio of their areas. A plain mean of the two
+        sections instead gives +0.11827 against +0.11404 - near-equal, so the steep
+        little flap would own a surface it barely covers.
+        """
+        default = FormulaAeroConfig()
+        base = aero_field.wing_planform_cl(default)[0]
+        deeper_main = default.model_copy(
+            update={"front_wing_main": default.front_wing_main.model_copy(update={"angle_deg": 4.0})}
+        )
+        steeper_flap = default.model_copy(
+            update={"front_wing_flap": default.front_wing_flap.model_copy(update={"angle_deg": 10.0})}
+        )
+        main_delta = aero_field.wing_planform_cl(deeper_main)[0] - base
+        flap_delta = aero_field.wing_planform_cl(steeper_flap)[0] - base
+
+        assert main_delta > 2.0 * flap_delta, (
+            f"the planform is not area-weighted: main {main_delta:+.5f} vs flap {flap_delta:+.5f}"
+        )
+
+    def test_rear_wing_suction_peaks_at_the_solver_knee_and_falls_past_it(self, monkeypatch):
+        """A stalled wing was the most heavily loaded surface on the screen.
+
+        Measured over the solved rear wing box with the force scale pinned to 1.0:
+        the old ramp drew -0.2232 Cp at 5 deg and -1.2752 at 35 deg, growing without
+        a ceiling while the forces were already unloading that wing. The map now
+        peaks at the solver's own knee and gives the suction back: -0.1271 at 5 deg,
+        -0.2145 at the knee, -0.1760 at 35 deg.
+        """
+        onset = math.degrees(analytical.SECTION_CL_MAX / (2 * math.pi))
+        angles = (5.0, 10.0, 14.0, onset, 18.0, 20.0, 25.0, 35.0)
+        cloud = self._cloud("rear_wing")
+        cp = [
+            _pinned_cp(monkeypatch, {"rear_wing_flap": _rear_flap(a)}, cloud) for a in angles
+        ]
+
+        assert all(b < a for a, b in zip(cp[:4], cp[1:4], strict=False)), (
+            f"the front of the polar is not attached-linear: {cp[:4]}"
+        )
+        assert cp.index(min(cp)) == 3, f"the peak suction is not at the knee: {cp}"
+        assert all(b > cp[3] for b in cp[4:]), f"past the knee the wing keeps loading: {cp[4:]}"
+        assert cp[-1] - cp[3] > 0.03, f"the stall only cost {cp[-1] - cp[3]:.4f} Cp"
+
+    def test_a_gurney_tab_reaches_the_pressure_map(self, monkeypatch):
+        """15 mm of tab on the front wing main plane moved the picture by 0.00000.
+
+        The ramp had no term for it while `_wing_cl` charges 0.08 Cl per 10 mm: the
+        screen showed a tabbed wing and a clean one identically. Measured at the
+        pinned force scale over the solved front wing box, the tab is now worth
+        -0.37877 -> -0.48025 Cp.
+        """
+        cloud = self._cloud("front_wing")
+        clean = _pinned_cp(monkeypatch, {"front_wing_main": _front_main(0.0)}, cloud)
+        tabbed = _pinned_cp(monkeypatch, {"front_wing_main": _front_main(15.0)}, cloud)
+
+        assert tabbed < clean - 0.05, f"a Gurney tab barely shows on the map ({tabbed - clean:+.5f})"
+
+    def test_the_drawn_air_bends_with_the_priced_cl(self):
+        """The streamlines took the raw flap degrees over an invented ceiling twice.
+
+        `wake_strength` was `degrees / 30` and the front-wing downwash `-0.12 * (deg /
+        15)`, so a 35 deg rear flap deflected the wake 1.16667 of span on a car whose
+        rear wing the solver had already unloaded past its knee at 16.41 deg. Both now
+        scale the priced planform Cl, calibrated so the shipped default still draws the
+        numbers the ramps drew: rear 0.76343 Cl x 0.655 = 0.50005 against the old
+        15/30 = 0.5, front 0.41759 x 0.153 = 0.06389 against 0.12 x 8/15 = 0.064.
+        """
+        default = FormulaAeroConfig()
+        fw_cl, rw_cl = aero_field.wing_planform_cl(default)
+        assert rw_cl * aero_field.WAKE_DEFLECT_PER_CL == pytest.approx(15.0 / 30.0, rel=0.01)
+        assert fw_cl * aero_field.DOWNWASH_PER_CL == pytest.approx(0.12 * 8.0 / 15.0, rel=0.01)
+
+        onset = math.degrees(analytical.SECTION_CL_MAX / (2 * math.pi))
+        knee = FormulaAeroConfig(rear_wing_flap={"angle_deg": onset, "span_m": 0.9, "chord_m": 0.15})
+        stalled = FormulaAeroConfig(rear_wing_flap={"angle_deg": 35.0, "span_m": 0.9, "chord_m": 0.15})
+        _, knee_cl = aero_field.wing_planform_cl(knee)
+        _, stalled_cl = aero_field.wing_planform_cl(stalled)
+        assert stalled_cl < knee_cl, "the priced rear wing did not unload past the knee"
+
+        def lowest(lines: list[list[list[float]]]) -> float:
+            return min(p[2] for line in lines for p in line)
+
+        knee_z = lowest(generate_streamlines(knee, BOUNDS, n_lines=6, n_points=40))
+        stalled_z = lowest(generate_streamlines(stalled, BOUNDS, n_lines=6, n_points=40))
+        assert stalled_z > knee_z, (
+            f"the drawn wake still deepens past the knee ({knee_z:.5f} -> {stalled_z:.5f})"
+        )
 
     def test_diffuser_suction_follows_throat_height(self, monkeypatch):
         """The map used to price the diffuser with the rear ride height only.

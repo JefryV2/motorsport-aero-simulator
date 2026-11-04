@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from backend.models.aero_config import FormulaAeroConfig
+from backend.models.aero_config import FormulaAeroConfig, WingElement
 from backend.simulation.analytical import (
     CAR_HALF_WIDTH_M,
     CAR_HEIGHT_M,
@@ -19,7 +19,6 @@ from backend.simulation.analytical import (
     FLOOR_X_START_M,
     FRONT_AXLE_M,
     GE_DECAY_DIFFUSER_M,
-    GE_DECAY_FRONT_M,
     GE_DECAY_REAR_M,
     RAKE_COEF_PER_DEG,
     REAR_AXLE_M,
@@ -34,9 +33,19 @@ from backend.simulation.analytical import (
     diffuser_throat_height_m,
     effective_rear_flap,
     floor_height_at_m,
+    wing_section_cl,
     wing_stations,
 )
 from backend.simulation.panel_method import simulate_panel
+
+# How much of the tunnel span each unit of priced wing Cl bends the drawn air.
+# The streamlines used to take the raw flap degrees over an invented ceiling
+# (`angle / 15` and `angle / 30`), which grew without limit through the stall knee
+# the forces turn back at. These two amplitudes are calibrated on the shipped
+# default setup - front planform Cl 0.41759, rear 0.76343 - so it still draws the
+# 0.064 and 0.5 of span the old ramps gave, to within 0.2 %. Only the shape changed.
+DOWNWASH_PER_CL = 0.153
+WAKE_DEFLECT_PER_CL = 0.655
 
 
 def _normalize_coords(
@@ -176,6 +185,38 @@ class SurfaceRegions:
         )
 
 
+def _planform_cl(elements: tuple[tuple[WingElement, float | None], ...]) -> float:
+    """Area-weighted section Cl of the elements that make up one drawn surface.
+
+    Each pair is an element and the clearance `analytical.simulate` prices it at,
+    so a Gurney flap, a stalled incidence and DRS all reach the picture through the
+    same door the forces do.
+    """
+    areas = [el.chord_m * el.span_m for el, _ in elements]
+    total = sum(areas)
+    return sum(
+        wing_section_cl(el, clearance) * area
+        for (el, clearance), area in zip(elements, areas, strict=True)
+    ) / total
+
+
+def wing_planform_cl(config: FormulaAeroConfig) -> tuple[float, float]:
+    """The (front, rear) planform Cl, element for element as `analytical.simulate` prices them.
+
+    The rear pair is priced in freestream (clearance None) because that is how the
+    solver charges it; the front pair uses each element's own trailing-edge gap.
+    """
+    stations = {s.name: s for s in wing_stations(config)}
+    fw = _planform_cl(
+        (
+            (config.front_wing_main, stations["front_wing_main"].min_clearance_m),
+            (config.front_wing_flap, stations["front_wing_flap"].min_clearance_m),
+        )
+    )
+    rw = _planform_cl(((config.rear_wing_main, None), (effective_rear_flap(config), None)))
+    return fw, rw
+
+
 def compute_cp_field(
     vertices: list[list[float]] | np.ndarray,
     normals: list[list[float]] | np.ndarray | None,
@@ -194,9 +235,12 @@ def compute_cp_field(
     cl_scale = sim.forces.cl_total / 3.0
     cd_scale = sim.forces.cd_total / 1.2
 
-    fw_angle = config.front_wing_main.angle_deg + config.front_wing_flap.angle_deg * 0.6
-    rw_angle = config.rear_wing_main.angle_deg + effective_rear_flap(config).angle_deg * 0.6
-    ge_front = math.exp(-config.ride_height_front_mm / 1000.0 / GE_DECAY_FRONT_M)
+    # Suction on a wing surface is the lift the solver charges for it. The map used
+    # to ramp its own ceiling with the summed incidence, so it kept growing straight
+    # through the stall knee the forces turn back at, mixed main and flap degrees at
+    # a weight no solver sees, and priced the front wing's ground effect with the
+    # floor's decay length instead of the wing's own.
+    fw_cl, rw_cl = wing_planform_cl(config)
     ge_rear = math.exp(-config.ride_height_rear_mm / 1000.0 / GE_DECAY_REAR_M)
     ge_diffuser = math.exp(-diffuser_throat_height_m(config) / GE_DECAY_DIFFUSER_M)
     rake = 1.0 + config.rake_deg * RAKE_COEF_PER_DEG
@@ -219,8 +263,8 @@ def compute_cp_field(
             cp += -0.15 * nz * cl_scale
             cp += 0.08 * nx * cd_scale
 
-        cp -= regions["front_wing"] * (fw_angle / 15.0) * 1.8 * ge_front * cl_scale
-        cp -= regions["rear_wing"] * (rw_angle / 20.0) * 1.6 * cl_scale
+        cp -= regions["front_wing"] * fw_cl * cl_scale
+        cp -= regions["rear_wing"] * rw_cl * cl_scale
         cp -= regions["underbody"] * ge_rear * rake * 1.2 * cl_scale
         cp -= regions["diffuser"] * diff_boost * ge_diffuser * rake * cl_scale
         cp += regions["body"] * 0.25 * cd_scale
@@ -252,7 +296,8 @@ def generate_streamlines(
     center = (vmin + vmax) / 2
     span = vmax - vmin
 
-    wake_strength = effective_rear_flap(config).angle_deg / 30.0
+    fw_cl, rw_cl = wing_planform_cl(config)
+    wake_strength = rw_cl * WAKE_DEFLECT_PER_CL
 
     lines: list[list[list[float]]] = []
     for i in range(n_lines):
@@ -273,7 +318,7 @@ def generate_streamlines(
             dist = math.sqrt(nx**2 + ny**2 + nz**2)
 
             if dist < 0.35:
-                lift_deflect = -0.12 * (config.front_wing_flap.angle_deg / 15.0)
+                lift_deflect = -fw_cl * DOWNWASH_PER_CL
                 z += lift_deflect * span[2] * (1.0 - dist / 0.35)
 
             if nx > 0.2:
