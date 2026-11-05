@@ -70,6 +70,9 @@ def _resample(
     if step <= 0.0:
         raise TrackError("ds_m must be positive")
 
+    # Parameter-free on purpose: numpy 2.2.6 stubs type linspace as
+    # floating[Any], which would not unify with the closed branch's float64.
+    s_out: np.ndarray
     if closed:
         n = max(8, int(round(length / step)))
         step = length / n

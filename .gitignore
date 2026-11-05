@@ -51,3 +51,7 @@ opendesigner/
 # Offscreen render harness scratch output; curated images live in docs/screenshots/
 /render-*.png
 /render-probe.json
+
+# Throwaway CI-reproduction envs, mirrors and captured logs - never commit these
+/.ci_*
+/.ci312/
