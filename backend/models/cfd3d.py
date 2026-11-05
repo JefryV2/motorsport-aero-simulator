@@ -30,6 +30,17 @@ class ImportedCFDMeasureRequest(BaseModel):
         description="Metres per file unit. None = the file is authored in metres.",
     )
     align_ground: bool = True
+    ground_clearance_m: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description=(
+            "Metres of tunnel floor below the mesh's lowest point. 0.0 rests the "
+            "floor on it, which is right for a car standing on its tyres and wrong "
+            "for a benchmark body that floats (the Ahmed body sits 0.1 m off the "
+            "ground plane)."
+        ),
+    )
 
 
 class ImportedCFDRequest(ImportedCFDMeasureRequest):
@@ -70,6 +81,8 @@ class ImportedCFDProvenanceOut(BaseModel):
     residual_omega: float
     y_plus_avg: float | None = None
     execution_time_s: float
+    floor_y_m: float = 0.0
+    ground_clearance_m: float = 0.0
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -97,6 +110,8 @@ class ImportedMeshMeasureOut(BaseModel):
     frontal_area_m2: float
     watertight_edge_fraction: float
     extent_m: dict[str, float]
+    floor_y_m: float = 0.0
+    ground_clearance_m: float = 0.0
     axes: str
     scale_m_per_unit: float
     rasters_used: int

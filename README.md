@@ -76,7 +76,12 @@ silhouette rasterization, watertight fraction, extents — reports those numbers
 verbatim, mistakes out-of-envelope meshes into explicit HTTP 422 (never a
 silent rescale), then snappyHexMeshes the actual triangles into a tunnel box
 and runs simpleFoam k-ω SST on them. Forces are for the uploaded geometry
-alone and never combined with the parametric car. Details and honesty rules:
+alone and never combined with the parametric car. The tunnel floor rests on your
+mesh's lowest point by default, which is what a car standing on its tyres means;
+`ground_clearance_m` lowers the floor that many metres so a body that floats -
+the Ahmed body sits 0.1 m off its ground plane - keeps its gap instead of having
+the belt dragged up onto its belly. Where the floor ended up is reported back in
+the provenance. Details and honesty rules:
 `docs/decisions/0007-imported-mesh-3d-cfd.md`.
 
 ## Optimization and advice

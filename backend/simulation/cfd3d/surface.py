@@ -38,6 +38,11 @@ class ImportedSurface:
     +z lateral (the frame the 2D O-grid cases already use). ``area_front`` is
     the projected silhouette area on the y–z plane, the reference area the
     force coefficients are divided by.
+
+    ``floor_y_m`` is where the tunnel's ground plane sits. It defaults to the
+    mesh's own lowest point, which is what a car resting on its tyres wants; a
+    body authored with a genuine gap under it needs ``ground_clearance_m`` or
+    the gap is measured as part of the body and the belt lands on the belly.
     """
 
     vertices: np.ndarray
@@ -51,6 +56,8 @@ class ImportedSurface:
     extent_y_m: float
     extent_z_m: float
     height_waterline_m: float  # the mesh's own minimum y after ground alignment
+    floor_y_m: float = 0.0  # solver-frame y of the tunnel ground plane
+    ground_clearance_m: float = 0.0  # floor_y_m below the mesh's lowest point
     rasters_used: int = 0
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
@@ -164,8 +171,13 @@ def measure_imported_surface(
     axes: str = "three",
     scale_m_per_unit: float | None = None,
     align_ground: bool = True,
+    ground_clearance_m: float = 0.0,
 ) -> ImportedSurface:
     """Measure an uploaded mesh and return the solver-oriented surface.
+
+    ``ground_clearance_m`` lowers the tunnel floor that many metres below the
+    mesh's own lowest point; 0.0 (the default) rests the floor on it, which is
+    what a car standing on its tyres means.
 
     Raises ``ValueError`` (mapped to HTTP 422 by the API) when the scaled mesh
     is outside the sanity envelope or the format is unreadable.
@@ -209,6 +221,19 @@ def measure_imported_surface(
     if ext_z <= 0.0 or ext_z > MAX_LATERAL_M:
         raise ValueError(f"Scaled mesh is {ext_z:.3f} m wide; limit is {MAX_LATERAL_M} m.")
 
+    clearance = float(ground_clearance_m)
+    if not np.isfinite(clearance) or clearance < 0.0:
+        raise ValueError("ground_clearance_m must be a finite number, 0.0 or larger")
+    mesh_floor_y = float(np.min(vertices[:, 1]))
+    floor_y = mesh_floor_y - clearance
+    tunnel_height = float(np.max(vertices[:, 1])) - floor_y
+    if tunnel_height > MAX_HEIGHT_M:
+        raise ValueError(
+            f"Mesh top would sit {tunnel_height:.3f} m above the ground plane "
+            f"(limit {MAX_HEIGHT_M} m) with ground_clearance_m={clearance:.3f}; "
+            "reduce the clearance or scale the mesh down."
+        )
+
     frontal, rasters = _frontal_area_raster(vertices[:, 0], vertices[:, 1], vertices[:, 2], faces)
     if frontal <= 0.0:
         raise ValueError(
@@ -236,7 +261,9 @@ def measure_imported_surface(
         extent_x_m=ext_x,
         extent_y_m=ext_y,
         extent_z_m=ext_z,
-        height_waterline_m=float(np.min(vertices[:, 1])),
+        height_waterline_m=mesh_floor_y,
+        floor_y_m=floor_y,
+        ground_clearance_m=clearance,
         rasters_used=rasters,
         warnings=tuple(warnings),
     )

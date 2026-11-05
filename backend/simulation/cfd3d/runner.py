@@ -76,6 +76,8 @@ class ImportedCFDProvenance:
     case_dir: str = ""
     max_iterations: int = 0
     reynolds: float = 0.0
+    floor_y_m: float = 0.0
+    ground_clearance_m: float = 0.0
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
@@ -355,6 +357,8 @@ def _result_from_logs(
         case_dir=case_dir.as_posix(),
         max_iterations=max_iterations,
         reynolds=speed_ms * surface.extent_x_m / NU,
+        floor_y_m=surface.floor_y_m,
+        ground_clearance_m=surface.ground_clearance_m,
         warnings=list(surface.warnings),
     )
 

@@ -424,6 +424,7 @@ def _measure_imported(request: ImportedCFDMeasureRequest) -> ImportedSurface:
             axes=request.axes,
             scale_m_per_unit=request.scale_m_per_unit,
             align_ground=request.align_ground,
+            ground_clearance_m=request.ground_clearance_m,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -470,6 +471,8 @@ def _cfd3d_result_out(result: ImportedCFDResult, speed_kmh: float) -> ImportedCF
             residual_omega=prov.residual_omega,
             y_plus_avg=prov.y_plus_avg,
             execution_time_s=prov.execution_time_s,
+            floor_y_m=prov.floor_y_m,
+            ground_clearance_m=prov.ground_clearance_m,
             warnings=list(prov.warnings),
         ),
     )
@@ -512,6 +515,8 @@ def api_cfd3d_measure(request: ImportedCFDMeasureRequest):
             "y": surface.extent_y_m,
             "z": surface.extent_z_m,
         },
+        floor_y_m=surface.floor_y_m,
+        ground_clearance_m=surface.ground_clearance_m,
         axes=surface.axes,
         scale_m_per_unit=surface.scale_m_per_unit,
         rasters_used=surface.rasters_used,

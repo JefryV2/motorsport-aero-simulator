@@ -203,6 +203,82 @@ class TestTheCaseBuilder:
         assert case_params["format"] == CASE3D_FORMAT_VERSION
 
 
+class TestTheGroundPlaneSitsWhereTheMeshSays:
+    """A mesh that floats above its floor keeps the gap.
+
+    Before this parameter existed the tunnel floor was always the mesh's lowest
+    point, so a benchmark body authored 0.1 m off the ground (the Ahmed body)
+    had its gap deleted and the belt sat on its belly.
+    """
+
+    #: Fixture box default-case hashes, measured from a clean `git archive HEAD`
+    #: mirror of the pre-parameter builder (medium, then coarse). If these move,
+    #: every already-solved default case on disk is orphaned and re-solves.
+    DEFAULT_BOX_HASH = "7e4c3164731baa2c"
+    DEFAULT_BOX_HASH_COARSE = "748c99bede0ca08b"
+
+    def test_the_default_floor_still_rests_on_the_mesh(
+        self, box_surface, tmp_path: Path
+    ) -> None:
+        assert box_surface.floor_y_m == pytest.approx(0.0)
+        assert box_surface.ground_clearance_m == pytest.approx(0.0)
+        build = build_imported_case(box_surface, speed_ms=30.0, base_dir=tmp_path)
+        params = json.loads((build.case_dir / "case_params.json").read_text())
+        assert params["box_m"]["min"][1] == pytest.approx(0.0, abs=1e-9)
+        # 2.5 body heights above the floor, as before.
+        assert params["box_m"]["max"][1] == pytest.approx(1.25)
+        assert build.case_hash == self.DEFAULT_BOX_HASH, (
+            "the default case hash moved, so cached solves on disk would be "
+            "re-solved rather than re-parsed"
+        )
+        b_coarse = build_imported_case(
+            box_surface,
+            speed_ms=30.0,
+            mesh_level=ImportedCFDLevel.COARSE,
+            base_dir=tmp_path,
+        )
+        assert b_coarse.case_hash == self.DEFAULT_BOX_HASH_COARSE
+
+    def test_a_requested_clearance_lowers_the_floor_and_keeps_headroom(
+        self, box_stl: bytes, tmp_path: Path
+    ) -> None:
+        surface = measure_imported_surface(
+            box_stl, "stl", axes="solver", ground_clearance_m=0.1
+        )
+        assert surface.floor_y_m == pytest.approx(-0.1)
+        build = build_imported_case(surface, speed_ms=30.0, base_dir=tmp_path)
+        params = json.loads((build.case_dir / "case_params.json").read_text())
+        assert params["box_m"]["min"][1] == pytest.approx(-0.1)
+        # The tunnel height is measured from the floor: 2.5 * (0.5 + 0.1),
+        # not 2.5 * the body height alone.
+        assert params["box_m"]["max"][1] == pytest.approx(1.4)
+        assert params["ground_clearance_m"] == pytest.approx(0.1)
+        assert params["floor_y_m"] == pytest.approx(-0.1)
+
+    def test_a_moved_floor_is_a_different_case(self, box_surface, box_stl, tmp_path) -> None:
+        floating = measure_imported_surface(
+            box_stl, "stl", axes="solver", ground_clearance_m=0.1
+        )
+        b0 = build_imported_case(box_surface, speed_ms=30.0, base_dir=tmp_path)
+        b1 = build_imported_case(floating, speed_ms=30.0, base_dir=tmp_path)
+        assert b0.case_hash != b1.case_hash
+        assert b1.case_dir != b0.case_dir
+
+    def test_negative_or_infinite_clearance_is_refused(self, box_stl: bytes) -> None:
+        for bad in (-0.1, float("nan"), float("inf")):
+            with pytest.raises(ValueError, match="ground_clearance_m"):
+                measure_imported_surface(
+                    box_stl, "stl", axes="solver", ground_clearance_m=bad
+                )
+
+    def test_a_floor_so_deep_the_tunnel_bursts_is_refused(self, box_stl: bytes) -> None:
+        # 0.5 m body + 3.9 m gap is 4.4 m of tunnel height, over the 4 m limit:
+        # refused with the measured number, not clamped to something solvable.
+        with pytest.raises(ValueError, match="above the ground plane") as exc:
+            measure_imported_surface(box_stl, "stl", axes="solver", ground_clearance_m=3.9)
+        assert "4.400" in str(exc.value)
+
+
 class TestTheRunner:
     """Logs are parsed, never fabricated; caching re-parses instead of solving."""
 
@@ -411,6 +487,28 @@ class TestTheCFD3DEndpointOverHttp:
         assert body["triangle_count"] == 12
         assert body["watertight_edge_fraction"] == pytest.approx(1.0)
         assert body["warnings"] == []
+
+    def test_measure_echoes_the_floor_it_will_build(self, box_stl: bytes) -> None:
+        client = self._client()
+        model_id = self._upload(client, box_stl)
+        resp = client.post(
+            "/api/cfd/3d/measure",
+            json={"model_id": model_id, "axes": "solver", "ground_clearance_m": 0.1},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["ground_clearance_m"] == pytest.approx(0.1)
+        assert body["floor_y_m"] == pytest.approx(-0.1)
+
+    def test_clearance_beyond_the_contract_ceiling_is_422(self, box_stl: bytes) -> None:
+        client = self._client()
+        model_id = self._upload(client, box_stl)
+        resp = client.post(
+            "/api/cfd/3d/measure",
+            json={"model_id": model_id, "axes": "solver", "ground_clearance_m": 5.0},
+        )
+        assert resp.status_code == 422
+        assert "ground_clearance_m" in resp.text
 
     def test_measure_unknown_model_is_404(self, box_stl: bytes) -> None:
         client = self._client()

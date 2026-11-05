@@ -68,15 +68,19 @@ def background_box(
     length = surface.extent_x_m
     zmin, zmax = float(surface.vertices[:, 2].min()), float(surface.vertices[:, 2].max())
     pad = (zmax - zmin) * (SIDE_MARGIN_LENGTHS - 1.0) * 0.5
+    # Measured from the ground plane, not from the belly: a body with a real
+    # clearance under it keeps that gap, and still gets the same headroom.
+    floor_y = surface.floor_y_m
+    roof_span = float(surface.vertices[:, 1].max()) - floor_y
 
     box_min = (
         float(surface.vertices[:, 0].min()) - INLET_MARGIN_LENGTHS * length,
-        float(surface.vertices[:, 1].min()),
+        floor_y,
         zmin - pad,
     )
     box_max = (
         float(surface.vertices[:, 0].max()) + OUTLET_MARGIN_LENGTHS * length,
-        float(surface.vertices[:, 1].min()) + TOP_MARGIN_LENGTHS * surface.extent_y_m,
+        floor_y + TOP_MARGIN_LENGTHS * roof_span,
         zmax + pad,
     )
     return box_min, box_max
@@ -550,10 +554,16 @@ def build_imported_case(
         np.ascontiguousarray(surface.vertices).tobytes()
         + np.ascontiguousarray(surface.faces).tobytes()
     ).digest()
+    # A lowered floor is a different case, but the default floor (resting on the
+    # mesh's lowest point) keeps the historical payload byte for byte, so cases
+    # already solved on disk stay reusable.
+    params_tag = f"{speed_ms:.4f}|{max_iterations}|{mesh_level.value}"
+    if surface.ground_clearance_m != 0.0:
+        params_tag += f"|fy{surface.floor_y_m:.6f}"
     payload = (
         CASE3D_FORMAT_VERSION.encode()
         + b"|"
-        + f"{speed_ms:.4f}|{max_iterations}|{mesh_level.value}".encode()
+        + params_tag.encode()
         + b"|"
         + surface_hash
     )
@@ -681,6 +691,8 @@ functions
             "y": surface.extent_y_m,
             "z": surface.extent_z_m,
         },
+        "floor_y_m": surface.floor_y_m,
+        "ground_clearance_m": surface.ground_clearance_m,
         "speed_ms": speed_ms,
         "reynolds_length": surface.extent_x_m,
         "reynolds": speed_ms * surface.extent_x_m / NU,
