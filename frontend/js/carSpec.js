@@ -132,6 +132,34 @@ export const DEFAULT_ELEMENT = {
 };
 
 /**
+ * The complete default setup, in the field names the API uses: the element
+ * factories above plus the five underbody defaults, DRS and speed. Every
+ * fallback in this module and in the viewer reads these numbers, so a default
+ * has one home in the frontend and moves with `FormulaAeroConfig` instead of
+ * being copied beside it - a copied default keeps drawing and pricing one car
+ * after the model has been changed to another.
+ */
+export const DEFAULT_SETUP = {
+  ...DEFAULT_ELEMENT,
+  ride_height_front_mm: 25,
+  ride_height_rear_mm: 45,
+  rake_deg: 1.5,
+  diffuser_angle_deg: 12,
+  diffuser_ride_height_mm: 30,
+  drs_active: false,
+  speed_kmh: 200,
+};
+
+/**
+ * A setup field, or the model's default for it. Keyed by the API field name the
+ * way `element` keys the element defaults, so a fallback cannot be written with
+ * a number the model does not have.
+ */
+function setupNum(config, key) {
+  return num(config?.[key], DEFAULT_SETUP[key]);
+}
+
+/**
  * Rear flap incidence the solver actually uses (analytical.effective_rear_flap).
  * DRS folds the flap toward the main plane; a flap already below that angle
  * cannot be reduced further, so DRS is a no-op.
@@ -178,7 +206,7 @@ function element(config, name) {
  * (panel_method.py:38-39). Positive incidence drops the trailing edge.
  */
 function wingStations(config) {
-  const hf = num(config?.ride_height_front_mm, 25) / 1000;
+  const hf = setupNum(config, 'ride_height_front_mm') / 1000;
   const fwMain = element(config, 'front_wing_main');
   const fwFlap = element(config, 'front_wing_flap');
   const rwMain = element(config, 'rear_wing_main');
@@ -202,8 +230,8 @@ function wingStations(config) {
 
 /** Floor line: the two ride heights at the two axles define the rake ramp. */
 function floorRake(config) {
-  const hf = num(config?.ride_height_front_mm, 25) / 1000;
-  const hr = num(config?.ride_height_rear_mm, 45) / 1000;
+  const hf = setupNum(config, 'ride_height_front_mm') / 1000;
+  const hr = setupNum(config, 'ride_height_rear_mm') / 1000;
   const dx = REFERENCE.rearAxleM - REFERENCE.frontAxleM;
   const slope = (hr - hf) / Math.max(dx, 0.01);
   const at = (x) => hf + slope * (x - REFERENCE.frontAxleM);
@@ -229,8 +257,8 @@ function floorRake(config) {
 function diffuserGeometry(config, floor) {
   const xEnd = REFERENCE.floorXEndM;
   const xStart = xEnd - REFERENCE.diffuserLengthM;
-  const throat = Math.max(num(config?.diffuser_ride_height_mm, 30) / 1000, floor.heightAt(xStart));
-  const angle = Math.min(20, Math.max(5, num(config?.diffuser_angle_deg, 12))) * DEG;
+  const throat = Math.max(setupNum(config, 'diffuser_ride_height_mm') / 1000, floor.heightAt(xStart));
+  const angle = Math.min(20, Math.max(5, setupNum(config, 'diffuser_angle_deg'))) * DEG;
   const exitHeight = Math.min(throat + REFERENCE.diffuserLengthM * Math.tan(angle), REFERENCE.diffuserExitMaxM);
   return {
     xStart,
@@ -255,11 +283,11 @@ function diffuserGeometry(config, floor) {
  */
 export function underbodyInputs(config, throatM = null) {
   return {
-    frontRideHeightM: num(config?.ride_height_front_mm, 25) / 1000,
-    rearRideHeightM: num(config?.ride_height_rear_mm, 45) / 1000,
-    diffuserThroatM: throatM === null ? num(config?.diffuser_ride_height_mm, 30) / 1000 : throatM,
-    diffuserAngleDeg: num(config?.diffuser_angle_deg, 12),
-    rakeDeg: num(config?.rake_deg, 1.5),
+    frontRideHeightM: setupNum(config, 'ride_height_front_mm') / 1000,
+    rearRideHeightM: setupNum(config, 'ride_height_rear_mm') / 1000,
+    diffuserThroatM: throatM === null ? setupNum(config, 'diffuser_ride_height_mm') / 1000 : throatM,
+    diffuserAngleDeg: setupNum(config, 'diffuser_angle_deg'),
+    rakeDeg: setupNum(config, 'rake_deg'),
   };
 }
 

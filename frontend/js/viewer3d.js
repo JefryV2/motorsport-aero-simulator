@@ -26,22 +26,16 @@ import {
 } from './flowEngine.js';
 import { VIEW_THEME } from './theme.js';
 import { buildCarGeometry } from './carGeometry.js';
-import { toFlowGeo } from './carSpec.js';
+import { toFlowGeo, DEFAULT_ELEMENT, DEFAULT_SETUP } from './carSpec.js';
 import { MeshFlowSampler, velocityAtMesh, generateSurfaceStreamlines, spawnSurfaceParticle, snapToSurface, surfaceOffset } from './meshFlow.js';
 
-const FALLBACK_CONFIG = {
-  front_wing_main: { angle_deg: 2, chord_m: 0.35, span_m: 1.8, gurney_mm: 0 },
-  front_wing_flap: { angle_deg: 8, chord_m: 0.12, span_m: 1.75, gurney_mm: 0 },
-  rear_wing_main: { angle_deg: 5, chord_m: 0.4, span_m: 0.95, gurney_mm: 0 },
-  rear_wing_flap: { angle_deg: 15, chord_m: 0.15, span_m: 0.9, gurney_mm: 0 },
-  drs_active: false,
-  ride_height_front_mm: 25,
-  ride_height_rear_mm: 45,
-  rake_deg: 1.5,
-  diffuser_angle_deg: 12,
-  diffuser_ride_height_mm: 30,
-  speed_kmh: 200,
-};
+/**
+ * The setup the viewer falls back to before the first response arrives. It is
+ * the spec's own default setup, not a copy: a copied default kept drawing and
+ * pricing one car after `FormulaAeroConfig` had been changed to another, because
+ * nothing but the two files agreeing held them together.
+ */
+const FALLBACK_CONFIG = { ...DEFAULT_SETUP };
 
 function num(v, fallback) {
   return Number.isFinite(v) ? v : fallback;
@@ -50,18 +44,25 @@ function num(v, fallback) {
 /**
  * Every setup field that moves the built-in car's drawn geometry. Speed does
  * not belong here: it changes the field, not the body.
+ *
+ * The fallbacks are the ones `buildCarGeometry` resolves through, so two configs
+ * that draw the same car always key the same. Restating them as 0 keyed a config
+ * with missing fields identically to one spelled out as a zero planform, though
+ * the two draw different cars: switching between them skipped the rebuild and
+ * left the first on screen.
  */
 function _geometryKey(config) {
   const el = (name) => {
     const w = config?.[name] || {};
-    return `${num(w.angle_deg, 0)}:${num(w.chord_m, 0)}:${num(w.span_m, 0)}:${num(w.gurney_mm, 0)}`;
+    const d = DEFAULT_ELEMENT[name];
+    return `${num(w.angle_deg, d.angle_deg)}:${num(w.chord_m, d.chord_m)}:${num(w.span_m, d.span_m)}:${num(w.gurney_mm, d.gurney_mm)}`;
   };
   return [
     el('front_wing_main'), el('front_wing_flap'), el('rear_wing_main'), el('rear_wing_flap'),
-    num(config?.ride_height_front_mm, 25),
-    num(config?.ride_height_rear_mm, 45),
-    num(config?.diffuser_angle_deg, 12),
-    num(config?.diffuser_ride_height_mm, 30),
+    num(config?.ride_height_front_mm, DEFAULT_SETUP.ride_height_front_mm),
+    num(config?.ride_height_rear_mm, DEFAULT_SETUP.ride_height_rear_mm),
+    num(config?.diffuser_angle_deg, DEFAULT_SETUP.diffuser_angle_deg),
+    num(config?.diffuser_ride_height_mm, DEFAULT_SETUP.diffuser_ride_height_mm),
     // Folds the drawn rear flap; the element angles themselves are unchanged.
     // rake_deg is absent on purpose: the floor line is drawn from the two ride
     // heights, and the rake term only scales underbody suction.

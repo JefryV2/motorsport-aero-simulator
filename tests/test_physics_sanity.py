@@ -40,6 +40,9 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 21. And its wake is the same momentum balance: drag and downforce set the deficit
     and the upwash for both tiers, so no setup leaves the drawn wake fixed at a
     picture constant
+22. The setup defaults the frontend falls back to have one home, built from the
+    values `FormulaAeroConfig` already states, so a default that moves cannot
+    leave the viewer drawing and pricing one car while the request sends another
 """
 
 from __future__ import annotations
@@ -1351,6 +1354,115 @@ class TestRequestPayloadTakesThePlanformFromTheModel:
             f"getConfig() hardcodes planform {leaked} again - the payload must "
             "take chord and span from DEFAULT_ELEMENT"
         )
+
+
+class TestDefaultSetupHasOneHome:
+    """The frontend used to fall back to a second copy of every model default.
+
+    `viewer3d.js` wrote out all four `FormulaAeroConfig` element factories and all
+    six scalar defaults, and `carSpec.js` repeated the five underbody numbers
+    again inside its own station, floor, diffuser and law helpers - 26 numbers the
+    model had already stated, held together by nothing but the two files having
+    been edited from the same copy. Moving a default therefore moved the request
+    payload and the priced field onto the new car and left the viewer's fallback
+    on the old one: with the rear main chord taken from 0.40 to 0.45 m, the
+    fallback field kept charging Cl*A 0.7439 m2 against the spec's 0.7658 and
+    drew its rear lifting line at 3.6496 m instead of 3.6621 m.
+    """
+
+    SCALAR_FIELDS = (
+        "ride_height_front_mm",
+        "ride_height_rear_mm",
+        "rake_deg",
+        "diffuser_angle_deg",
+        "diffuser_ride_height_mm",
+        "speed_kmh",
+    )
+
+    def _js(self, name: str) -> str:
+        path = Path(__file__).resolve().parents[1] / "frontend" / "js" / name
+        return path.read_text(encoding="utf-8")
+
+    def _default_setup_block(self) -> str:
+        block = re.search(
+            r"export const DEFAULT_SETUP = \{(.*?)\n\};", self._js("carSpec.js"), re.S
+        )
+        assert block, "carSpec.js no longer exports DEFAULT_SETUP"
+        return block.group(1)
+
+    def test_the_default_setup_is_the_model_defaults(self):
+        block = self._default_setup_block()
+        assert block.strip().startswith("...DEFAULT_ELEMENT,"), (
+            "DEFAULT_SETUP no longer starts from DEFAULT_ELEMENT, so the planform "
+            "has a second copy again - the one the cross-language test pins"
+        )
+        fields = {key: float(value) for key, value in re.findall(r"(\w+): ([0-9.]+)", block)}
+        cfg = FormulaAeroConfig()
+        for key in self.SCALAR_FIELDS:
+            assert key in fields, f"DEFAULT_SETUP dropped {key}"
+            assert fields[key] == pytest.approx(getattr(cfg, key)), (
+                f"{key}: the frontend falls back to {fields[key]}, the model's own "
+                f"default is {getattr(cfg, key)}"
+            )
+        assert re.search(r"drs_active:\s*false", block), (
+            "DEFAULT_SETUP no longer falls back to DRS closed, which is what the "
+            "model's own default is"
+        )
+
+    def test_no_other_module_restates_a_default(self):
+        root = Path(__file__).resolve().parents[1] / "frontend" / "js"
+        offenders = []
+        for path in sorted(root.glob("*.js")):
+            if path.name == "carSpec.js":
+                continue
+            text = path.read_text(encoding="utf-8")
+            for key in (*self.SCALAR_FIELDS, "drs_active"):
+                written = re.findall(rf"{key}\s*:\s*[0-9.]+|{key}\s*:\s*(?:true|false)", text)
+                if written:
+                    offenders.append(f"{path.name}: {key} {written}")
+        assert not offenders, (
+            "a default the model already states has been copied out again: "
+            + "; ".join(offenders)
+        )
+
+    def test_car_spec_resolves_every_fallback_through_one_lookup(self):
+        spec = self._js("carSpec.js")
+        for key in self.SCALAR_FIELDS:
+            inline = re.search(rf"num\([^)]*{key}[^,]*,\s*[0-9.]+\)", spec)
+            assert inline is None, (
+                f"carSpec.js writes {key}'s default inline again ({inline.group(0)}); "
+                "it must ask DEFAULT_SETUP through setupNum"
+            )
+            assert len(re.findall(rf"{key}:\s*[0-9.]+", spec)) == 1, (
+                f"{key} is written as a default twice in carSpec.js"
+            )
+        # 1 definition + the station, floor, diffuser and law helpers that read it.
+        assert spec.count("setupNum(") == 11, spec.count("setupNum(")
+        assert re.search(
+            r"function setupNum\(config, key\) \{\n  return num\(config\?\.\[key\],"
+            r" DEFAULT_SETUP\[key\]\);\n\}",
+            spec,
+        ), "setupNum no longer reads the default it is handed the key for"
+
+    def test_the_viewer_falls_back_to_the_spec_default(self):
+        viewer = self._js("viewer3d.js")
+        assert re.search(
+            r"import \{[^}]*DEFAULT_SETUP[^}]*\} from '\./carSpec\.js';", viewer
+        ), "viewer3d.js no longer imports the canonical default setup"
+        assert re.search(
+            r"const FALLBACK_CONFIG = \{ \.\.\.DEFAULT_SETUP \};", viewer
+        ), (
+            "the viewer has gone back to a hand-copied fallback config; before this "
+            "it restated all four element factories and six scalar defaults"
+        )
+        assert re.search(r"const d = DEFAULT_ELEMENT\[name\];", viewer), (
+            "_geometryKey no longer takes its element fallbacks from DEFAULT_ELEMENT"
+        )
+        for key in ("ride_height_front_mm", "ride_height_rear_mm", "diffuser_angle_deg",
+                    "diffuser_ride_height_mm"):
+            assert re.search(rf"num\(config\?\.{key}, DEFAULT_SETUP\.{key}\)", viewer), (
+                f"_geometryKey restates {key}'s default instead of reading DEFAULT_SETUP"
+            )
 
 
 class TestReynoldsReadoutSitsOnTheDrawnCar:
