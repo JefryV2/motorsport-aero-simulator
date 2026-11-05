@@ -474,7 +474,6 @@ export class AeroViewer {
     this._buildParticleMesh();
     this._rebuildFlowScene();
     this.updateAero(this.config, this.simForces);
-    document.getElementById('aeroBadge')?.classList.add('active');
   }
 
   _worldSamplePoints() {

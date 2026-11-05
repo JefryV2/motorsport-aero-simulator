@@ -45,5 +45,7 @@ one red used for the primary action and small status marks.
 2. Never hard-code a colour, size, or spacing value that exists as a token.
 3. New text minimum is 12 px; new controls minimum 24 px with a focus ring.
 4. Copy is neutral engineer-speak; no hype, no exclamation marks, no AI slop.
-5. Method honesty precedes style: provenance banners, failed CFD cards, and
-   synthetic labels must stay visually loud (left-border ticks + status colour).
+5. Method honesty precedes style: the header solver pill, the fidelity badge and
+   provenance line, the failed CFD card and synthetic labels must stay visually
+   loud (status colour + label). Each status fact gets one owner - a caveat that
+   needs a second surface means the first one is in the wrong place.

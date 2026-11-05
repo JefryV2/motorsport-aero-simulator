@@ -2039,6 +2039,64 @@ class TestTheInteractionLayerAnswersToTheFieldBudget:
         )
 
 
+class TestEachStatusFactHasOneOwnerOnScreen:
+    """The workstation used to state solver availability four times over - a header
+    note, a dismissible provenance banner, a sidebar solver card and the status pill
+    - and the fidelity label twice, in the results head and as a viewer overlay.
+
+    Each cut removed a surface, not a fact: the pill names the solver and its
+    backend, the CFD tab tag says how long a run takes, the method note owns the
+    hybrid caveat, the badge and provenance line own the fidelity label, and the
+    metric grid owns the force numbers. This locks that arrangement so a fifth
+    banner cannot come back by accretion.
+    """
+
+    REMOVED_SURFACES = (
+        "header-note", "provenanceBanner", "pbTitle", "pbText", "pbDismiss",
+        "solverCard", "solverName", "solverBackend", "solverNote", "solver-card",
+        "aeroBadge", "aero-badge", "runHint", "drsIndicator", "methodTabs",
+    )
+
+    def _text(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_duplicated_surfaces_stay_gone(self) -> None:
+        html = self._text("frontend", "index.html")
+        for token in self.REMOVED_SURFACES:
+            assert token not in html, f"index.html mentions {token} again"
+
+    def test_the_surviving_owners_are_singular(self) -> None:
+        html = self._text("frontend", "index.html")
+        for owner in ("solverPill", "solverPillText", "methodNote",
+                      "fidelityBadge", "provenanceLine"):
+            assert html.count(f'id="{owner}"') == 1, f"{owner} is not singular"
+
+    def test_the_run_time_promise_is_on_the_note_not_a_second_line(self) -> None:
+        app = self._text("frontend", "js", "app.js")
+        assert "getElementById('runHint')" not in app, "a second status line is back"
+        body = app[app.index("function updateMethodNote()"):]
+        body = body[:body.index("\nfunction ", 10)]
+        assert "one minute" in body, "the CFD note no longer promises the run time"
+
+    def test_the_engineer_panel_does_not_restate_the_grid(self) -> None:
+        tools = self._text("frontend", "js", "engineerTools.js")
+        panel = tools[tools.index("export function renderEngineerPanel"):]
+        for absolute in (
+            "ctx.cl", "ctx.cd", "ctx.copXm", "ctx.downforceN",
+            "ctx.downforceFrontN", "ctx.downforceRearN", "ctx.dragN",
+            "ctx.efficiency", "ctx.balanceFrontPct", "ctx.dynamicPressureKPa",
+        ):
+            assert absolute not in panel, f"the panel prints {absolute} again"
+        assert "delta.downforceN" in panel, (
+            "the panel is the only place the baseline delta is shown"
+        )
+        assert "['CoP x'" in tools and "['Cl'" in tools, (
+            "the numbers left the panel without staying available in the export"
+        )
+
+
 class TestTheChangelogStillRendersAsATable:
     """GitHub splits a table row on every unescaped `|`, code spans included, and
     then truncates the row back to the header's column count - so the prose after

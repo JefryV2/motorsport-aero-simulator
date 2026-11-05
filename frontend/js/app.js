@@ -172,9 +172,6 @@ function setFidelityBadge(key) {
 
 function applyHealth(health) {
   cfdBackend = health?.cfd_backend || 'unknown';
-  const banner = document.getElementById('provenanceBanner');
-  const title = document.getElementById('pbTitle');
-  const text = document.getElementById('pbText');
   const cfdOption = document.querySelector('#method option[value="cfd"]');
   const legacyCfdOption = document.querySelector('#method option[value="cfd_stub"]');
   const solverVersion = health?.solver_version || 'OpenFOAM';
@@ -189,10 +186,6 @@ function applyHealth(health) {
 
   const pill = document.getElementById('solverPill');
   const pillText = document.getElementById('solverPillText');
-  const solverCard = document.getElementById('solverCard');
-  const solverName = document.getElementById('solverName');
-  const solverBackend = document.getElementById('solverBackend');
-  const solverNote = document.getElementById('solverNote');
   const cfdTabTag = document.querySelector('.method-tab[data-method="cfd"] .tag');
 
   if (pill) {
@@ -203,44 +196,10 @@ function applyHealth(health) {
         : 'No CFD solver';
     }
   }
-  if (solverCard) solverCard.className = 'solver-card ' + (solverInstalled ? 'ok' : 'warn');
-  if (solverName) solverName.textContent = solverInstalled ? solverVersion : 'Synthetic fallback only';
-  if (solverBackend) solverBackend.textContent = solverInstalled ? cfdBackend : 'none';
-  if (solverNote) {
-    solverNote.textContent = solverInstalled
-      ? 'The CFD action runs a real 2D k-omega SST RANS front-wing section, then adds empirical floor and rear-wing terms. It is a hybrid estimate, not full-car CFD.'
-      : 'No OpenFOAM detected. The CFD action returns the labelled calibrated fallback; VLM remains the physics preview.';
-  }
   if (cfdTabTag) {
     cfdTabTag.textContent = solverInstalled ? `${solverVersion} · ~1 min` : 'fallback only';
   }
 
-  if (!banner || !title || !text) {
-    syncMethodTabs();
-    updateMethodNote();
-    return;
-  }
-  banner.hidden = false;
-
-  if (solverInstalled) {
-    banner.className = 'provenance-banner ok';
-    title.textContent = `${solverVersion} detected — real 2D RANS available`;
-    text.innerHTML =
-      `CFD solves a 2D front-wing section with <code>simpleFoam</code>; floor and rear-wing terms ` +
-      `stay empirical, so the total is <strong>RANS + EMPIRICAL</strong>, not full-car CFD. ` +
-      `VLM stays the live preview.`;
-  } else {
-    banner.className = 'provenance-banner warn';
-    title.textContent = 'No CFD solver detected — synthetic fallback is active';
-    text.innerHTML =
-      `This machine has no OpenFOAM binary. The <strong>CFD</strong> option returns a ` +
-      `calibrated closed-form model, not a mesh solution. Results are badge-labelled ` +
-      `<strong>SYNTHETIC MODEL</strong>; use <strong>VLM</strong> for the physics path.`;
-  }
-
-  if (sessionStorage.getItem('provenanceDismissed') === '1') {
-    banner.hidden = true;
-  }
   syncMethodTabs();
   updateMethodNote();
 }
@@ -251,18 +210,10 @@ async function loadHealth() {
     if (!res.ok) throw new Error(`health ${res.status}`);
     applyHealth(await res.json());
   } catch (e) {
-    const banner = document.getElementById('provenanceBanner');
     const pill = document.getElementById('solverPill');
     const pillText = document.getElementById('solverPillText');
     if (pill) pill.className = 'status-pill warn';
     if (pillText) pillText.textContent = 'Backend unreachable';
-    if (banner) {
-      banner.hidden = false;
-      banner.className = 'provenance-banner warn';
-      document.getElementById('pbTitle').textContent = 'Backend provenance unavailable';
-      document.getElementById('pbText').textContent =
-        'Could not read /api/health. Treat all forces as unverified until the API is reachable.';
-    }
   }
 }
 
@@ -270,7 +221,6 @@ function updateMethodNote() {
   const note = document.getElementById('methodNote');
   const method = document.getElementById('method')?.value || 'analytical_enhanced';
   const button = document.getElementById('btnSimulate');
-  const hint = document.getElementById('runHint');
   if (!note) return;
   note.classList.remove('warn');
 
@@ -280,16 +230,11 @@ function updateMethodNote() {
   if (cfd) {
     note.classList.toggle('warn', !solverInstalled);
     note.textContent = solverInstalled
-      ? 'Real 2D OpenFOAM RANS on the current front-wing section, with empirical floor and rear-wing terms. The total is a hybrid estimate, not full-car CFD.'
+      ? 'Real 2D OpenFOAM RANS on the current front-wing section, with empirical floor and rear-wing terms. The total is a hybrid estimate, not full-car CFD. Manual run: expect about one minute per case.'
       : 'No OpenFOAM detected. This returns the labelled calibrated fallback, not a mesh solution.';
     if (button) {
       button.textContent = solverInstalled ? 'Run CFD (OpenFOAM) · ~1 min' : 'Run CFD fallback';
       button.classList.add('cfd-mode');
-    }
-    if (hint) {
-      hint.textContent = solverInstalled
-        ? 'Manual run: meshes and solves the 2D section, then combines it with the empirical floor/rear model. Expect about one minute.'
-        : 'No solver on this machine; the CFD action will be labelled as a synthetic fallback.';
     }
   } else if (method === 'analytical') {
     note.textContent = 'Empirical correlations. Fast trend indicator; no flow field is solved.';
@@ -297,14 +242,12 @@ function updateMethodNote() {
       button.textContent = 'Run analytical';
       button.classList.remove('cfd-mode');
     }
-    if (hint) hint.textContent = 'Instant correlation baseline. Use VLM for the 3D physics preview.';
   } else {
     note.textContent = 'Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.';
     if (button) {
       button.textContent = 'Run VLM preview';
       button.classList.remove('cfd-mode');
     }
-    if (hint) hint.textContent = 'VLM updates instantly. Choose CFD for a real OpenFOAM solve (about one minute).';
   }
 
   syncMethodTabs();
@@ -420,7 +363,7 @@ function syncSliderLabels() {
 function updateEngineerPanel(speedRange = null) {
   const flow = getFlowSettings();
   const sr = speedRange || viewer?.getSpeedRange?.() || null;
-  const ctx = engineeringContext(flow, lastSim, sr);
+  const ctx = engineeringContext(flow, sr);
   const delta = baselineSim && lastSim ? compareToBaseline(lastSim, baselineSim) : null;
   const el = document.getElementById('engReadout');
   if (el) el.textContent = renderEngineerPanel(ctx, delta);
@@ -445,7 +388,6 @@ function refreshVisualization(simForces = lastSim) {
   viewer.updateAero(getConfig(), simForces);
   viewer.endFlowBatch();
   updateEngineerPanel();
-  document.getElementById('aeroBadge')?.classList.add('active');
 }
 
 function getTrackLapDelta(forces, fidelity) {
@@ -554,15 +496,6 @@ function showResults(sim) {
   sim.lap_time_delta_s = getTrackLapDelta(sim.forces, fidelity);
 
   setFidelityBadge(fidelity);
-
-  const liveBadge = document.getElementById('aeroBadge');
-  if (liveBadge) {
-    const meta = fidelity ? FIDELITY_META[fidelity] : null;
-    liveBadge.textContent = meta ? `● ${meta.label}` : '● LIVE AERO';
-  }
-  if (document.getElementById('viewerWrap')) {
-    document.getElementById('viewerWrap').dataset.fidelity = fidelity || 'unknown';
-  }
 
   const f = sim.forces;
   document.getElementById('m_df').textContent = f.downforce_total_N.toLocaleString();
@@ -1362,11 +1295,6 @@ function setupControls() {
   });
   document.querySelectorAll('.method-tab').forEach((tab) => {
     tab.addEventListener('click', () => setMethod(tab.dataset.method));
-  });
-  document.getElementById('pbDismiss')?.addEventListener('click', () => {
-    const banner = document.getElementById('provenanceBanner');
-    if (banner) banner.hidden = true;
-    sessionStorage.setItem('provenanceDismissed', '1');
   });
 
   // DRS toggle

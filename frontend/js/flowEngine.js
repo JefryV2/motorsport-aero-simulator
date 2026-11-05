@@ -835,10 +835,6 @@ export function velocityAt(x, y, z, config, bounds, flow) {
   return [vx, vy, vz];
 }
 
-export function speedAt(x, y, z, config, bounds, flow) {
-  return len(velocityAt(x, y, z, config, bounds, flow));
-}
-
 /**
  * The wake as the field defines it, ready to draw.
  *
@@ -1041,11 +1037,6 @@ export function spawnOneParticle(bounds, flow, index = 0) {
 
   const p = atStation(fr, s, h, z);
   return { x: p[0], y: p[1], z: p[2], life: Math.random() * 2, hit: 0 };
-}
-
-export function spawnParticles(bounds, flow) {
-  const count = flow.particleCount || 300;
-  return Array.from({ length: count }, (_, i) => spawnOneParticle(bounds, flow, i));
 }
 
 export function generateStreamlines(config, bounds, flow, velocityFn = velocityAt) {

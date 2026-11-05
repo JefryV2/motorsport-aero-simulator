@@ -261,8 +261,3 @@ export function computeSpeedField(vertices, normals, config, bounds, flow, veloc
   const colors = speeds.map((s) => speedToColor(s, ref, minS, maxS));
   return { speeds, colors, range: { min: minS, max: maxS } };
 }
-
-export {
-  potentialVelocityAt, velocityAt, generateStreamlines, spawnParticles,
-  speedToColor, reynoldsNumber,
-} from './flowEngine.js';

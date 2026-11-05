@@ -10,7 +10,7 @@ export function dynamicPressurePa(flow) {
   return 0.5 * RHO * v * v;
 }
 
-export function engineeringContext(flow, sim = null, speedRange = null) {
+export function engineeringContext(flow, speedRange = null) {
   const vMs = flow.windSpeedKmh / 3.6;
   const q = dynamicPressurePa(flow);
   const re = reynoldsNumber(flow);
@@ -30,20 +30,6 @@ export function engineeringContext(flow, sim = null, speedRange = null) {
     ctx.flowSpeedMaxMs = speedRange.max;
     ctx.flowSpeedMinKmh = speedRange.min * 3.6;
     ctx.flowSpeedMaxKmh = speedRange.max * 3.6;
-  }
-  if (sim?.forces) {
-    const f = sim.forces;
-    ctx.cl = f.cl_total;
-    ctx.cd = f.cd_total;
-    ctx.downforceN = f.downforce_total_N;
-    ctx.downforceFrontN = f.downforce_front_N;
-    ctx.downforceRearN = f.downforce_rear_N;
-    ctx.dragN = f.drag_N;
-    ctx.efficiency = f.efficiency;
-    ctx.balanceFrontPct = f.balance_front_pct;
-    ctx.copXm = f.cop_x_m;
-    ctx.lapDeltaS = sim.lap_time_delta_s;
-    ctx.method = sim.method;
   }
   return ctx;
 }
@@ -128,14 +114,10 @@ export function renderEngineerPanel(ctx, delta = null) {
   );
   lines.push(
     `Re ${(ctx.reynolds / 1e6).toFixed(2)}×10⁶ on L ${REFERENCE.carLengthM} m (readout - the analytical and VLM tiers apply no Re scaling) · ` +
-      `q ${ctx.dynamicPressureKPa.toFixed(2)} kPa · ρ ${ctx.airDensity} kg/m³`,
+      `ρ ${ctx.airDensity} kg/m³`,
   );
   if (ctx.flowSpeedMinMs != null) {
     lines.push(`Flow field ${ctx.flowSpeedMinKmh.toFixed(0)}–${ctx.flowSpeedMaxKmh.toFixed(0)} km/h (color scale)`);
-  }
-  if (ctx.cl != null) {
-    lines.push(`Cl ${ctx.cl.toFixed(3)} · Cd ${ctx.cd.toFixed(3)} · CoP ${ctx.copXm.toFixed(2)} m from front axle`);
-    lines.push(`DF ${ctx.downforceN.toLocaleString()} N (F ${ctx.downforceFrontN.toLocaleString()} / R ${ctx.downforceRearN.toLocaleString()}) · Drag ${ctx.dragN.toLocaleString()} N`);
   }
   if (delta) {
     lines.push(`Δ vs baseline: DF ${formatDelta(delta.downforceN, 0, ' N')} · Drag ${formatDelta(delta.dragN, 0, ' N')} · L/D ${formatDelta(delta.efficiency, 2)} · Bal ${formatDelta(delta.balanceFrontPct, 1, '%')}`);

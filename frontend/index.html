@@ -131,13 +131,6 @@
       align-items: center;
       gap: var(--s3);
     }
-    .header-note {
-      color: var(--faint);
-      font-size: var(--fs-2);
-      border-right: 1px solid var(--border);
-      padding-right: var(--s3);
-      white-space: nowrap;
-    }
     .status-pill {
       display: inline-flex;
       align-items: center;
@@ -165,65 +158,6 @@
     .status-pill.warn .dot { background: var(--warn); }
     .status-pill.busy { color: var(--info); border-color: rgba(110, 168, 220, 0.45); }
     .status-pill.busy .dot { background: var(--info); }
-
-    /* ---- provenance banner ----------------------------------------- */
-    .provenance-banner {
-      display: flex;
-      align-items: flex-start;
-      gap: var(--s3);
-      margin: var(--s2) var(--s5) 0;
-      padding: 8px var(--s3);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--faint);
-      background: var(--surface);
-      font-size: var(--fs-2);
-      line-height: 1.5;
-      flex: 0 0 auto;
-    }
-    .provenance-banner[hidden] { display: none; }
-    .provenance-banner.warn { border-left-color: var(--warn); }
-    .provenance-banner.ok { border-left-color: var(--ok); }
-    .pb-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      margin-top: 8px;
-      flex: 0 0 auto;
-      background: var(--faint);
-    }
-    .provenance-banner.warn .pb-dot { background: var(--warn); }
-    .provenance-banner.ok .pb-dot { background: var(--ok); }
-    .pb-body { flex: 1 1 auto; min-width: 0; max-width: 78ch; }
-    .pb-body #pbTitle {
-      display: block;
-      color: var(--text);
-      font-size: var(--fs-3);
-      font-weight: 600;
-      margin-bottom: 2px;
-    }
-    .pb-body span { color: var(--muted); }
-    .pb-body span strong { color: var(--text); font-weight: 600; }
-    .pb-body code {
-      color: var(--text);
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--r1);
-      padding: 0 4px;
-      font-family: var(--mono);
-      font-size: var(--fs-2);
-    }
-    .provenance-banner button {
-      width: auto;
-      margin: 0;
-      padding: 4px 8px;
-      font-size: var(--fs-1);
-      background: transparent;
-      border: 1px solid var(--border-strong);
-      color: var(--muted);
-      flex: 0 0 auto;
-      border-radius: var(--r1);
-    }
-    .provenance-banner button:hover { color: var(--text); border-color: var(--faint); }
 
     /* ---- layout ----------------------------------------------------- */
     .layout {
@@ -365,24 +299,6 @@
       pointer-events: none;
     }
     .probe-readout.active { display: block; }
-    .aero-badge {
-      position: absolute;
-      top: var(--s3);
-      right: var(--s3);
-      z-index: 6;
-      background: var(--ok-soft);
-      border: 1px solid rgba(63, 178, 127, 0.45);
-      color: var(--ok);
-      padding: 4px 8px;
-      border-radius: var(--r1);
-      font-size: var(--fs-1);
-      font-weight: 600;
-      font-family: var(--mono);
-      opacity: 0;
-      transition: opacity 0.16s ease;
-      pointer-events: none;
-    }
-    .aero-badge.active { opacity: 1; }
     .legend {
       position: absolute;
       bottom: var(--s3);
@@ -647,41 +563,6 @@
       white-space: nowrap;
       border: 0;
     }
-
-    /* ---- solver card -------------------------------------------------- */
-    .solver-card {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      margin: 0 0 var(--s3);
-      padding: 8px;
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--faint);
-      border-radius: var(--r1);
-      background: var(--surface-2);
-    }
-    .solver-card.ok { border-left-color: var(--ok); }
-    .solver-card.warn { border-left-color: var(--warn); }
-    .solver-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .solver-card-head .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--faint);
-      flex: 0 0 auto;
-    }
-    .solver-card.ok .solver-card-head .dot { background: var(--ok); }
-    .solver-card.warn .solver-card-head .dot { background: var(--warn); }
-    .solver-card-head strong { font-size: var(--fs-2); color: var(--text); }
-    .solver-card-head .backend {
-      margin-left: auto;
-      font-size: var(--fs-1);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--faint);
-      font-family: var(--mono);
-    }
-    .solver-card p { color: var(--muted); font-size: var(--fs-2); line-height: 1.45; }
 
     /* ---- run actions --------------------------------------------------- */
     #btnSimulate.primary-action,
@@ -1009,16 +890,7 @@
       align-items: center;
       gap: 6px;
     }
-    .drs-btn .dot {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--faint);
-      transition: background 0.16s ease;
-    }
     .drs-btn.enabled { color: var(--ok); border-color: rgba(63, 178, 127, 0.5); }
-    .drs-btn.enabled .dot { background: var(--ok); }
     .aero-map-box {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -1116,14 +988,12 @@
       }
       .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
       header { padding: var(--s2) var(--s3); }
-      .provenance-banner { margin: var(--s2) var(--s3) 0; }
       .bottom-panel { padding: var(--s3); }
     }
     @media (max-width: 720px) {
       .bottom-panel { grid-template-columns: 1fr; max-height: none; }
       .cfd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .toggle-row { grid-template-columns: 1fr; }
-      .header-note { display: none; }
     }
 </style>
 </head>
@@ -1134,19 +1004,9 @@
       <p>VLM live preview &middot; OpenFOAM CFD on demand &middot; per-run provenance</p>
     </div>
     <div class="header-status">
-      <span class="header-note">VLM updates live &middot; CFD is a manual run</span>
       <span class="status-pill" id="solverPill"><span class="dot"></span><span id="solverPillText">Checking solver...</span></span>
     </div>
   </header>
-
-  <div class="provenance-banner warn" id="provenanceBanner" hidden>
-    <span class="pb-dot" aria-hidden="true"></span>
-    <div class="pb-body">
-      <strong id="pbTitle">Checking solver availability…</strong>
-      <span id="pbText">Reading <code>/api/health</code> to determine which physics produced the numbers.</span>
-    </div>
-    <button type="button" id="pbDismiss" aria-label="Dismiss provenance notice">Dismiss</button>
-  </div>
 
   <div id="bootError"></div>
 
@@ -1161,7 +1021,6 @@
         <p class="status" id="cfd3dStatus" style="display:none"></p>
 
         <h2>Model View</h2>
-        <p class="status field-hint">Drag view to rotate &middot; Scroll to zoom &middot; Right-drag to pan</p>
         <div class="slider-row">
           <label for="model_scale">Model size <span id="model_scale_val">100%</span></label>
           <input type="range" id="model_scale" min="25" max="250" value="100" step="5" />
@@ -1314,7 +1173,6 @@
           <div class="inline-card-head">
             <span class="name">DRS<small>Drag Reduction System</small></span>
             <button type="button" id="btnDRS" class="drs-btn" title="Folds the rear flap to 2 degrees in every solver tier. A flap already set at or below 2 degrees is unaffected.">
-              <span id="drsIndicator" class="dot" aria-hidden="true"></span>
               <span id="drsText">OFF</span>
             </button>
           </div>
@@ -1331,7 +1189,7 @@
         </select>
 
         <p class="field-label">Method</p>
-        <div class="method-tabs" id="methodTabs" role="group" aria-label="Simulation method">
+        <div class="method-tabs" role="group" aria-label="Simulation method">
           <button type="button" class="method-tab active" data-method="analytical_enhanced">VLM<span class="tag">live preview</span></button>
           <button type="button" class="method-tab" data-method="analytical">Analytical<span class="tag">empirical</span></button>
           <button type="button" class="method-tab cfd" data-method="cfd">CFD<span class="tag">OpenFOAM · ~1 min</span></button>
@@ -1345,15 +1203,6 @@
         </select>
         <p class="method-note" id="methodNote">Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.</p>
 
-        <div class="solver-card" id="solverCard">
-          <div class="solver-card-head">
-            <span class="dot" aria-hidden="true"></span>
-            <strong id="solverName">Checking solver…</strong>
-            <span class="backend" id="solverBackend"></span>
-          </div>
-          <p id="solverNote">Reading /api/health to see whether a real CFD solver is available.</p>
-        </div>
-
         <label for="objective">Optimize for</label>
         <select id="objective">
           <option value="balanced">Balanced</option>
@@ -1363,7 +1212,6 @@
         </select>
         <button id="btnSimulate" class="primary-action">Run VLM preview</button>
         <div class="run-progress" id="runProgress" hidden><div class="bar"></div></div>
-        <p class="status" id="runHint">VLM updates instantly. CFD runs a real OpenFOAM solve, about one minute per case.</p>
         <button id="btnOptimize" class="secondary">Optimize + AI advice</button>
 
         <h2>Aero Map (Ride Height Sweep)</h2>
@@ -1379,7 +1227,7 @@
           </div>
           <div class="aero-map-frame">
             <canvas id="aeroMapCanvas" width="220" height="150" style="display: none;"></canvas>
-            <div id="aeroMapPlaceholder" class="aero-map-placeholder">Neutral: click Generate to compute the 5&times;5 ride-height sweep. Click a cell to apply it.</div>
+            <div id="aeroMapPlaceholder" class="aero-map-placeholder">Neutral: click Generate to compute the 5&times;5 ride-height sweep.</div>
             <div id="aeroMapLoading" style="display:none;" class="loading">Running 25 simulations...</div>
           </div>
           <div class="aero-map-axes">
@@ -1404,7 +1252,7 @@
           <button type="button" class="secondary" id="btnExportCsv">Export CSV</button>
         </div>
         <p class="status" id="baselineStatus">No baseline saved</p>
-        <div class="eng-readout" id="engReadout">Re, dynamic pressure, Cl/Cd, and flow speed range appear here after simulate.</div>
+        <div class="eng-readout" id="engReadout">Freestream, Re, density and the flow-field speed range. Forces: Live Results.</div>
 
         <p class="status" id="status"></p>
       </div>
@@ -1412,7 +1260,6 @@
 
     <div class="viewer-wrap" id="viewerWrap">
       <div id="viewer3d"></div>
-      <div class="aero-badge" id="aeroBadge">● LIVE AERO</div>
       <div class="view-hints">Left-drag: orbit · Scroll: zoom · Right-drag: pan</div>
       <div class="flow-hud" id="flowHud">200 km/h · 55.6 m/s · Re=4.23M</div>
       <div class="viewer-toolbar">
@@ -1530,6 +1377,6 @@
     </div>
   </main>
 
-  <script type="module" src="/static/js/app.js?v=0.5.3"></script>
+  <script type="module" src="/static/js/app.js?v=0.5.4"></script>
 </body>
 </html>
