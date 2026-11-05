@@ -2097,6 +2097,61 @@ class TestEachStatusFactHasOneOwnerOnScreen:
         )
 
 
+class TestTheUiOffersOnlyWhatItCanReach:
+    """The hidden `#method` select used to carry two legacy alias options - `panel_vlm`
+    and `cfd_stub` - that no tab could ever set, so the UI could hold a value whose
+    label nothing owned and `applyHealth` spent a line relabelling an option no reader
+    could select. The stylesheet matched that: `.status-pill.busy` styled a fourth
+    health state the writer never emits, and `.advice-box` styled markup that does not
+    exist on the page.
+
+    The three `.method-tab` buttons are the only writers of the select, so this pins
+    the option list to the tab list and keeps the unreachable states out. The backend
+    still accepts both aliases on the API (`backend/models/aero_config.py`, the
+    `/api/simulate` error text); only the UI surface had to become singular.
+    """
+
+    def _read(self, *parts: str) -> str:
+        return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_method_select_offers_exactly_what_the_tabs_can_set(self) -> None:
+        html = self._read("frontend", "index.html")
+        tabs = set(
+            re.findall(
+                r'<button[^>]*class="method-tab[^"]*"[^>]*data-method="([a-z_]+)"',
+                html,
+            )
+        )
+        assert tabs == {"analytical_enhanced", "analytical", "cfd"}, tabs
+        block = html[html.index('<select id="method"') :]
+        block = block[: block.index("</select>")]
+        options = set(re.findall(r'<option value="([a-z_]+)"', block))
+        assert options == tabs, (
+            f"the select and the tabs disagree: {sorted(options ^ tabs)}"
+        )
+
+    def test_app_js_no_longer_branches_on_a_value_the_ui_cannot_hold(self) -> None:
+        app = self._read("frontend", "js", "app.js")
+        for alias in ("cfd_stub", "panel_vlm", "legacyCfdOption"):
+            assert alias not in app, f"app.js still branches on {alias}"
+
+    def test_the_pill_only_ever_has_the_states_the_sheet_defines(self) -> None:
+        html = self._read("frontend", "index.html")
+        app = self._read("frontend", "js", "app.js")
+        start = app.index("function applyHealth(")
+        body = app[start : app.index("async function loadHealth(", start)]
+        assert "solverInstalled ? 'ok' : 'warn'" in body, (
+            "the pill assignment no longer matches the two states the sheet styles"
+        )
+        for state in ("ok", "warn"):
+            assert f".status-pill.{state} {{" in html, f"the sheet stopped styling {state}"
+        assert "busy" not in body, "the pill grew a state the sheet no longer styles"
+        assert "status-pill.busy" not in html
+        assert ".advice-box" not in html, "a rule styles markup that does not exist"
+
+
 class TestTheChangelogStillRendersAsATable:
     """GitHub splits a table row on every unescaped `|`, code spans included, and
     then truncates the row back to the header's column count - so the prose after

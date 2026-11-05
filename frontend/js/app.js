@@ -107,7 +107,7 @@ function fidelityFor(sim) {
 }
 
 function isCfdMethod(method = document.getElementById('method')?.value) {
-  return method === 'cfd' || method === 'cfd_stub';
+  return method === 'cfd';
 }
 
 function syncMethodTabs() {
@@ -118,7 +118,7 @@ function syncMethodTabs() {
     let active = false;
     if (value === 'cfd') active = cfd;
     else if (value === 'analytical') active = method === 'analytical';
-    else active = method === 'analytical_enhanced' || method === 'panel_vlm';
+    else active = method === 'analytical_enhanced';
     tab.classList.toggle('active', active);
     tab.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
@@ -173,7 +173,6 @@ function setFidelityBadge(key) {
 function applyHealth(health) {
   cfdBackend = health?.cfd_backend || 'unknown';
   const cfdOption = document.querySelector('#method option[value="cfd"]');
-  const legacyCfdOption = document.querySelector('#method option[value="cfd_stub"]');
   const solverVersion = health?.solver_version || 'OpenFOAM';
   const solverInstalled = cfdBackend === 'native' || cfdBackend === 'wsl';
 
@@ -182,7 +181,6 @@ function applyHealth(health) {
       ? `CFD — OpenFOAM ${solverVersion.replace(/^OpenFOAM\s*/i, '')} RANS + empirical`
       : 'CFD — calibrated fallback (no OpenFOAM)';
   }
-  if (legacyCfdOption) legacyCfdOption.textContent = 'CFD — calibrated fallback (legacy)';
 
   const pill = document.getElementById('solverPill');
   const pillText = document.getElementById('solverPillText');

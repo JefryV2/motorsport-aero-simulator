@@ -156,8 +156,6 @@
     .status-pill.ok .dot { background: var(--ok); }
     .status-pill.warn { color: var(--warn); border-color: rgba(217, 154, 43, 0.45); }
     .status-pill.warn .dot { background: var(--warn); }
-    .status-pill.busy { color: var(--info); border-color: rgba(110, 168, 220, 0.45); }
-    .status-pill.busy .dot { background: var(--info); }
 
     /* ---- layout ----------------------------------------------------- */
     .layout {
@@ -764,14 +762,6 @@
     .metric-help dt { color: var(--text); font-weight: 600; margin-top: var(--s2); font-size: var(--fs-2); }
     .metric-help dt:first-child { margin-top: 0; }
     .metric-help dd { margin-left: 0; }
-    .advice-box {
-      font-size: var(--fs-2);
-      line-height: 1.55;
-      max-height: 120px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      color: var(--muted);
-    }
     .status { font-size: var(--fs-2); color: var(--muted); margin-top: 8px; line-height: 1.45; }
     .status.error { color: var(--danger); }
     .loading { color: var(--info); }
@@ -1196,10 +1186,8 @@
         </div>
         <select id="method" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="analytical_enhanced">VLM — 3D vortex lattice (default)</option>
-          <option value="panel_vlm">VLM — panel alias (legacy)</option>
           <option value="analytical">Analytical — empirical baseline</option>
           <option value="cfd">CFD — OpenFOAM RANS + empirical</option>
-          <option value="cfd_stub">CFD — calibrated fallback (legacy)</option>
         </select>
         <p class="method-note" id="methodNote">Low-fidelity VLM: horseshoe vortices and an image ground plane. No mesh, no RANS.</p>
 
@@ -1377,6 +1365,6 @@
     </div>
   </main>
 
-  <script type="module" src="/static/js/app.js?v=0.5.4"></script>
+  <script type="module" src="/static/js/app.js?v=0.5.5"></script>
 </body>
 </html>
