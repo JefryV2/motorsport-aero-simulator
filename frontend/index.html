@@ -1173,8 +1173,8 @@
         <h2>Wind Tunnel</h2>
         <p class="status field-hint">Flow visualization only &mdash; smoke and streamlines use an analytic field model, not measured CFD.</p>
         <div class="slider-row">
-          <label for="wind_speed">Air speed <span id="wind_speed_val">200 km/h</span></label>
-          <input type="range" id="wind_speed" min="30" max="350" value="200" step="5" />
+          <label for="wind_speed">Air speed <span id="wind_speed_val"></span></label>
+          <input type="range" id="wind_speed" min="30" max="350" step="5" />
         </div>
         <div class="slider-row">
           <label for="wind_yaw">Yaw angle (crosswind) <span id="wind_yaw_val">0°</span></label>
@@ -1279,34 +1279,34 @@
         <h2 style="margin-top:1rem">Vehicle Setup</h2>
         <div class="section-title">Front Wing</div>
         <div class="row row-3">
-          <div><label for="fw_main">Main (°)</label><input type="number" id="fw_main" value="2" step="0.5"></div>
-          <div><label for="fw_flap">Flap (°)</label><input type="number" id="fw_flap" value="8" step="0.5"></div>
-          <div><label for="fw_gurney">Gurney (mm)</label><input type="number" id="fw_gurney" value="0" min="0" max="50" step="0.5" title="Draws a trailing tab and adds lift in the analytical tier only - the panel/VLM model has no gurney term."></div>
+          <div><label for="fw_main">Main (°)</label><input type="number" id="fw_main" step="0.5"></div>
+          <div><label for="fw_flap">Flap (°)</label><input type="number" id="fw_flap" step="0.5"></div>
+          <div><label for="fw_gurney">Gurney (mm)</label><input type="number" id="fw_gurney" min="0" max="50" step="0.5" title="Draws a trailing tab and adds lift in the analytical tier only - the panel/VLM model has no gurney term."></div>
         </div>
         <div class="section-title">Rear Wing</div>
         <div class="row row-3">
-          <div><label for="rw_main">Main (°)</label><input type="number" id="rw_main" value="5" step="0.5"></div>
-          <div><label for="rw_flap">Flap (°)</label><input type="number" id="rw_flap" value="15" step="0.5"></div>
-          <div><label for="rw_gurney">Gurney (mm)</label><input type="number" id="rw_gurney" value="0" min="0" max="50" step="0.5" title="Draws a trailing tab and adds lift in the analytical tier only - the panel/VLM model has no gurney term."></div>
+          <div><label for="rw_main">Main (°)</label><input type="number" id="rw_main" step="0.5"></div>
+          <div><label for="rw_flap">Flap (°)</label><input type="number" id="rw_flap" step="0.5"></div>
+          <div><label for="rw_gurney">Gurney (mm)</label><input type="number" id="rw_gurney" min="0" max="50" step="0.5" title="Draws a trailing tab and adds lift in the analytical tier only - the panel/VLM model has no gurney term."></div>
         </div>
         <div class="section-title">Chassis</div>
         <div class="row">
-          <div><label for="rh_front">RH front (mm)</label><input type="number" id="rh_front" value="25"></div>
-          <div><label for="rh_rear">RH rear (mm)</label><input type="number" id="rh_rear" value="45"></div>
+          <div><label for="rh_front">RH front (mm)</label><input type="number" id="rh_front"></div>
+          <div><label for="rh_rear">RH rear (mm)</label><input type="number" id="rh_rear"></div>
         </div>
 
 
         <div class="row">
-          <div><label for="rake">Rake term (°)</label><input type="number" id="rake" value="1.5" step="0.1" title="Multiplies underbody suction in the model. It does not tilt the car - the body angle comes from the two ride heights."></div>
-          <div><label for="speed">Speed sync</label><input type="number" id="speed" value="200" step="10" readonly title="Synced from air speed"></div>
+          <div><label for="rake">Rake term (°)</label><input type="number" id="rake" step="0.1" title="Multiplies underbody suction in the model. It does not tilt the car - the body angle comes from the two ride heights."></div>
+          <div><label for="speed">Speed sync</label><input type="number" id="speed" step="10" readonly title="Synced from air speed"></div>
         </div>
-        <p class="status">Body rake from those ride heights: <span id="rake_geo_val">0.34&deg;</span></p>
+        <p class="status">Body rake from those ride heights: <span id="rake_geo_val"></span></p>
         <div class="section-title">Diffuser</div>
         <div class="row">
-          <div><label for="diff_angle">Angle (°)</label><input type="number" id="diff_angle" value="12" step="0.5"></div>
-          <div><label for="diff_rh">RH (mm)</label><input type="number" id="diff_rh" value="30" title="The force model reads this as a suction decay height. The drawing treats it as the diffuser throat and cannot go below the floor line ahead of it."></div>
+          <div><label for="diff_angle">Angle (°)</label><input type="number" id="diff_angle" step="0.5"></div>
+          <div><label for="diff_rh">RH (mm)</label><input type="number" id="diff_rh" title="The force model reads this as a suction decay height. The drawing treats it as the diffuser throat and cannot go below the floor line ahead of it."></div>
         </div>
-        <p class="status">Throat drawn at <span id="diff_throat_val">39.7</span> mm — the floor line sets that minimum below the requested RH.</p>
+        <p class="status">Throat drawn at <span id="diff_throat_val"></span> mm — the floor line sets that minimum below the requested RH.</p>
         <div class="section-title">Systems & Track</div>
         <div class="inline-card" style="margin-bottom:0.55rem;">
           <div class="inline-card-head">
@@ -1317,7 +1317,7 @@
             </button>
           </div>
         </div>
-        <p class="status">Rear flap the model runs: <span id="rw_flap_eff_val">15.0</span>&deg;<span id="drsNoteVal"></span></p>
+        <p class="status">Rear flap the model runs: <span id="rw_flap_eff_val"></span>&deg;<span id="drsNoteVal"></span></p>
         
         <label for="track_profile">Track Profile</label>
         <select id="track_profile">

@@ -43,6 +43,9 @@ Verifies essential aerodynamic principles on the analytical baseline model:
 22. The setup defaults the frontend falls back to have one home, built from the
     values `FormulaAeroConfig` already states, so a default that moves cannot
     leave the viewer drawing and pricing one car while the request sends another
+23. And the panel that sends that request starts from the same setup: the markup
+    holds no copy of a default and no readout bakes a number the code recomputes,
+    so a page cannot display one car's defaults while the model documents another
 """
 
 from __future__ import annotations
@@ -1463,6 +1466,156 @@ class TestDefaultSetupHasOneHome:
             assert re.search(rf"num\(config\?\.{key}, DEFAULT_SETUP\.{key}\)", viewer), (
                 f"_geometryKey restates {key}'s default instead of reading DEFAULT_SETUP"
             )
+
+
+class TestThePanelSeedsItsDefaultsFromTheModel:
+    """`index.html` used to hold a third copy of every setup default.
+
+    Twelve `<input value="...">` attributes plus `wind_speed` stated the planform
+    angles, the two ride heights, the rake term, both diffuser fields and the air
+    speed the model had already stated twice over - once in `FormulaAeroConfig`,
+    once in `DEFAULT_SETUP` - and four readout spans baked in numbers the code
+    computes on every sync. Nothing compared the markup with either module, so
+    editing one default moved the model and the spec and left the panel asking for
+    the old car: with `ride_height_rear_mm` taken from 45 to 55, the page still
+    sent 45, costing 4.93 % of downforce and 1.40 points of front balance against
+    the setup the model documents, while the drawn floor sat at 0.513 degrees with
+    a 0.0471 m throat instead of the 0.342 degrees and 0.0397 m it priced.
+
+    The same block is why the writer syncs what it wrote: on the served page an
+    optimizer result moved the ride heights to 37.2/25.9 mm and the rear flap to
+    26.8 degrees while the readouts underneath still said 0.34 degrees of body
+    rake, a 39.7 mm throat and a 15.0 degree flap - the previous car - until the
+    next control was touched.
+    """
+
+    SETUP_INPUTS = (
+        "fw_main",
+        "fw_flap",
+        "fw_gurney",
+        "rw_main",
+        "rw_flap",
+        "rw_gurney",
+        "rh_front",
+        "rh_rear",
+        "rake",
+        "diff_angle",
+        "diff_rh",
+    )
+    # Written by syncSliderLabels() on every sync, so the markup only ever
+    # asserted a number the code had already computed from the setup.
+    DERIVED_READOUTS = (
+        "wind_speed_val",
+        "rake_geo_val",
+        "diff_throat_val",
+        "rw_flap_eff_val",
+    )
+
+    def _js(self, name: str) -> str:
+        path = Path(__file__).resolve().parents[1] / "frontend" / "js" / name
+        return path.read_text(encoding="utf-8")
+
+    def _html(self) -> str:
+        path = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
+        return path.read_text(encoding="utf-8")
+
+    def _setup_block(self) -> str:
+        html = self._html()
+        start = html.find('<h2 style="margin-top:1rem">Vehicle Setup</h2>')
+        end = html.find('id="btnDRS"')
+        assert start >= 0 and end > start, "the Vehicle Setup block moved"
+        return html[start:end]
+
+    def _fn_body(self, js: str, name: str) -> str:
+        block = re.search(rf"function {name}\(\w*\) \{{(.*?)\n\}}", js, re.S)
+        assert block, f"app.js no longer defines {name}()"
+        return block.group(1)
+
+    def test_the_markup_carries_no_setup_default(self):
+        offenders = [
+            m.group(1)
+            for m in re.finditer(
+                r'<input\b[^>]*\bid="([^"]+)"[^>]*>', self._setup_block()
+            )
+            if re.search(r'\bvalue="\d', m.group(0))
+        ]
+        assert not offenders, (
+            "the Vehicle Setup markup seeds " + ", ".join(offenders) + " again - the "
+            "panel's starting numbers have to come from DEFAULT_SETUP, because a "
+            "third copy is the one no test compares"
+        )
+        wind = re.search(r'<input\b[^>]*\bid="wind_speed"[^>]*>', self._html())
+        assert wind and 'value="' not in wind.group(0), (
+            "the air speed slider restates speed_kmh in markup again; boot seeds it "
+            "from DEFAULT_SETUP"
+        )
+        for span in self.DERIVED_READOUTS:
+            written = re.search(rf'<span id="{span}">([^<]*)</span>', self._html())
+            assert written, f"index.html no longer has a {span} readout"
+            assert written.group(1) == "", (
+                f"{span} asserts {written.group(1)!r} in markup, which is a number "
+                "the code recomputes from the setup on every sync"
+            )
+
+    def test_the_panel_is_seeded_before_anything_reads_it(self):
+        app = self._js("app.js")
+        assert re.search(
+            r"import \{[^}]*DEFAULT_SETUP[^}]*\} from '\./carSpec\.js';", app
+        ), "app.js no longer imports the canonical default setup"
+        assert "setSetupInputs(DEFAULT_SETUP);" in self._fn_body(app, "seedSetupPanel"), (
+            "seedSetupPanel() no longer puts the model's default setup in the panel"
+        )
+        boot = re.search(
+            r"function boot\(\) \{\n  try \{\n(?:\s*//[^\n]*\n)*\s*seedSetupPanel\(\);",
+            app,
+        )
+        assert boot, (
+            "boot() no longer seeds the panel first, so a page whose viewer fails "
+            "to come up would show empty controls instead of the model's defaults"
+        )
+
+    def test_every_setup_field_the_payload_sends_has_a_writer(self):
+        app = self._js("app.js")
+        start = app.index("function getConfig()")
+        end = app.index("function getFlowSettings()", start)
+        read = set(re.findall(r"getElementById\('(\w+)'\)", app[start:end]))
+        seeded = set(re.findall(r"set\('(\w+)'", self._fn_body(app, "setSetupInputs")))
+        assert seeded == set(self.SETUP_INPUTS), (
+            f"setSetupInputs writes {sorted(seeded)}, not the eleven setup controls"
+        )
+        unseeded = sorted(read - seeded - {"speed", "wind_speed"})
+        assert not unseeded, (
+            "getConfig() reads " + ", ".join(unseeded) + " from a control nothing "
+            "seeds, so that field starts empty on a fresh page"
+        )
+        assert "DEFAULT_SETUP.speed_kmh" in self._fn_body(app, "seedSetupPanel"), (
+            "the air speed is no longer seeded from the setup that states it"
+        )
+
+    def test_a_written_setup_redraws_its_own_readouts(self):
+        app = self._js("app.js")
+        written = self._fn_body(app, "setSetupInputs").rstrip()
+        assert written.endswith("syncSliderLabels();"), (
+            "setSetupInputs() no longer syncs after writing, so an optimizer result "
+            "leaves the body-rake, throat and effective-flap readouts naming the car "
+            "that was on screen before it"
+        )
+
+    def test_drs_starts_where_the_model_starts(self):
+        app = self._js("app.js")
+        assert re.search(
+            r"let drsActive = DEFAULT_SETUP\.drs_active;", app
+        ), (
+            "the DRS state is a hand-written literal again; it is the model's "
+            "drs_active default, and the button has to show it"
+        )
+        assert "syncDrsUI();" in self._fn_body(app, "seedSetupPanel"), (
+            "the seed no longer publishes the DRS state, so the button can read "
+            "OFF while the payload says the opposite"
+        )
+        assert "syncDrsUI();" in self._fn_body(app, "toggleDRS"), (
+            "toggleDRS() writes its own label instead of the shared one"
+        )
 
 
 class TestReynoldsReadoutSitsOnTheDrawnCar:

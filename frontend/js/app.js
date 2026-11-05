@@ -1,7 +1,7 @@
 /** Main app — vehicle setup + wind tunnel flow controls. */
 
 import { AeroViewer } from './viewer3d.js';
-import { DEFAULT_ELEMENT, deriveSurfaces, rearFlapAngleDeg, lapTimeDeltaS } from './carSpec.js';
+import { DEFAULT_ELEMENT, DEFAULT_SETUP, deriveSurfaces, rearFlapAngleDeg, lapTimeDeltaS } from './carSpec.js';
 import { reynoldsLabel } from './flowEngine.js';
 import {
   engineeringContext,
@@ -52,7 +52,9 @@ const TRACK_DATABASE = {
   }
 };
 
-let drsActive = false;
+// `drs_active` is a model field the backend fills, so the starting state reads
+// its default instead of copying it - a copy can move away from the model alone.
+let drsActive = DEFAULT_SETUP.drs_active;
 let aeroMapGrid = null;
 let aeroMapFrhVals = null;
 let aeroMapRrhVals = null;
@@ -576,18 +578,41 @@ function showResults(sim) {
   refreshVisualization(sim);
 }
 
-function applyOptimizedConfig(cfg) {
-  document.getElementById('fw_main').value = cfg.front_wing_main.angle_deg;
-  document.getElementById('fw_flap').value = cfg.front_wing_flap.angle_deg;
-  document.getElementById('fw_gurney').value = cfg.front_wing_main.gurney_mm;
-  document.getElementById('rw_main').value = cfg.rear_wing_main.angle_deg;
-  document.getElementById('rw_flap').value = cfg.rear_wing_flap.angle_deg;
-  document.getElementById('rw_gurney').value = cfg.rear_wing_main.gurney_mm;
-  document.getElementById('rh_front').value = cfg.ride_height_front_mm;
-  document.getElementById('rh_rear').value = cfg.ride_height_rear_mm;
-  document.getElementById('rake').value = cfg.rake_deg;
-  document.getElementById('diff_angle').value = cfg.diffuser_angle_deg;
-  document.getElementById('diff_rh').value = cfg.diffuser_ride_height_mm;
+/**
+ * Write a setup into the Vehicle Setup controls. The markup carries no defaults
+ * of its own, so this is the only path a setup reaches them: boot seeds the panel
+ * with the model's default setup and the optimizer writes the config it solved.
+ * The readouts below those inputs are derived from the same setup, so they are
+ * synced here - an optimizer result used to leave them naming the previous car
+ * until the user touched a control.
+ */
+function setSetupInputs(cfg) {
+  const set = (id, value) => {
+    document.getElementById(id).value = value;
+  };
+  set('fw_main', cfg.front_wing_main.angle_deg);
+  set('fw_flap', cfg.front_wing_flap.angle_deg);
+  set('fw_gurney', cfg.front_wing_main.gurney_mm);
+  set('rw_main', cfg.rear_wing_main.angle_deg);
+  set('rw_flap', cfg.rear_wing_flap.angle_deg);
+  set('rw_gurney', cfg.rear_wing_main.gurney_mm);
+  set('rh_front', cfg.ride_height_front_mm);
+  set('rh_rear', cfg.ride_height_rear_mm);
+  set('rake', cfg.rake_deg);
+  set('diff_angle', cfg.diffuser_angle_deg);
+  set('diff_rh', cfg.diffuser_ride_height_mm);
+  syncSliderLabels();
+}
+
+/**
+ * The panel before the first response: the air speed and the DRS state travel
+ * with the setup, so they are set before the writer syncs the readouts.
+ */
+function seedSetupPanel() {
+  drsActive = DEFAULT_SETUP.drs_active;
+  document.getElementById('wind_speed').value = DEFAULT_SETUP.speed_kmh;
+  setSetupInputs(DEFAULT_SETUP);
+  syncDrsUI();
 }
 
 function updateLivePreview() {
@@ -746,7 +771,7 @@ async function runOptimize() {
     }
     const data = await res.json();
     if (timer) clearInterval(timer);
-    applyOptimizedConfig(data.optimization.best_config);
+    setSetupInputs(data.optimization.best_config);
     showResults(data.optimized_simulation);
 
     const improvement = Number(data.optimization.improvement_pct);
@@ -772,12 +797,16 @@ async function runOptimize() {
   }
 }
 
-function toggleDRS() {
-  drsActive = !drsActive;
+function syncDrsUI() {
   const btn = document.getElementById('btnDRS');
   const txt = document.getElementById('drsText');
   if (btn) btn.classList.toggle('enabled', drsActive);
   if (txt) txt.textContent = drsActive ? 'ACTIVE' : 'OFF';
+}
+
+function toggleDRS() {
+  drsActive = !drsActive;
+  syncDrsUI();
   syncSliderLabels();
   if (isCfdMethod()) {
     refreshVisualization();
@@ -1362,6 +1391,9 @@ function applyInitialMethodFromUrl() {
 
 function boot() {
   try {
+    // First, before the viewer: the panel's numbers come from the model, so they
+    // have to be there whether or not the 3D canvas ever comes up.
+    seedSetupPanel();
     viewer = new AeroViewer(document.getElementById('viewer3d'));
     viewer.onSpeedRange = (range) => updateEngineerPanel(range);
     viewer.onProbe = showProbe;
