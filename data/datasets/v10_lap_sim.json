@@ -1,0 +1,149 @@
+{
+  "targets_met": true,
+  "checks": [
+    {
+      "name": "curvature radius (circle)",
+      "measured": 24.9998413871301,
+      "expected": 25.0,
+      "unit": "m",
+      "tolerance_pct": 0.5,
+      "error_pct": 0.0006344514795983969,
+      "passed": true
+    },
+    {
+      "name": "skidpad speed (no aero)",
+      "measured": 20.989063888262375,
+      "expected": 21.007123791704565,
+      "unit": "m/s",
+      "tolerance_pct": 0.5,
+      "error_pct": 0.08597037662681442,
+      "passed": true
+    },
+    {
+      "name": "skidpad lap time (no aero)",
+      "measured": 8.980627345008063,
+      "expected": 8.972935137832717,
+      "unit": "s",
+      "tolerance_pct": 0.5,
+      "error_pct": 0.08572676674004957,
+      "passed": true
+    },
+    {
+      "name": "skidpad speed (downforce)",
+      "measured": 22.16362759100833,
+      "expected": 22.184895567854863,
+      "unit": "m/s",
+      "tolerance_pct": 0.5,
+      "error_pct": 0.09586692342762616,
+      "passed": true
+    },
+    {
+      "name": "skidpad lap time (downforce)",
+      "measured": 8.504698083698255,
+      "expected": 8.496571851729202,
+      "unit": "s",
+      "tolerance_pct": 0.5,
+      "error_pct": 0.0956413022906277,
+      "passed": true
+    },
+    {
+      "name": "straight-line top speed",
+      "measured": 61.99587418637729,
+      "expected": 61.99588744843621,
+      "unit": "m/s",
+      "tolerance_pct": 0.5,
+      "error_pct": 2.1391836555603228e-05,
+      "passed": true
+    },
+    {
+      "name": "power balance at top speed",
+      "measured": 180000.00000000012,
+      "expected": 180000.0,
+      "unit": "W",
+      "tolerance_pct": 0.5,
+      "error_pct": 6.467517879274156e-14,
+      "passed": true
+    },
+    {
+      "name": "constant-power speed at 400 m",
+      "measured": 65.86909621632023,
+      "expected": 65.85651411775572,
+      "unit": "m/s",
+      "tolerance_pct": 1.0,
+      "error_pct": 0.019105321216987207,
+      "passed": true
+    },
+    {
+      "name": "braking start before corner",
+      "measured": 198.9075972235483,
+      "expected": 197.63405444264862,
+      "unit": "m",
+      "tolerance_pct": 1.5,
+      "error_pct": 0.644394400798595,
+      "passed": true
+    },
+    {
+      "name": "minimum speed in corner",
+      "measured": 24.25681447328217,
+      "expected": 24.256937152080845,
+      "unit": "m/s",
+      "tolerance_pct": 0.5,
+      "error_pct": 0.0005057472751241408,
+      "passed": true
+    },
+    {
+      "name": "max g-g utilisation on spiral",
+      "measured": 1.0067904856002416,
+      "expected": 1.0,
+      "unit": "-",
+      "tolerance_pct": 2.0,
+      "error_pct": 0.6790485600241647,
+      "passed": true
+    },
+    {
+      "name": "speed cap respected",
+      "measured": 37.633269497653494,
+      "expected": 100.0,
+      "unit": "m/s",
+      "tolerance_pct": 0.0,
+      "error_pct": 0.0,
+      "passed": true
+    },
+    {
+      "name": "CoP share that maximises grip",
+      "measured": 0.53,
+      "expected": 0.5236604888888889,
+      "unit": "-",
+      "tolerance_pct": 3.0,
+      "error_pct": 1.210614748605983,
+      "passed": true
+    },
+    {
+      "name": "grip at load-matched CoP vs 0.85",
+      "measured": 1.019713749721238,
+      "expected": 1.005,
+      "unit": "ratio",
+      "tolerance_pct": 0.0,
+      "error_pct": 0.0,
+      "passed": true
+    },
+    {
+      "name": "invalid centreline rejection",
+      "measured": 3.0,
+      "expected": 3.0,
+      "unit": "cases",
+      "tolerance_pct": 0.0,
+      "error_pct": 0.0,
+      "passed": true
+    },
+    {
+      "name": "CSV parsing rows",
+      "measured": 40.0,
+      "expected": 40.0,
+      "unit": "rows",
+      "tolerance_pct": 0.0,
+      "error_pct": 0.0,
+      "passed": true
+    }
+  ]
+}

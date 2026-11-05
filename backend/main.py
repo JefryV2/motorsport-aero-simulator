@@ -22,10 +22,15 @@ from backend.models.aero_config import (
     SimulationMethod,
     SimulationResult,
 )
+from backend.models.lap import LapRequest, LapResponse
 from backend.optimization.optimizer import optimize
 from backend.simulation.analytical import simulate
 from backend.simulation.cfd.openfoam_runner import is_openfoam_available, run_cfd
 from backend.simulation.cfd.runner import CFDRunError, detect_cfd_backend, get_solver_version
+from backend.simulation.lap.aero_map import AeroMap
+from backend.simulation.lap.solver import LapSettings, solve_lap
+from backend.simulation.lap.track import TrackError, build_track
+from backend.simulation.lap.track_io import parse_centerline_csv
 from backend.simulation.panel_method import simulate_panel
 from backend.visualization.aero_field import compute_cp_field, force_vectors, generate_streamlines
 from backend.visualization.mesh_io import get_model_path, save_upload
@@ -140,6 +145,71 @@ def api_optimize(
 ):
     use_panel = method != SimulationMethod.ANALYTICAL
     return optimize(request, use_panel=use_panel)
+
+
+@app.post("/api/lap/simulate", response_model=LapResponse)
+def api_lap_simulate(body: LapRequest):
+    """Run the quasi-steady lap simulation on a user-supplied centreline.
+
+    The track is never invented: callers must send coordinates in metres or a
+    CSV centreline. CFD is rejected here because a single RANS point is not an
+    aero map for a lap sweep.
+    """
+    try:
+        if body.track.csv:
+            points = parse_centerline_csv(body.track.csv)
+        elif body.track.points:
+            points = body.track.points
+        else:
+            raise TrackError("Provide track.points or track.csv")
+        track = build_track(
+            points, closed=body.track.closed, ds_m=body.track.ds_m
+        )
+    except TrackError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        aero = AeroMap(body.config, method=body.method)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        vehicle = body.vehicle.to_vehicle()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    result = solve_lap(
+        track,
+        vehicle,
+        aero,
+        LapSettings(initial_speed_ms=body.initial_speed_ms),
+    )
+    return LapResponse(
+        lap_time_s=result.lap_time_s,
+        sector_times_s=result.sector_times_s,
+        length_m=result.length_m,
+        track_points=track.count,
+        closed=track.closed,
+        ds_m=result.ds_m,
+        top_speed_kmh=result.top_speed_kmh,
+        min_speed_kmh=result.min_speed_kmh,
+        mean_speed_kmh=result.mean_speed_kmh,
+        iterations=result.iterations,
+        converged=result.converged,
+        entry_speed_limited=result.entry_speed_limited,
+        max_utilisation=result.max_utilisation,
+        s_m=result.s_m.tolist(),
+        speed_kmh=result.speed_kmh.tolist(),
+        ay_ms2=result.ay_ms2.tolist(),
+        ax_ms2=result.ax_ms2.tolist(),
+        curvature_1pm=result.curvature_1pm.tolist(),
+        downforce_N=result.downforce_N.tolist(),
+        drag_N=result.drag_N.tolist(),
+        aero_source=result.aero_source,
+        aero_fidelity=result.aero_fidelity,
+        track_source=result.track_source,
+        provenance=result.provenance,
+    )
 
 
 @app.post("/api/advise")
