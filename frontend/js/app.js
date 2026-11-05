@@ -1024,8 +1024,14 @@ function handleAeroMapClick(e) {
     const j = steps - 1 - Math.floor((y - padTop) / cellH);
     
     if (i >= 0 && i < steps && j >= 0 && j < steps) {
-      document.getElementById('rh_front').value = aeroMapFrhVals[i];
-      document.getElementById('rh_rear').value = aeroMapRrhVals[j];
+      // A programmatic `.value` fires no `input` event, so writing these two
+      // controls here used to skip the readouts derived from them. The writer
+      // is the only way a setup reaches these inputs.
+      setSetupInputs({
+        ...getConfig(),
+        ride_height_front_mm: aeroMapFrhVals[i],
+        ride_height_rear_mm: aeroMapRrhVals[j],
+      });
       if (isCfdMethod()) {
         refreshVisualization();
         const status = document.getElementById('status');
