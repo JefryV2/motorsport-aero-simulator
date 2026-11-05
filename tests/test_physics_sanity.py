@@ -1487,6 +1487,12 @@ class TestThePanelSeedsItsDefaultsFromTheModel:
     26.8 degrees while the readouts underneath still said 0.34 degrees of body
     rake, a 39.7 mm throat and a 15.0 degree flap - the previous car - until the
     next control was touched.
+
+    And the module that seeds this markup has to arrive with it. Serving this
+    markup to a browser still holding the old module left all thirteen controls
+    empty and the first request posted zeros for every angle, both ride heights
+    and the rake term, with 190 km/h for the air speed - the range slider's own
+    midpoint, the value it takes when no `value` attribute is present.
     """
 
     SETUP_INPUTS = (
@@ -1548,6 +1554,15 @@ class TestThePanelSeedsItsDefaultsFromTheModel:
         assert wind and 'value="' not in wind.group(0), (
             "the air speed slider restates speed_kmh in markup again; boot seeds it "
             "from DEFAULT_SETUP"
+        )
+        loaded = re.search(
+            r'<script type="module" src="/static/js/app\.js\?v=([\d.]+)"></script>',
+            self._html(),
+        )
+        assert loaded, (
+            "index.html loads app.js with no version query: this markup has no "
+            "defaults of its own, so a browser that kept an older copy of the "
+            "module would fill every control with an empty string and post zeros"
         )
         for span in self.DERIVED_READOUTS:
             written = re.search(rf'<span id="{span}">([^<]*)</span>', self._html())
