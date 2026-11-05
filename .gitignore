@@ -33,6 +33,8 @@ data/models/*.dae
 !data/models/.gitkeep
 data/cfd_cases/
 !data/cfd_cases/.gitkeep
+data/cfd_cases_3d/
+!data/cfd_cases_3d/.gitkeep
 
 # Distribution / packaging
 build/

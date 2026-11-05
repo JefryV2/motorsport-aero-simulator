@@ -61,6 +61,7 @@ let aeroMapRrhVals = null;
 
 let cfdBackend = 'unknown';
 let simulateInFlight = false;
+let lastImportedModelId = null;
 
 const FIDELITY_META = {
   empirical: {
@@ -1160,7 +1161,14 @@ async function handleModelUpload(file) {
     status.textContent = `${info.filename} — ${info.vertexCount.toLocaleString()} verts`;
     updateSliderRanges();
     refreshVisualization(lastSim);
-    fetch(`${API}/api/models/upload`, { method: 'POST', body: (() => { const f = new FormData(); f.append('file', file); return f; })() }).catch(() => {});
+    let modelId = null;
+    try {
+      const up = await fetch(`${API}/api/models/upload`, { method: 'POST', body: (() => { const f = new FormData(); f.append('file', file); return f; })() });
+      if (up.ok) modelId = (await up.json()).model_id;
+    } catch (e) { /* upload stays best-effort for visuals */ }
+    lastImportedModelId = modelId;
+    const btn = document.getElementById('btnCfd3d');
+    if (btn) btn.style.display = modelId ? '' : 'none';
     if (isCfdMethod()) {
       const runStatus = document.getElementById('status');
       if (runStatus) {
@@ -1175,9 +1183,72 @@ async function handleModelUpload(file) {
   }
 }
 
+// 3D CFD on the uploaded mesh: measure first (honest 422 for bad scale), then
+// queue the snappyHexMesh job and poll it. Results carry provenance: forces
+// here are for the uploaded geometry only, never mixed with the parametric car.
+async function runImportedCfd3d() {
+  const btn = document.getElementById('btnCfd3d');
+  const box = document.getElementById('cfd3dStatus');
+  const say = (html) => { box.style.display = ''; box.innerHTML = html; };
+  if (!lastImportedModelId) { say('Upload an STL/OBJ first.'); return; }
+  btn.disabled = true;
+  const speed = Number(document.getElementById('speed')?.value) || 120;
+  try {
+    const meas = await fetch(`${API}/api/cfd/3d/measure`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: lastImportedModelId, axes: 'three' })
+    });
+    if (meas.ok) {
+      const m = await meas.json();
+      say(`Measured: ${m.frontal_area_m2.toFixed(2)} m² frontal · ${(100 * m.watertight_edge_fraction).toFixed(0)}% watertight · ${m.triangle_count.toLocaleString()} triangles` +
+        (m.warnings && m.warnings.length ? `<br>⚠ ${m.warnings.join('<br>⚠ ')}` : ''));
+    } else if (meas.status === 422) {
+      const d = (await meas.json()).detail || '';
+      say(`Mesh rejected: ${d}`);
+      btn.disabled = false;
+      return;
+    }
+    const res = await fetch(`${API}/api/cfd/3d`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: lastImportedModelId, speed_kmh: speed, axes: 'three', level: 'coarse' })
+    });
+    if (!res.ok) {
+      const detail = (await res.json()).detail || res.statusText;
+      say(`3D CFD refused (HTTP ${res.status}): ${detail}`);
+      btn.disabled = false;
+      return;
+    }
+    const { job_id } = await res.json();
+    say(`3D CFD job ${job_id} queued — meshing + solving can take minutes to hours. Polling…`);
+    for (;;) {
+      await new Promise(r => setTimeout(r, 5000));
+      const poll = await fetch(`${API}/api/cfd/3d/${job_id}`);
+      if (!poll.ok) { say(`Job poll failed (HTTP ${poll.status}).`); btn.disabled = false; return; }
+      const j = await poll.json();
+      if (j.status === 'error') { say(`3D CFD job failed:<br><code>${(j.detail || '').slice(0, 800)}</code>`); btn.disabled = false; return; }
+      if (j.status === 'done') {
+        const r = j.result, p = r.provenance;
+        say(`<b>Your mesh, real OpenFOAM solve</b><br>` +
+          `Drag ${r.drag_N.toFixed(1)} N (Cd ${r.cd.toFixed(3)}) · Downforce ${r.downforce_N.toFixed(1)} N (Cl ${r.cl.toFixed(3)})<br>` +
+          `At ${Math.round(r.speed_kmh)} km/h · Aref ${r.frontal_area_m2.toFixed(2)} m² · ${p.mesh_cells.toLocaleString()} cells<br>` +
+          `${p.solver_version} · ${p.convergence_status} · ${Math.round(p.execution_time_s)} s · case ${p.case_hash}<br>` +
+          `<em>Forces are for the uploaded mesh only — not combined with the parametric car.</em>`);
+        btn.disabled = false;
+        return;
+      }
+      say(`3D CFD job ${job_id} ${j.status} — polling…`);
+    }
+  } catch (e) {
+    say('3D CFD error: ' + e.message);
+    btn.disabled = false;
+  }
+}
+
 function setupModelImport() {
   const input = document.getElementById('modelInput');
   const dropZone = document.getElementById('viewerWrap');
+  const btn3d = document.getElementById('btnCfd3d');
+  if (btn3d) btn3d.addEventListener('click', runImportedCfd3d);
   input.addEventListener('change', (e) => { if (e.target.files[0]) handleModelUpload(e.target.files[0]); });
   ['dragover', 'dragenter'].forEach((ev) => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); }));
   dropZone.addEventListener('dragleave', (e) => { if (e.target === dropZone) dropZone.classList.remove('drag-over'); });

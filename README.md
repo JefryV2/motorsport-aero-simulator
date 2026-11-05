@@ -39,7 +39,8 @@ OpenFOAM is optional. Without a solver the app still runs, and the CFD tab
 reports an explicitly labelled `synthetic_model` result instead of pretending.
 To use the real tier, install OpenFOAM (e.g. 1912 in WSL2 Ubuntu 22.04) with
 `simpleFoam`, `checkMesh` and `yPlus` on the distro's `PATH`, then restart the
-server; `/api/health` reports the detected backend.
+server; `/api/health` reports the detected backend. The imported-mesh 3D tier
+requires the same install — it has **no** synthetic fallback at all.
 
 ## Three force tiers
 
@@ -48,6 +49,7 @@ server; `/api/health` reports the detected backend.
 | `analytical` | Semi-empirical wings + ground effect + diffuser | `empirical` |
 | `analytical_enhanced`, `panel_vlm` | 3D horseshoe vortex lattice, image ground plane, Trefftz drag. This is the live preview. | `low_fidelity_vlm` |
 | `cfd` | Real 2D front-wing-section k-ω SST RANS, combined with empirical floor and rear-wing terms | `rans_hybrid`, or `synthetic_model` when no solver exists |
+| `3D CFD on imports` | Real snappyHexMesh + simpleFoam RANS around a mesh you uploaded | real solve only — the tier returns **503** without a solver |
 
 `analytical_enhanced` and `panel_vlm` are the **same code path** — `panel_vlm` is
 kept as a legacy alias, and only the echoed label differs. A real solver failure
@@ -65,6 +67,17 @@ The CFD tier is a 2D section, not a full car. It writes a body-fitted O-grid
 height from a target y+, moving-ground wall patch), solves steady RANS, and
 reports measured y+ and `checkMesh` quality per run. See
 `docs/decisions/0006-body-fitted-ogrid-mesh-family.md`.
+
+## 3D CFD on imported meshes
+
+Upload an `.stl` or `.obj`, press **Run 3D CFD on uploaded mesh** (or call
+`POST /api/cfd/3d`). The tier measures your mesh first — frontal area by
+silhouette rasterization, watertight fraction, extents — reports those numbers
+verbatim, mistakes out-of-envelope meshes into explicit HTTP 422 (never a
+silent rescale), then snappyHexMeshes the actual triangles into a tunnel box
+and runs simpleFoam k-ω SST on them. Forces are for the uploaded geometry
+alone and never combined with the parametric car. Details and honesty rules:
+`docs/decisions/0007-imported-mesh-3d-cfd.md`.
 
 ## Optimization and advice
 
@@ -186,6 +199,9 @@ runner's Node — the viewer modules need no build step and no dependencies.
 | POST | `/api/advise` | LLM or rule-based recommendations |
 | POST | `/api/models/upload` | `.stl` / `.obj`, 50 MB cap |
 | GET | `/api/models/{model_id}` | Retrieve an uploaded model |
+| POST | `/api/cfd/3d/measure` | Measure an uploaded mesh (no solve, no solver needed) |
+| POST | `/api/cfd/3d` | Queue a 3D snappyHexMesh + simpleFoam solve on an uploaded mesh |
+| GET | `/api/cfd/3d/{job_id}` | Poll the 3D job; result includes full provenance |
 | POST | `/api/aero-field` | Heuristic Cp field — API only, the UI computes it client-side |
 | POST | `/api/visualization` | Streamlines and force vectors — API only |
 | POST | `/api/optimize` | Optimizer alone; the UI goes through `simulate-and-optimize` |
@@ -194,7 +210,9 @@ Interactive docs at <http://localhost:8000/docs>.
 
 ## What this is not
 
-- Not full-car CFD. The `cfd` tier is a 2D section plus empirical terms.
+- Not full-car CFD. The `cfd` tier is a 2D section plus empirical terms. (The
+  imported-mesh 3D tier solves real geometry you upload, but is not yet
+  benchmark-validated across shapes — V13 pending.)
 - Not a validated ground-effect magnitude. V4b is 1.93× off the published
   reference and is still open.
 - Not a proven active-learning win. V9 fails 2 of its 3 checks and says so.
